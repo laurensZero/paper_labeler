@@ -10,9 +10,25 @@ __pycache__/
 # VS Code
 .vscode/
 
+# Node
+node_modules/
+dist/
+
 # 系统文件
 .DS_Store
 
 #data
 .data/
 data/
+
+1.txt
+.github/
+
+# Capacitor (generated)
+android/
+ios/
+
+# Environment
+.env
+.env.local
+.env.*.local

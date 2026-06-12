@@ -297,10 +297,6 @@ export const paperMethods = {
         this.uploadStatus = "上传完成";
       }
       await this.refreshPapers();
-      if (data?.papers?.length) {
-        const last = data.papers[data.papers.length - 1];
-        if (last?.id) await this.openPaper(last.id);
-      }
     } catch (e) {
       this.setStatus(String(e), "err");
       this.uploadStatus = String(e);

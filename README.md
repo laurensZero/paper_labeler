@@ -1,7 +1,7 @@
 # Paper Labeler
 
 一个用于试卷题目框选、模块标注、答案标注与 PDF 导出的本地工具。  
-后端基于 `FastAPI + SQLite`，前端为原生 Vue 运行时组件。
+后端基于 `FastAPI + SQLite`，前端为 `frontend-vite` 下的 Vue 3 + Vite + TypeScript 工程；旧 `frontend/` 目录仅作为迁移对照和回退保留。
 
 ## 功能概览
 
@@ -39,15 +39,11 @@ backend/
   main.py                 # FastAPI 入口
   database.py             # SQLite 模型与初始化
   routers/                # 业务路由（papers/questions/export/...）
-frontend/
-  index.html              # 全局样式与挂载点
-  main.js                 # createApp + mount
-  app/
-    store.js              # 全局状态
-    components/           # 视图组件
-    use/                  # 逻辑 composables
-  modules/
-    api.js                # fetch 封装
+frontend-vite/
+  src/                    # Vue SFC、Pinia stores、API/types/utils
+  dist/                   # Vite 构建输出，后端默认优先服务该目录
+  tests/smoke.mjs         # Playwright 冒烟测试
+frontend/                 # 旧版前端，未构建新版时作为回退目录
     settings.js           # 本地设置持久化
 data/
   app.db                  # SQLite 数据库
@@ -85,10 +81,44 @@ pip install fastapi uvicorn sqlalchemy pydantic pillow fpdf2
 python backend/main.py
 ```
 
-4. 打开前端
+4. 构建新版前端
+
+```powershell
+cd frontend-vite
+npm install
+npm run build
+cd ..
+```
+
+5. 打开前端
 
 ```text
 http://127.0.0.1:8000/ui/
+```
+
+后端默认优先服务 `frontend-vite/dist`；如果该目录不存在，会回退到旧版 `frontend/`。也可以用 `PAPER_LABELER_UI_DIR` 指定前端目录。
+
+## 前端验证
+
+启动后端后运行：
+
+```powershell
+cd frontend-vite
+npm run smoke
+```
+
+写入型专项验证（会创建并清理测试 PDF、测试模块、测试题目、答案与导出任务）：
+
+```powershell
+cd frontend-vite
+npm run e2e:api
+```
+
+如果本机 Playwright 浏览器未完整安装，但已有 Chrome 可执行文件，可指定：
+
+```powershell
+$env:CHROME_EXE="$env:LOCALAPPDATA\ms-playwright\chromium-1223\chrome-win64\chrome.exe"
+npm run smoke
 ```
 
 ## 打包 EXE（Windows）

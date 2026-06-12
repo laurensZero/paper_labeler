@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # When packaged with PyInstaller, this file is executed as a script (no package context),
 # so relative imports like ".database" would fail. Ensure the project root is on sys.path
@@ -34,13 +35,30 @@ class UTF8JSONResponse(JSONResponse):
     media_type = "application/json; charset=utf-8"
 
 
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            # Vite uses history routing under /ui/. Missing asset files should
+            # stay 404, while app routes such as /ui/filter serve index.html.
+            if Path(path).name and "." in Path(path).name:
+                raise
+            return await super().get_response("index.html", scope)
+
+
 app = FastAPI(
     title="Question Labeling System",
     lifespan=lifespan,
     default_response_class=UTF8JSONResponse,
 )
 
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000",
+).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in cors_origins if o.strip()],
@@ -53,20 +71,21 @@ app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
 
 
 @app.middleware("http")
-async def _no_store_static_assets(request: Request, call_next):
+async def _cache_static_assets(request: Request, call_next):
     resp = await call_next(request)
     try:
         p = request.url.path
         if p.startswith("/data/pages/") or p.startswith("/data/pdfs/"):
-            # Avoid stale browser cache when paper IDs are reused or users purge data.
-            resp.headers["Cache-Control"] = "no-store"
+            # Cache aggressively; URLs contain ?v=<mtime> cache-bust token
+            # so the browser fetches fresh content when files change.
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     except Exception:
         pass
     return resp
 
 
 if UI_DIR.exists():
-    app.mount("/ui", StaticFiles(directory=str(UI_DIR), html=True), name="ui")
+    app.mount("/ui", SPAStaticFiles(directory=str(UI_DIR), html=True), name="ui")
 
 
 @app.get("/")

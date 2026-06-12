@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from backend.database import Paper, Question, Answer, QuestionBox, AnswerBox, SectionDef
+from backend.database import Paper, Question, Answer, QuestionBox, AnswerBox, SectionDef, QuestionSection
 from backend.dependencies import get_db
 from backend.schemas.schemas import AutoSuggestRequest, PaperUpdate
 from backend.config import PDF_DIR, PAGE_DIR, MAX_UPLOAD_BYTES
@@ -519,6 +519,7 @@ def delete_paper(paper_id: int, db: Session = Depends(get_db)):
                 aq_ids = [a.id for a in ans_q]
                 db.query(AnswerBox).filter(AnswerBox.answer_id.in_(aq_ids)).delete(synchronize_session=False)
                 db.query(Answer).filter(Answer.id.in_(aq_ids)).delete(synchronize_session=False)
+            db.query(QuestionSection).filter(QuestionSection.question_id.in_(q_ids)).delete(synchronize_session=False)
 
         db.query(QuestionBox).filter(QuestionBox.paper_id == pid).delete(synchronize_session=False)
         db.query(Question).filter(Question.paper_id == pid).delete(synchronize_session=False)

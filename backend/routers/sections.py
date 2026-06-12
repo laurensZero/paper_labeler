@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from backend.database import SessionLocal, Question, SectionDef, SectionGroup, SectionGroupMember
+from backend.database import SessionLocal, Question, QuestionSection, SectionDef, SectionGroup, SectionGroupMember
 from backend.schemas.schemas import SectionDefCreate, SectionDefUpdate, SectionGroupCreate, SectionGroupUpdate
 from backend.dependencies import get_db
 
@@ -91,11 +91,45 @@ def update_section_def(section_id: int, payload: SectionDefUpdate, db: Session =
 
     updated_questions = 0
     if renamed_to is not None and old_name and renamed_to and old_name != renamed_to:
-        updated_questions = (
-            db.query(Question)
+        legacy_qids = {
+            int(qid)
+            for (qid,) in db.query(Question.id)
             .filter(Question.section == old_name)
-            .update({Question.section: renamed_to}, synchronize_session=False)
-        )
+            .all()
+        }
+        relation_qids = {
+            int(qid)
+            for (qid,) in db.query(QuestionSection.question_id)
+            .filter(QuestionSection.section_name == old_name)
+            .all()
+        }
+        if legacy_qids:
+            db.query(Question).filter(Question.id.in_(legacy_qids)).update(
+                {Question.section: renamed_to},
+                synchronize_session=False,
+            )
+        if relation_qids:
+            conflict_qids = {
+                int(qid)
+                for (qid,) in db.query(QuestionSection.question_id)
+                .filter(
+                    QuestionSection.question_id.in_(relation_qids),
+                    QuestionSection.section_name == renamed_to,
+                )
+                .all()
+            }
+            if conflict_qids:
+                db.query(QuestionSection).filter(
+                    QuestionSection.question_id.in_(conflict_qids),
+                    QuestionSection.section_name == old_name,
+                ).delete(synchronize_session=False)
+            remaining_qids = relation_qids - conflict_qids
+            if remaining_qids:
+                db.query(QuestionSection).filter(
+                    QuestionSection.question_id.in_(remaining_qids),
+                    QuestionSection.section_name == old_name,
+                ).update({QuestionSection.section_name: renamed_to}, synchronize_session=False)
+        updated_questions = len(legacy_qids | relation_qids)
         if not group_handled:
             db.query(SectionGroupMember).filter(SectionGroupMember.section_name == old_name).update(
                 {SectionGroupMember.section_name: renamed_to}, synchronize_session=False

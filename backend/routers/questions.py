@@ -1,5 +1,6 @@
 import re
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 from backend.database import Question, QuestionBox, Paper, Answer, AnswerBox, QuestionSection
@@ -14,6 +15,7 @@ from backend.schemas.schemas import (
 from backend.dependencies import get_db
 from backend.config import PAGE_DIR
 from backend.utils import _with_cache_bust, _file_mtime_token
+from backend.services.question_preview import build_question_preview_png, question_preview_version
 
 router = APIRouter(tags=["questions"])
 
@@ -58,7 +60,12 @@ def _question_to_dict(
     # 向后兼容：如果没有 sections 但有老的 section 字段，使用老字段
     if not sections and q.section:
         sections = [q.section]
-    
+
+    preview_url = None
+    if boxes:
+        version = question_preview_version(boxes)
+        preview_url = f"/questions/{int(q.id)}/preview.png?w=1200&v={version}"
+
     return {
         "id": q.id,
         "paper_id": q.paper_id,
@@ -69,6 +76,7 @@ def _question_to_dict(
         "notes": q.notes,
         "is_favorite": bool(getattr(q, "is_favorite", False)),
         "updated_at": q.updated_at,
+        "preview_image_url": preview_url,
         "boxes": [
             {
                 "id": b.id,
@@ -269,6 +277,33 @@ def get_question(question_id: int, db: Session = Depends(get_db)):
     boxes = db.query(QuestionBox).filter(QuestionBox.question_id == q.id).order_by(QuestionBox.page.asc(), QuestionBox.id.asc()).all()
     return {"question": _question_to_dict(q, boxes, db)}
 
+
+@router.get("/questions/{question_id}/preview.png")
+def get_question_preview(question_id: int, w: int = 1200, db: Session = Depends(get_db)):
+    q = db.query(Question).filter(Question.id == question_id).one_or_none()
+    if q is None:
+        raise HTTPException(status_code=404, detail="question not found")
+    boxes = (
+        db.query(QuestionBox)
+        .filter(QuestionBox.question_id == q.id)
+        .order_by(QuestionBox.page.asc(), QuestionBox.id.asc())
+        .all()
+    )
+    if not boxes:
+        raise HTTPException(status_code=404, detail="question boxes not found")
+    try:
+        data, version = build_question_preview_png(int(q.id), boxes, width=w)
+    except Exception:
+        raise HTTPException(status_code=404, detail="preview unavailable")
+    return Response(
+        content=data,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "ETag": f'"q-{int(q.id)}-{version}-{max(240, min(1200, int(w or 720)))}"',
+        },
+    )
+
 @router.post("/questions/{question_id}/boxes")
 def replace_question_boxes(question_id: int, payload: QuestionBoxesReplace, db: Session = Depends(get_db)):
     if not payload.boxes:
@@ -328,6 +363,7 @@ def delete_question(question_id: int, db: Session = Depends(get_db)):
         db.query(AnswerBox).filter(AnswerBox.answer_id == a.id).delete(synchronize_session=False)
         db.delete(a)
 
+    db.query(QuestionSection).filter(QuestionSection.question_id == q.id).delete(synchronize_session=False)
     db.query(QuestionBox).filter(QuestionBox.question_id == q.id).delete(synchronize_session=False)
     db.delete(q)
     db.commit()
@@ -773,6 +809,13 @@ def questions_integrity_check(db: Session = Depends(get_db)):
         .scalar()
         or 0
     )
+    orphan_qsections = int(
+        db.query(func.count(QuestionSection.id))
+        .outerjoin(Question, Question.id == QuestionSection.question_id)
+        .filter(Question.id.is_(None))
+        .scalar()
+        or 0
+    )
 
     numeric_nos = []
     for (v,) in (
@@ -797,6 +840,7 @@ def questions_integrity_check(db: Session = Depends(get_db)):
         "duplicate_question_no_total": duplicate_question_no_total,
         "orphan_question_boxes": orphan_qboxes,
         "orphan_answer_boxes": orphan_aboxes,
+        "orphan_question_sections": orphan_qsections,
         "duplicate_question_no_examples": [str(r.question_no) for r in dup_rows[:10]],
         "question_no_gap_count": len(missing_nums),
         "question_no_gap_examples": missing_nums[:10],
@@ -814,6 +858,7 @@ def questions_repair(payload: dict, db: Session = Depends(get_db)):
         "dry_run": dry_run,
         "orphan_question_boxes_removed": 0,
         "orphan_answer_boxes_removed": 0,
+        "orphan_question_sections_removed": 0,
         "missing_question_no_filled": 0,
         "question_no_resequenced_changed": 0,
     }
@@ -848,14 +893,24 @@ def questions_repair(payload: dict, db: Session = Depends(get_db)):
             .filter(Answer.id.is_(None))
             .all()
         ]
+        orphan_qsection_ids = [
+            int(x[0])
+            for x in db.query(QuestionSection.id)
+            .outerjoin(Question, Question.id == QuestionSection.question_id)
+            .filter(Question.id.is_(None))
+            .all()
+        ]
         report["orphan_question_boxes_removed"] = len(orphan_qids)
         report["orphan_answer_boxes_removed"] = len(orphan_aids)
+        report["orphan_question_sections_removed"] = len(orphan_qsection_ids)
         if not dry_run:
             if orphan_qids:
                 db.query(QuestionBox).filter(QuestionBox.id.in_(orphan_qids)).delete(synchronize_session=False)
             if orphan_aids:
                 db.query(AnswerBox).filter(AnswerBox.id.in_(orphan_aids)).delete(synchronize_session=False)
-            if orphan_qids or orphan_aids:
+            if orphan_qsection_ids:
+                db.query(QuestionSection).filter(QuestionSection.id.in_(orphan_qsection_ids)).delete(synchronize_session=False)
+            if orphan_qids or orphan_aids or orphan_qsection_ids:
                 db.commit()
 
     if renumber_question_no_sequence:

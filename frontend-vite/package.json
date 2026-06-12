@@ -1,0 +1,32 @@
+{
+  "name": "frontend-vite",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:all": "concurrently -n fe,be -c cyan,green \"vite\" \"cd .. && python backend/main.py\"",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "smoke": "node tests/smoke.mjs",
+    "e2e:api": "node tests/api-e2e.mjs"
+  },
+  "dependencies": {
+    "@vueuse/core": "^14.3.0",
+    "naive-ui": "^2.44.1",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.34",
+    "vue-i18n": "^11.4.5",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^24.12.3",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "@vue/tsconfig": "^0.9.1",
+    "concurrently": "^10.0.3",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12",
+    "vue-tsc": "^3.2.8"
+  }
+}
