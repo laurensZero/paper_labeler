@@ -496,11 +496,11 @@ onMounted(() => {
 }
 
 .toggle-track {
-  width: 44px;
-  height: 26px;
+  width: 40px;
+  height: 22px;
   background: var(--bg-pressed);
-  border-radius: 13px;
-  transition: background var(--duration-normal) var(--ease-out);
+  border-radius: 11px;
+  transition: background var(--duration-fast) var(--ease-out);
   position: relative;
   border: 1px solid var(--border);
 }
@@ -509,12 +509,12 @@ onMounted(() => {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   background: white;
   border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15), 0 0 1px rgba(0, 0, 0, 0.06);
-  transition: transform var(--duration-normal) var(--ease-spring);
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--duration-fast) var(--ease-spring);
 }
 
 .toggle input:checked + .toggle-track {
@@ -531,8 +531,8 @@ onMounted(() => {
 }
 
 .settings-number-input {
-  width: 92px;
-  padding: 6px 10px;
+  width: 80px;
+  padding: 5px 8px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -540,16 +540,17 @@ onMounted(() => {
   color: var(--text-primary);
   font-family: inherit;
   outline: none;
+  transition: border-color var(--duration-fast) var(--ease-out);
 }
 
 .settings-number-input--wide {
-  width: 112px;
+  width: 100px;
 }
 
 .settings-text-input,
 .settings-select {
-  min-height: 32px;
-  padding: 6px 10px;
+  min-height: 30px;
+  padding: 5px 8px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -557,6 +558,7 @@ onMounted(() => {
   color: var(--text-primary);
   font-family: inherit;
   outline: none;
+  transition: border-color var(--duration-fast) var(--ease-out);
 }
 
 .settings-text-input {
@@ -565,14 +567,10 @@ onMounted(() => {
 }
 
 .settings-select {
-  min-width: 170px;
+  min-width: 150px;
 }
 
-.settings-number-input:focus {
-  border-color: var(--border-accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
+.settings-number-input:focus,
 .settings-text-input:focus,
 .settings-select:focus {
   border-color: var(--border-accent);

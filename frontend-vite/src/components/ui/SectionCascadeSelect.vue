@@ -362,8 +362,8 @@ watch(() => props.options.length, () => {
   min-height: 38px;
   padding: 8px 16px;
   background: var(--bg-elevated);
-  border: 0.5px solid var(--border);
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
@@ -422,9 +422,7 @@ watch(() => props.options.length, () => {
   grid-template-columns: minmax(130px, max-content) minmax(190px, 1fr);
   overflow: hidden;
   background: var(--bg-elevated);
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   transform-origin: top center;
@@ -441,7 +439,7 @@ watch(() => props.options.length, () => {
 }
 
 .scs-group-list {
-  border-right: 0.5px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 
 .scs-group-row {

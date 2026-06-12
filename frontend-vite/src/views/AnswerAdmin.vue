@@ -231,7 +231,7 @@ onMounted(async () => {
   color: var(--text-tertiary);
   padding: 3px 10px;
   background: var(--bg-hover);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 .admin-hint {
@@ -295,7 +295,7 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--success);
   background: rgba(52, 199, 89, 0.1);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 .paper-name {

@@ -315,8 +315,8 @@ watch(() => props.options.length, () => {
   min-height: 38px;
   padding: 8px 16px;
   background: var(--bg-elevated);
-  border: 0.5px solid var(--border);
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
@@ -373,9 +373,7 @@ watch(() => props.options.length, () => {
   z-index: 4500;
   overflow-y: auto;
   background: var(--bg-elevated);
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: 6px;

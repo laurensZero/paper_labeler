@@ -85,7 +85,7 @@ function persistOptions() {
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="exportWizardOpen" class="modal-mask" @click.self="onClose">
-        <div class="modal-panel" style="backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%)">
+        <div class="modal-panel">
           <!-- Header -->
           <div class="modal-header">
             <div class="modal-title">{{ t('exportWizard.title') }}</div>
@@ -277,10 +277,7 @@ function persistOptions() {
   max-height: min(85vh, calc(100vh - 24px));
   display: flex;
   flex-direction: column;
-  background: var(--bg-card);
-  background: color-mix(in srgb, var(--bg-elevated) 76%, transparent);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);

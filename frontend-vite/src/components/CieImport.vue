@@ -58,7 +58,7 @@ watch(cieImportOpen, (open) => {
       :class="{ show: cieImportOpen }"
       @click="onOverlayClick"
     >
-      <div class="cie-modal" style="backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%)">
+      <div class="cie-modal">
         <!-- Header -->
         <div class="cie-header">
           <div class="cie-header-left">
@@ -287,10 +287,7 @@ watch(cieImportOpen, (open) => {
   max-height: calc(100vh - 80px);
   display: flex;
   flex-direction: column;
-  background: var(--bg-card);
-  background: color-mix(in srgb, var(--bg-elevated) 76%, transparent);
-  backdrop-filter: blur(30px) saturate(180%);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);

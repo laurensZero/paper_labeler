@@ -592,6 +592,12 @@ async function handleSave() {
   const saved = await answerStore.saveAnswer()
   if (!saved) return
   redrawAllOverlays()
+  // Auto-advance to next question
+  const isLast = answerQIndex.value >= 0 && answerQIndex.value >= answerQuestions.value.length - 1
+  if (!isLast && !answerReplaceMode.value) {
+    await answerStore.loadAnswerQuestion(answerQIndex.value + 1)
+    redrawAllOverlays()
+  }
 }
 
 async function handleBackFromAnswer() {
@@ -839,10 +845,10 @@ function formatBbox(bbox: number[]): string {
                 {{ t('answer.clearBoxes') || '清空框选' }}
               </button>
 
-              <!-- Save -->
+              <!-- Save & next -->
               <button class="btn btn-primary" :disabled="!answerNeedsSave" @click="handleSave">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                {{ t('mark.save') }}
+                保存并下一题
               </button>
             </div>
           </div>
@@ -899,7 +905,7 @@ function formatBbox(bbox: number[]): string {
             <div v-if="currentAnswerQuestion" class="question-detail">
               <div class="question-detail-row">
                 <span class="question-detail-label">题号</span>
-                <span class="question-detail-value">{{ currentAnswerQuestion.question_no || '(未填)' }}</span>
+                <span class="question-detail-value">第 {{ answerQIndex + 1 }} 题</span>
               </div>
               <div v-if="currentAnswerQuestion.section" class="question-detail-row">
                 <span class="question-detail-label">模块</span>
@@ -992,7 +998,7 @@ function formatBbox(bbox: number[]): string {
                 :class="{ active: item.active }"
                 @click="goToQuestion(item.idx)"
               >
-                <span class="question-no">{{ item.q.question_no || '?' }}</span>
+                <span class="question-no">{{ item.idx + 1 }}</span>
                 <span v-if="item.q.section" class="section-pill-sm">{{ item.q.section }}</span>
                 <span v-if="item.idx === answerQIndex" class="current-indicator"></span>
               </div>
@@ -1073,7 +1079,7 @@ function formatBbox(bbox: number[]): string {
   font-weight: 500;
   color: var(--text-accent);
   background: var(--accent-soft);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
 }
 
@@ -1085,7 +1091,7 @@ function formatBbox(bbox: number[]): string {
   font-weight: 500;
   color: var(--text-secondary);
   background: var(--bg-hover);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
 }
 
@@ -1140,16 +1146,17 @@ function formatBbox(bbox: number[]): string {
 
 .ms-page-item {
   width: 100%;
-  min-height: 240px;
   display: flex;
   justify-content: center;
+  align-items: flex-start;
+  flex-shrink: 0;
   content-visibility: auto;
-  contain-intrinsic-size: 760px 980px;
+  contain-intrinsic-size: auto 760px 588px;
 }
 
 .ms-img-wrap {
   position: relative;
-  display: inline-flex;
+  display: block;
   width: 100%;
   max-width: 100%;
 }

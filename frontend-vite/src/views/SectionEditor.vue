@@ -322,10 +322,10 @@ onMounted(() => {
 .se-pill {
   display: inline-flex;
   align-items: center;
-  padding: 3px 10px;
+  padding: 2px 8px;
   font-size: 11px;
   font-weight: 600;
-  border-radius: 999px;
+  border-radius: var(--radius-xs);
   flex-shrink: 0;
   letter-spacing: 0.3px;
 }

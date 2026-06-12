@@ -1,28 +1,27 @@
-﻿/* ══════════════════════════════════════
+/* ══════════════════════════════════════
    COMPONENTS
    ══════════════════════════════════════ */
 
 /* Card */
 .card {
-  background: var(--bg-elevated);
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
-  padding: 16px;
-  margin-bottom: 12px;
-  transition: all var(--duration-normal) var(--ease-out);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+  transition: border-color var(--duration-fast) var(--ease-out);
 }
 
 .card:hover {
-  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
 }
 
 .card-title {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
   margin-bottom: 16px;
 }
 
@@ -31,27 +30,29 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 8px 18px;
-  border: 0.5px solid var(--border);
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-out);
   outline: none;
+  white-space: nowrap;
 }
 
 .btn:hover {
-  background: var(--bg-card-hover);
-  box-shadow: var(--shadow-xs);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 .btn:active {
   background: var(--bg-pressed);
+  transform: scale(0.98);
 }
 
 .btn:focus-visible {
@@ -59,14 +60,22 @@
   border-color: var(--accent);
 }
 
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
 .btn-primary {
   background: var(--accent);
   color: white;
-  border-color: transparent;
+  border-color: var(--accent);
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .btn-ghost {
@@ -90,16 +99,15 @@
 }
 
 .empty-icon {
-  font-size: 56px;
-  margin-bottom: 20px;
-  opacity: 0.6;
-  filter: grayscale(0.3);
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
 }
 
 .empty-text {
-  font-size: 15px;
+  font-size: 14px;
   color: var(--text-secondary);
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   max-width: 320px;
   line-height: 1.6;
 }
@@ -108,7 +116,7 @@
 .grid-4 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  gap: 12px;
 }
 
 /* Form Label */
@@ -117,7 +125,7 @@
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 /* Divider */

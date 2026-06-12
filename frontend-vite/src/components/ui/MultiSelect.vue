@@ -258,8 +258,8 @@ watch(() => filteredOptions.value.length, (len) => {
   min-height: 38px;
   padding: 8px 16px;
   background: var(--bg-elevated);
-  border: 0.5px solid var(--border);
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
@@ -309,7 +309,7 @@ watch(() => filteredOptions.value.length, (len) => {
   color: var(--text-accent);
   font-size: 11px;
   font-weight: 600;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -334,9 +334,7 @@ watch(() => filteredOptions.value.length, (len) => {
   z-index: 1000;
   min-width: 220px;
   background: var(--bg-elevated);
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -345,7 +343,7 @@ watch(() => filteredOptions.value.length, (len) => {
 .ms-search {
   position: relative;
   padding: 8px;
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
 }
 
@@ -363,7 +361,7 @@ watch(() => filteredOptions.value.length, (len) => {
   height: 30px;
   padding: 6px 10px 6px 32px;
   background: var(--bg-input);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--text-primary);
