@@ -662,6 +662,26 @@ def search_questions_post(payload: QuestionSearchRequest, db: Session = Depends(
         ids_only=bool(payload.ids_only),
     )
 
+@router.get("/papers/{paper_id}/questions/answer_status")
+def get_answer_status_for_paper(paper_id: int, db: Session = Depends(get_db)):
+    """Return question IDs that have answer boxes, for the given paper."""
+    q_ids = [q.id for q in db.query(Question.id).filter(Question.paper_id == paper_id).all()]
+    if not q_ids:
+        return {"answered_ids": []}
+    # Find answers that have at least one box
+    answered = [
+        int(row[0])
+        for row in (
+            db.query(Answer.question_id)
+            .filter(Answer.question_id.in_(q_ids))
+            .join(AnswerBox, AnswerBox.answer_id == Answer.id)
+            .distinct()
+            .all()
+        )
+    ]
+    return {"answered_ids": answered}
+
+
 @router.get("/questions/{question_id}/answer")
 def get_answer_for_question(question_id: int, db: Session = Depends(get_db)):
     q = db.query(Question).filter(Question.id == question_id).one_or_none()

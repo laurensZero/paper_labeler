@@ -192,7 +192,7 @@ onMounted(async () => {
             </svg>
             {{ t('answerAdmin.startMarking') }}
           </button>
-          <span class="paper-id-text">id={{ p.id }}</span>
+          <!-- <span class="paper-id-text">id={{ p.id }}</span> -->
         </div>
       </div>
     </div>

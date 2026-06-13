@@ -1,10 +1,20 @@
 /* ── App Shell ── */
 .app {
   display: flex;
+  flex-direction: column;
   height: 100vh;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text-primary);
   transition: background var(--duration-slow) var(--ease-out), color var(--duration-slow) var(--ease-out);
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
 }
 
 /* ══════════════════════════════════════
@@ -231,136 +241,6 @@
   overflow: hidden;
 }
 
-/* Topbar */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-  height: 48px;
-  flex-shrink: 0;
-  background: var(--bg-topbar);
-  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-  border-bottom: 1px solid var(--border);
-  transition: background var(--duration-slow) var(--ease-out);
-}
-
-.topbar-left {
-  display: flex;
-  align-items: center;
-}
-
-.topbar-nav {
-  display: flex;
-  gap: 1px;
-}
-
-.topbar-nav-item {
-  padding: 5px 12px;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  font-family: inherit;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-out);
-  position: relative;
-}
-
-.topbar-nav-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.topbar-nav-item.active {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.topbar-nav-item.active::after {
-  content: '';
-  position: absolute;
-  bottom: -9px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 16px;
-  height: 2px;
-  background: var(--accent);
-  border-radius: 1px;
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.theme-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: none;
-  background: none;
-  color: var(--text-tertiary);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--duration-fast) var(--ease-out);
-}
-
-.theme-toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.status-pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.status-indicator.status-err .status-pulse {
-  background: var(--danger);
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
-}
-
-.status-indicator.status-info .status-pulse {
-  background: var(--warning);
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-.status-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  max-width: min(40vw, 480px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Content */
 .workspace-content {
   flex: 1;
@@ -369,7 +249,23 @@
   padding: 16px 20px;
 }
 
-@media (max-width: 900px) {
+/* Page transition */
+.page-fade-enter-active,
+.page-fade-leave-active {
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+@media (max-width: 640px) {
   .sidebar,
   .sidebar.collapsed,
   .sidebar.narrow-collapsed {
@@ -382,44 +278,6 @@
   }
 
   .brand-name {
-    display: none;
-  }
-
-  .topbar {
-    height: 44px;
-    padding: 0 10px;
-    gap: 6px;
-  }
-
-  .topbar-left {
-    min-width: 0;
-    flex: 1;
-  }
-
-  .topbar-nav {
-    min-width: 0;
-    max-width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-  }
-
-  .topbar-nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .topbar-nav-item {
-    flex: 0 0 auto;
-    padding: 5px 8px;
-    font-size: 12px;
-  }
-
-  .topbar-right {
-    gap: 4px;
-    flex-shrink: 0;
-  }
-
-  .status-indicator {
     display: none;
   }
 

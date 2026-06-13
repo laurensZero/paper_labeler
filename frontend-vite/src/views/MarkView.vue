@@ -75,6 +75,15 @@ let overlayRefreshFrame = 0
 let overlayDrawFrame = 0
 let markCanvasInteractionActive = false
 
+// Adjacent page preload cache — loads prev/next images into browser HTTP cache
+function preloadAdjacentPages() {
+  const idx = currentPageIndex.value
+  const prev = pages.value[idx - 1]
+  const next = pages.value[idx + 1]
+  if (prev?.image_url) { const i = new Image(); i.src = prev.image_url }
+  if (next?.image_url) { const i = new Image(); i.src = next.image_url }
+}
+
 // --- page navigation ---
 const jumpPageInput = ref('')
 
@@ -527,6 +536,7 @@ watch(currentPageIndex, async () => {
   }
 })
 
+// On page change: reset image state, preload adjacent pages for instant nav
 watch([currentPaperId, currentPageIndex, pageImgUrl], () => {
   pageImageLoaded.value = false
   pageImgResizeObserver?.disconnect()
@@ -537,6 +547,7 @@ watch([currentPaperId, currentPageIndex, pageImgUrl], () => {
     canvasArea.value.scrollTop = 0
     canvasArea.value.scrollLeft = 0
   }
+  preloadAdjacentPages()
 }, { flush: 'sync' })
 
 watch(newBoxes, () => {
@@ -724,10 +735,10 @@ onBeforeUnmount(() => {
               <div v-if="canReturnToFilter" class="toolbar-divider"></div>
 
               <!-- Page navigation -->
-              <button class="btn btn-ghost btn-icon" :disabled="!canPrevPage" title="上一页 (K)" @click="prevPage">
+              <button class="btn btn-ghost btn-icon" :disabled="!canPrevPage" title="上一页 (J)" @click="prevPage">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
-              <button class="btn btn-ghost btn-icon" :disabled="!canNextPage" title="下一页 (J)" @click="nextPage">
+              <button class="btn btn-ghost btn-icon" :disabled="!canNextPage" title="下一页 (K)" @click="nextPage">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
               <input
@@ -781,7 +792,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div v-else class="page-stage">
-              <div v-show="!pageImageLoaded" class="canvas-placeholder canvas-placeholder-loading">
+              <div v-show="!pageImageLoaded" class="canvas-placeholder">
                 <div class="empty">
                   <div class="empty-icon">&#128196;</div>
                   <div class="empty-text">{{ pagePlaceholderText }}</div>
@@ -963,7 +974,7 @@ onBeforeUnmount(() => {
 .mark-view {
   display: flex;
   gap: 20px;
-  height: calc(100vh - 100px);
+  height: 100%;
   min-height: 0;
 }
 
@@ -1090,15 +1101,6 @@ onBeforeUnmount(() => {
 
 .page-stage > .canvas-placeholder {
   min-height: 100%;
-}
-
-.canvas-placeholder-loading .empty-icon {
-  animation: page-loading-pulse 1s ease-in-out infinite;
-}
-
-@keyframes page-loading-pulse {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 1; }
 }
 
 .img-wrap {
@@ -1423,8 +1425,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1320px) {
   .mark-view {
-    height: auto;
-    min-height: calc(100vh - 100px);
+    height: 100%;
   }
 
   .mark-main {
@@ -1434,7 +1435,7 @@ onBeforeUnmount(() => {
   .mark-canvas-card {
     flex: none;
     min-width: 0;
-    min-height: min(760px, calc(100vh - 140px));
+    min-height: 0;
   }
 
   .mark-right-panel {

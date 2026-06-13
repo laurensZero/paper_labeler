@@ -635,25 +635,34 @@ async function goToQuestion(idx: number) {
 }
 
 // --- keyboard shortcuts ---
+let answerNavCooldown = false
+
+function guardedAnswerNav(fn: () => void | Promise<any>) {
+  if (answerNavCooldown) return
+  answerNavCooldown = true
+  void fn()
+  setTimeout(() => { answerNavCooldown = false }, 120)
+}
+
 function onKeyDown(evt: KeyboardEvent) {
   if (route.name !== 'answer') return
   const tag = (evt.target as HTMLElement)?.tagName?.toLowerCase()
   if (tag === 'input' || tag === 'textarea' || tag === 'select') return
-  const key = evt.key.toLowerCase()
+  const key = evt.key
 
-  if (key === 'j') {
+  if (key === 'j' || key === 'J' || key === 'ArrowLeft') {
     evt.preventDefault()
-    answerNext()
-  } else if (key === 'k') {
+    guardedAnswerNav(() => answerPrev())
+  } else if (key === 'k' || key === 'K' || key === 'ArrowRight') {
     evt.preventDefault()
-    answerPrev()
+    guardedAnswerNav(() => answerNext())
   } else if ((evt.ctrlKey || evt.metaKey) && key === 'z' && !evt.shiftKey) {
     evt.preventDefault()
     handleUndo()
   } else if ((evt.ctrlKey || evt.metaKey) && (key === 'y' || (key === 'z' && evt.shiftKey))) {
     evt.preventDefault()
     handleRedo()
-  } else if (key === 'delete' || key === 'backspace') {
+  } else if (key === 'Delete' || key === 'Backspace') {
     if (selectedAnswerNew.value || answerNewBoxes.value.length > 0) {
       evt.preventDefault()
       handleClearBoxes()
@@ -808,10 +817,10 @@ function formatBbox(bbox: number[]): string {
               <div class="toolbar-divider"></div>
 
               <!-- Prev/Next question -->
-              <button class="btn btn-ghost btn-icon" :disabled="!canPrevAnswer" title="上一题 (K)" @click="answerPrev">
+              <button class="btn btn-ghost btn-icon" :disabled="!canPrevAnswer" title="上一题 (J / ←)" @click="answerPrev">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
-              <button class="btn btn-ghost btn-icon" :disabled="!canNextAction" :title="`${answerNextButtonLabel} (J)`" @click="answerNext">
+              <button class="btn btn-ghost btn-icon" :disabled="!canNextAction" :title="`${answerNextButtonLabel} (K / →)`" @click="answerNext">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
 
@@ -1014,7 +1023,7 @@ function formatBbox(bbox: number[]): string {
 .answer-view {
   display: flex;
   gap: 20px;
-  height: calc(100vh - 120px);
+  height: 100%;
   min-height: 0;
 }
 
@@ -1519,8 +1528,7 @@ function formatBbox(bbox: number[]): string {
 
 @media (max-width: 900px) {
   .answer-view {
-    height: auto;
-    min-height: calc(100vh - 120px);
+    height: 100%;
   }
 
   .answer-main {

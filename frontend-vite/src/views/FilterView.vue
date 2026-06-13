@@ -511,21 +511,21 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
             :model-value="filterFavOnly"
             @update:model-value="onFavOnlyChange"
           />
-          <span>收藏</span>
+          <span>{{ t('filter.favOnly') }}</span>
         </div>
       </div>
       <div class="ws-toolbar-right">
         <button class="ws-toolbar-btn" :class="{ active: filterMultiSelect }" @click="filterStore.toggleFilterMultiSelect()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-          <span>{{ filterMultiSelect ? `已选 ${selectedQuestionIds.size}` : '多选' }}</span>
+          <span>{{ filterMultiSelect ? t('filter.multiSelectActive', { count: selectedQuestionIds.size }) : t('filter.multiSelect') }}</span>
         </button>
         <button v-if="filterMultiSelect && selectedQuestionIds.size" class="ws-toolbar-btn" @click="onBatchFavorite">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
-          <span>收藏</span>
+          <span>{{ t('filter.batchFavorite') }}</span>
         </button>
         <button class="ws-toolbar-btn" @click="exportStore.exportFilterPdf()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span>导出</span>
+          <span>{{ t('filter.exportPdf') }}</span>
         </button>
       </div>
     </div>
@@ -572,7 +572,7 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
           <!-- Answer section -->
           <div v-if="ansOpen" ref="ansSectionRef" class="ws-answer">
             <div class="ws-answer-header">
-              <span>答案</span>
+              <span>{{ t('filter.answerHeader') }}</span>
             </div>
             <div v-if="ansBoxes.length" class="ws-answer-boxes">
               <div v-for="(b, idx) in ansBoxes" :key="idx" class="ws-answer-box">
@@ -580,14 +580,14 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
               </div>
             </div>
             <div v-else class="ws-answer-empty">
-              {{ ansLoading ? '加载中...' : (ansLoaded ? '未标注答案' : '') }}
+              {{ ansLoading ? t('filter.answerLoadingStatus') : (ansLoaded ? t('filter.answerNotMarked') : '') }}
             </div>
           </div>
         </div>
 
         <!-- No selection -->
         <div v-else class="ws-empty">
-          <span>选择一道题目</span>
+          <span>{{ t('filter.selectQuestion') }}</span>
         </div>
       </div>
 
@@ -619,7 +619,7 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
 
     <!-- ── Film Strip (all questions, horizontal scroll) ── -->
     <div class="ws-filmstrip">
-      <span class="ws-filmstrip-count">{{ allFilmStripItems.length }} 题</span>
+      <span class="ws-filmstrip-count">{{ t('filter.questionCount', { count: allFilmStripItems.length }) }}</span>
       <FilmStrip
         :items="allFilmStripItems"
         :active-id="activeQuestionId"
@@ -636,7 +636,7 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
 .ws {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 48px - 32px);
+  height: 100%;
   background: var(--bg);
   border-radius: 16px;
   gap: 1px;
@@ -933,10 +933,9 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
 /* ══════════════════════════════════════
    RESPONSIVE
    ══════════════════════════════════════ */
-@media (max-width: 900px) {
+@media (max-width: 640px) {
   .ws {
-    height: auto;
-    min-height: calc(100vh - 44px - 24px);
+    height: 100%;
   }
 
   .ws-main {

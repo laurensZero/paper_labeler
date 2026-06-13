@@ -34,6 +34,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const maintenanceIntegrityReport = ref<QuestionsIntegrityReport | null>(null)
   const maintenanceRepairReport = ref<QuestionsRepairReport | null>(null)
 
+  // --- appearance ---
+  const darkImageInvert = ref(false)
+
   // --- OCR ---
   const ocrAutoEnabled = ref(false)
   const ocrMinHeightPx = ref(70)
@@ -61,6 +64,10 @@ export const useSettingsStore = defineStore('settings', () => {
       paperAlignRef.value = {}
     }
     try {
+      const v = localStorage.getItem('setting:darkImageInvert')
+      if (v != null) darkImageInvert.value = v === '1' || v === 'true'
+    } catch {}
+    try {
       const v = localStorage.getItem('setting:ocrAutoEnabled')
       if (v != null) ocrAutoEnabled.value = v === '1' || v === 'true'
     } catch {}
@@ -80,6 +87,7 @@ export const useSettingsStore = defineStore('settings', () => {
       const o = localStorage.getItem('setting:filterVirtualOverscanPx')
       if (o != null) filterVirtualOverscanPx.value = clampInt(o, 0, 5000)
     } catch {}
+    syncInvertClass()
   }
 
   function saveAlignLeft(v: boolean) {
@@ -122,6 +130,17 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     paperAlignRef.value = next
     try { localStorage.setItem('setting:paperAlignRef', JSON.stringify(next)) } catch {}
+  }
+
+  function saveDarkImageInvert(v: boolean) {
+    darkImageInvert.value = !!v
+    try { localStorage.setItem('setting:darkImageInvert', darkImageInvert.value ? '1' : '0') } catch {}
+    syncInvertClass()
+    return darkImageInvert.value
+  }
+
+  function syncInvertClass() {
+    document.documentElement.classList.toggle('img-invert', darkImageInvert.value)
   }
 
   function saveOcrAuto(v: boolean) {
@@ -233,6 +252,8 @@ export const useSettingsStore = defineStore('settings', () => {
     maintenanceRenumberQuestionNo,
     maintenanceIntegrityReport,
     maintenanceRepairReport,
+    // appearance
+    darkImageInvert,
     // OCR
     ocrAutoEnabled,
     ocrMinHeightPx,
@@ -244,6 +265,7 @@ export const useSettingsStore = defineStore('settings', () => {
     saveAlignPaperFirst,
     saveAnswerAlign,
     savePaperAlignRef,
+    saveDarkImageInvert,
     saveOcrAuto,
     saveOcrMinHeight,
     saveOcrYPadding,

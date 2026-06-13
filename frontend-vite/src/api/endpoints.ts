@@ -271,6 +271,11 @@ export const questionsApi = {
     return api(`/questions/${questionId}/answer`)
   },
 
+  /** Get which question IDs in a paper have answer boxes */
+  getAnswerStatus(paperId: number): Promise<{ answered_ids: number[] }> {
+    return api(`/papers/${paperId}/questions/answer_status`)
+  },
+
   /** Create or update the answer for a question */
   upsertAnswer(
     questionId: number,

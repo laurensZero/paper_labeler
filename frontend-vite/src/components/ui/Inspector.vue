@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import SectionTagEditor from './SectionTagEditor.vue'
+
+const { t } = useI18n()
 
 defineOptions({ name: 'Inspector' })
 
@@ -61,6 +64,12 @@ const emit = defineEmits<{
   'update:editNotes': [value: string]
 }>()
 
+// When collapsed, clicking an action button expands first, then fires the action
+function collapsedAction(name: string) {
+  if (props.collapsed) emit('toggle-collapse')
+  emit(name as any)
+}
+
 const paperLabel = computed(() => {
   const p = props.question?.paper
   if (!p) return ''
@@ -78,18 +87,18 @@ const sectionDisplay = computed(() => {
 const statusLabel = computed(() => {
   if (!props.question) return ''
   switch (props.question.status) {
-    case 'confirmed': return '已确认'
-    case 'draft': return '草稿'
+    case 'confirmed': return t('inspector.confirmed')
+    case 'draft': return t('inspector.draft')
     default: return props.question.status
   }
 })
 
 const answerButtonText = computed(() => {
   if (!props.question) return ''
-  if (props.ansOpen) return '隐藏答案'
-  if (props.ansLoaded && props.ansBoxCount > 0) return '显示答案'
-  if (props.ansLoaded) return '无答案'
-  return '显示答案'
+  if (props.ansOpen) return t('inspector.hideAnswer')
+  if (props.ansLoaded && props.ansBoxCount > 0) return t('inspector.showAnswer')
+  if (props.ansLoaded) return t('inspector.noAnswer')
+  return t('inspector.showAnswer')
 })
 </script>
 
@@ -102,29 +111,29 @@ const answerButtonText = computed(() => {
     </button>
 
     <!-- Collapsed: icon buttons for quick actions -->
-    <template v-if="collapsed && question">
-      <div class="inspector-collapsed-actions">
-        <button class="inspector-icon-btn" @click="emit('toggle-favorite')" :title="question.is_favorite ? '取消收藏' : '收藏'">
+    <template v-if="collapsed">
+      <div class="inspector-collapsed-actions" @click.self="emit('toggle-collapse')">
+        <button v-if="question" class="inspector-icon-btn" @click="emit('toggle-favorite')" :title="question.is_favorite ? t('inspector.unfavorite') : t('inspector.favorite')">
           <svg width="14" height="14" viewBox="0 0 24 24" :fill="question.is_favorite ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>
         </button>
-        <button class="inspector-icon-btn" @click="emit('edit')" title="编辑题目">
+        <button v-if="question" class="inspector-icon-btn" @click="collapsedAction('edit')" :title="t('inspector.editQuestion')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
         </button>
-        <button class="inspector-icon-btn" @click="emit('edit-answer')" title="编辑答案">
+        <button v-if="question" class="inspector-icon-btn" @click="emit('edit-answer')" :title="t('inspector.editAnswer')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
           </svg>
         </button>
-        <button class="inspector-icon-btn" @click="emit('locate')" title="定位原卷">
+        <button v-if="question" class="inspector-icon-btn" @click="emit('locate')" :title="t('inspector.locateInPaper')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
         </button>
-        <button class="inspector-icon-btn" @click="emit('toggle-answer')" :title="answerButtonText">
+        <button v-if="question" class="inspector-icon-btn" @click="emit('toggle-answer')" :title="answerButtonText">
           <svg v-if="ansOpen" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
             <line x1="1" y1="1" x2="23" y2="23" />
@@ -135,7 +144,7 @@ const answerButtonText = computed(() => {
           </svg>
         </button>
         <div class="inspector-divider"></div>
-        <button class="inspector-icon-btn inspector-icon-btn--danger" @click="emit('delete')" title="删除">
+        <button v-if="question" class="inspector-icon-btn inspector-icon-btn--danger" @click="emit('delete')" :title="t('inspector.delete')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
           </svg>
@@ -156,34 +165,34 @@ const answerButtonText = computed(() => {
       <!-- Quick edit panel -->
       <template v-if="editMode">
         <div class="inspector-section">
-          <div class="inspector-label">分类</div>
+          <div class="inspector-label">{{ t('inspector.section') }}</div>
           <SectionTagEditor
             :model-value="editSections"
             :option-groups="sectionOptions"
-            placeholder="选择分类..."
+            :placeholder="t('inspector.sectionPlaceholder')"
             @update:model-value="emit('update:editSections', $event)"
           />
         </div>
         <div class="inspector-section">
-          <div class="inspector-label">备注</div>
+          <div class="inspector-label">{{ t('inspector.notes') }}</div>
           <textarea
             class="inspector-textarea"
             :value="editNotes"
-            placeholder="备注..."
+            :placeholder="t('inspector.notesPlaceholder')"
             @input="emit('update:editNotes', ($event.target as HTMLTextAreaElement).value)"
           ></textarea>
         </div>
         <div class="inspector-section inspector-section--actions">
           <button class="inspector-action inspector-action--primary" @click="emit('save-edit')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            <span>保存</span>
+            <span>{{ t('inspector.save') }}</span>
           </button>
           <button class="inspector-action" @click="emit('go-to-mark')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            <span>去框选修改</span>
+            <span>{{ t('inspector.goToMark') }}</span>
           </button>
           <button class="inspector-action" @click="emit('cancel-edit')">
-            <span>取消</span>
+            <span>{{ t('inspector.cancel') }}</span>
           </button>
         </div>
       </template>
@@ -192,22 +201,22 @@ const answerButtonText = computed(() => {
       <template v-else>
         <!-- Labels -->
         <div class="inspector-section">
-          <div class="inspector-label">标签</div>
+          <div class="inspector-label">{{ t('inspector.labels') }}</div>
           <div class="inspector-tags">
             <span v-for="s in sectionDisplay" :key="s" class="inspector-tag">{{ s }}</span>
-            <span v-if="!sectionDisplay.length" class="inspector-tag inspector-tag--empty">未分类</span>
+            <span v-if="!sectionDisplay.length" class="inspector-tag inspector-tag--empty">{{ t('inspector.unsectioned') }}</span>
           </div>
         </div>
 
         <!-- Notes -->
         <div v-if="question.notes" class="inspector-section">
-          <div class="inspector-label">备注</div>
+          <div class="inspector-label">{{ t('inspector.notes') }}</div>
           <div class="inspector-notes">{{ question.notes }}</div>
         </div>
 
         <!-- Answer -->
         <div class="inspector-section">
-          <div class="inspector-label">答案</div>
+          <div class="inspector-label">{{ t('inspector.answerLabel') }}</div>
           <button class="inspector-action-btn" @click="emit('toggle-answer')">
             {{ answerButtonText }}
           </button>
@@ -219,31 +228,31 @@ const answerButtonText = computed(() => {
           <svg width="14" height="14" viewBox="0 0 24 24" :fill="question.is_favorite ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>
-          <span>{{ question.is_favorite ? '取消收藏' : '收藏' }}</span>
+          <span>{{ question.is_favorite ? t('inspector.unfavorite') : t('inspector.favorite') }}</span>
         </button>
         <button class="inspector-action" @click="emit('edit')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          <span>编辑题目</span>
+          <span>{{ t('inspector.editQuestion') }}</span>
         </button>
         <button class="inspector-action" @click="emit('edit-answer')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
           </svg>
-          <span>编辑答案</span>
+          <span>{{ t('inspector.editAnswer') }}</span>
         </button>
         <button class="inspector-action" @click="emit('locate')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
-          <span>定位原卷</span>
+          <span>{{ t('inspector.locateInPaper') }}</span>
         </button>
         <button class="inspector-action inspector-action--danger" @click="emit('delete')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
           </svg>
-          <span>删除</span>
+          <span>{{ t('inspector.delete') }}</span>
         </button>
       </div>
       </template>
@@ -251,7 +260,7 @@ const answerButtonText = computed(() => {
 
     <template v-else-if="!collapsed">
       <div class="inspector-empty">
-        <span>选择题目查看属性</span>
+        <span>{{ t('inspector.selectQuestion') }}</span>
       </div>
     </template>
   </div>

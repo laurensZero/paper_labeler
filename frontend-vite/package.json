@@ -1,15 +1,53 @@
 {
-  "name": "frontend-vite",
+  "name": "paper-labeler",
+  "productName": "Paper Labeler",
+  "description": "试卷题目标注工具",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "dev:all": "concurrently -n fe,be -c cyan,green \"vite\" \"cd .. && python backend/main.py\"",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "smoke": "node tests/smoke.mjs",
-    "e2e:api": "node tests/api-e2e.mjs"
+    "e2e:api": "node tests/api-e2e.mjs",
+    "electron:dev": "vite build && electron .",
+    "electron:watch": "node electron/watch.cjs",
+    "electron:build": "vue-tsc -b && vite build && electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.paper-labeler.app",
+    "productName": "Paper Labeler",
+    "icon": "build/icon.ico",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "build/icon.ico"
+    },
+    "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
+        "from": "../data",
+        "to": "data",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   },
   "dependencies": {
     "@vueuse/core": "^14.3.0",
@@ -23,8 +61,11 @@
     "@playwright/test": "^1.60.0",
     "@types/node": "^24.12.3",
     "@vitejs/plugin-vue": "^6.0.6",
-    "@vue/tsconfig": "^0.9.1",
+    "@vue/tsconfig": "^0.9.0",
     "concurrently": "^10.0.3",
+    "electron": "^35.7.5",
+    "electron-builder": "^26.15.3",
+    "sharp": "^0.35.1",
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
     "vue-tsc": "^3.2.8"

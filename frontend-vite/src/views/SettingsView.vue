@@ -9,6 +9,7 @@ import { usePapersStore } from '@/stores/papers'
 import { useMarkStore } from '@/stores/mark'
 import { useAnswerStore } from '@/stores/answer'
 import { useFilterStore } from '@/stores/filter'
+import { i18n } from '@/i18n'
 import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 
 const { t } = useI18n()
@@ -39,6 +40,7 @@ const {
   maintenanceRenumberQuestionNo,
   maintenanceIntegrityReport,
   maintenanceRepairReport,
+  darkImageInvert,
 } = storeToRefs(settingsStore)
 
 // Export settings
@@ -64,7 +66,7 @@ const exportNamePreview = computed(() =>
 // Toggle handlers — call store actions to persist + enforce mutual exclusion
 function onToggleAlignLeft() {
   const enabled = settingsStore.saveAlignLeft(!alignLeftEnabled.value)
-  appStore.setStatus(enabled ? '多选区左右对齐：已开启' : '多选区左右对齐：已关闭', 'ok')
+  appStore.setStatus(enabled ? t('settings.alignment.multiBoxOn') : t('settings.alignment.multiBoxOff'), 'ok')
 }
 
 async function onToggleAlignPaperFirst() {
@@ -72,7 +74,7 @@ async function onToggleAlignPaperFirst() {
   if (enabled && papersStore.currentPaperId != null) {
     await markStore.ensurePaperAlignRefFromFirstQuestion(papersStore.currentPaperId)
   }
-  appStore.setStatus(enabled ? '按试卷首题对齐：已开启' : '按试卷首题对齐：已关闭', 'ok')
+  appStore.setStatus(enabled ? t('settings.alignment.paperFirstOn') : t('settings.alignment.paperFirstOff'), 'ok')
 }
 
 async function onToggleAnswerAlign() {
@@ -80,11 +82,18 @@ async function onToggleAnswerAlign() {
   if (enabled) {
     await answerStore.ensureAnswerAlignRefFromFirstQuestion()
   }
-  appStore.setStatus(enabled ? '答案框左右对齐：已开启' : '答案框左右对齐：已关闭', 'ok')
+  appStore.setStatus(enabled ? t('settings.alignment.answerOn') : t('settings.alignment.answerOff'), 'ok')
 }
 
 function onToggleOcrAuto() {
   settingsStore.saveOcrAuto(!ocrAutoEnabled.value)
+}
+
+const currentLocale = computed(() => i18n.global.locale.value)
+
+function onLocaleChange(locale: string) {
+  ;(i18n.global.locale as any).value = locale
+  localStorage.setItem('setting:locale', locale)
 }
 
 function onOcrMinHeightChange() {
@@ -132,15 +141,15 @@ function clearExportSaveDir() {
 
 function clearExportCache() {
   exportStore.invalidateExportFilterCache()
-  appStore.setStatus('导出缓存已清除', 'ok')
+  appStore.setStatus(t('settings.exportCache.cleared'), 'ok')
 }
 
 function formatAgeText(ms: number | null | undefined) {
   const n = Number(ms)
-  if (!Number.isFinite(n) || n < 0) return '无'
-  if (n < 60_000) return `${Math.round(n / 1000)} 秒`
-  if (n < 3_600_000) return `${Math.round(n / 60_000)} 分钟`
-  return `${(n / 3_600_000).toFixed(1)} 小时`
+  if (!Number.isFinite(n) || n < 0) return t('settings.exportCache.noAge')
+  if (n < 60_000) return t('settings.exportCache.seconds', { n: Math.round(n / 1000) })
+  if (n < 3_600_000) return t('settings.exportCache.minutes', { n: Math.round(n / 60_000) })
+  return t('settings.exportCache.hoursFmt', { n: (n / 3_600_000).toFixed(1) })
 }
 
 // Maintenance
@@ -167,6 +176,39 @@ onMounted(() => {
 <template>
   <div style="max-width: 680px">
     <h2 style="font-size: 20px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 24px">{{ t('settings.title') }}</h2>
+
+    <!-- 外观 -->
+    <div class="card">
+      <div class="card-title">{{ t('settings.appearance.title') }}</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0">
+        <div>
+          <div style="font-weight: 500; font-size: 14px">{{ t('settings.appearance.language') }}</div>
+        </div>
+        <select
+          :value="currentLocale"
+          class="settings-select"
+          @change="onLocaleChange(($event.target as HTMLSelectElement).value)"
+        >
+          <option value="zh-CN">{{ t('settings.appearance.langZhCN') }}</option>
+          <option value="en">{{ t('settings.appearance.langEn') }}</option>
+        </select>
+      </div>
+      <div class="divider" style="margin: 0"></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0">
+        <div>
+          <div style="font-weight: 500; font-size: 14px">{{ t('settings.appearance.darkImageInvert') }}</div>
+          <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.appearance.darkImageInvertDesc') }}</div>
+        </div>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            :checked="darkImageInvert"
+            @change="settingsStore.saveDarkImageInvert(($event.target as HTMLInputElement).checked)"
+          />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
+      </div>
+    </div>
 
     <!-- 标注对齐 -->
     <div class="card">
@@ -224,8 +266,8 @@ onMounted(() => {
         <div class="divider" style="margin: 0"></div>
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0">
           <div>
-            <div style="font-weight: 500; font-size: 14px">OCR 最小高度</div>
-            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">小于该像素高度的识别框会被过滤。</div>
+            <div style="font-weight: 500; font-size: 14px">{{ t('settings.ocr.minHeight') }}</div>
+            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.ocr.minHeightDesc') }}</div>
           </div>
           <input
             v-model.number="ocrMinHeightPx"
@@ -240,8 +282,8 @@ onMounted(() => {
         <div class="divider" style="margin: 0"></div>
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0">
           <div>
-            <div style="font-weight: 500; font-size: 14px">OCR 上下留白</div>
-            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">自动识别框保存前额外扩展的上下像素。</div>
+            <div style="font-weight: 500; font-size: 14px">{{ t('settings.ocr.padding') }}</div>
+            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.ocr.paddingDesc') }}</div>
           </div>
           <input
             v-model.number="ocrYPaddingPx"
@@ -258,15 +300,15 @@ onMounted(() => {
 
     <!-- 列表性能 -->
     <div class="card">
-      <div class="card-title">列表性能</div>
+      <div class="card-title">{{ t('settings.performance.title') }}</div>
       <div style="display: flex; flex-direction: column; gap: 0">
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0; gap: 20px">
           <div>
-            <div style="font-weight: 500; font-size: 14px">题库列表虚拟化</div>
-            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">结果达到阈值后只渲染可视区附近的题卡；Overscan 越大滚动越顺滑，越小越省资源。</div>
+            <div style="font-weight: 500; font-size: 14px">{{ t('settings.performance.virtualize') }}</div>
+            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.performance.virtualizeDesc') }}</div>
           </div>
           <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end">
-            <label style="font-size: 12px; color: var(--text-tertiary)">阈值</label>
+            <label style="font-size: 12px; color: var(--text-tertiary)">{{ t('settings.performance.threshold') }}</label>
             <input
               v-model.number="filterVirtualThreshold"
               type="number"
@@ -318,19 +360,19 @@ onMounted(() => {
         <!-- 导出缓存 -->
         <div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 0; gap: 20px">
           <div>
-            <div style="font-weight: 500; font-size: 14px">导出缓存管理</div>
-            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">筛选导出会缓存题目 ID；筛选条件相同且数据未变时可复用。</div>
+            <div style="font-weight: 500; font-size: 14px">{{ t('settings.exportCache.title') }}</div>
+            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.exportCache.desc') }}</div>
             <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.6">
-              当前 {{ exportCacheOverview.entryCount || 0 }} 组；
-              最新 {{ formatAgeText(exportCacheOverview.newestAgeMs) }}；
-              最旧 {{ formatAgeText(exportCacheOverview.oldestAgeMs) }}；
-              命中率 {{ exportCacheHitRateText }}
+              {{ t('settings.exportCache.current') }} {{ exportCacheOverview.entryCount || 0 }} {{ t('settings.exportCache.groups') }}
+              {{ t('settings.exportCache.latest') }} {{ formatAgeText(exportCacheOverview.newestAgeMs) }}；
+              {{ t('settings.exportCache.oldest') }} {{ formatAgeText(exportCacheOverview.oldestAgeMs) }}；
+              {{ t('settings.exportCache.hitRate') }} {{ exportCacheHitRateText }}
             </div>
             <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px; line-height: 1.6">
-              过期 {{ exportCacheStats.expired || 0 }} 次；写入 {{ exportCacheStats.write || 0 }} 次；有效期 {{ Math.round((exportCacheOverview.ttlMs || 0) / 3600000) || 0 }} 小时。
+              {{ t('settings.exportCache.expired') }} {{ exportCacheStats.expired || 0 }}{{ t('settings.exportCache.times') }} {{ exportCacheStats.write || 0 }}{{ t('settings.exportCache.validity') }} {{ Math.round((exportCacheOverview.ttlMs || 0) / 3600000) || 0 }}{{ t('settings.exportCache.hours') }}
             </div>
           </div>
-          <button class="btn" style="font-size: 12px; padding: 5px 12px; flex-shrink: 0" @click="clearExportCache">清除缓存</button>
+          <button class="btn" style="font-size: 12px; padding: 5px 12px; flex-shrink: 0" @click="clearExportCache">{{ t('settings.exportCache.clear') }}</button>
         </div>
 
         <div class="divider" style="margin: 0"></div>
@@ -366,10 +408,10 @@ onMounted(() => {
               {{ exportNameTemplateError || t('settings.export.nameTemplateValid') }}
             </div>
             <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px; line-height: 1.5; word-break: break-all">
-              当前预览：{{ exportNamePreview }}
+              {{ t('settings.nameTemplate.preview') }}{{ exportNamePreview }}
             </div>
             <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px; line-height: 1.5">
-              可用占位符：{mode} {section} {paper} {year} {season} {fav} {exclude} {count} {custom} {ts} {date} {time} {seq}
+              {{ t('settings.nameTemplate.placeholders') }}{mode} {section} {paper} {year} {season} {fav} {exclude} {count} {custom} {ts} {date} {time} {seq}
             </div>
           </div>
           <div style="display: flex; flex-direction: column; gap: 8px; min-width: 260px; flex: 1">
@@ -386,26 +428,26 @@ onMounted(() => {
               <input
                 v-model.trim="exportNameCustom"
                 type="text"
-                placeholder="自定义常量"
+                :placeholder="t('settings.nameTemplate.customPlaceholder')"
                 class="settings-text-input"
                 @blur="onExportNameOptionChange"
                 @keydown.enter.prevent="onExportNameOptionChange"
               />
-              <label style="font-size: 12px; color: var(--text-tertiary)">模块值</label>
+              <label style="font-size: 12px; color: var(--text-tertiary)">{{ t('settings.nameTemplate.moduleValue') }}</label>
               <select
                 v-model="exportNameSectionStyle"
                 class="settings-select"
                 @change="onExportNameOptionChange"
               >
-                <option value="display">显示名（含大类）</option>
-                <option value="raw">原始模块名</option>
+                <option value="display">{{ t('settings.nameTemplate.displayName') }}</option>
+                <option value="raw">{{ t('settings.nameTemplate.rawName') }}</option>
               </select>
               <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap">
                 <AppCheckbox
                   v-model="exportNameAutoTimestamp"
                   @update:model-value="onExportNameOptionChange"
                 />
-                自动追加时间戳
+                {{ t('settings.nameTemplate.autoTimestamp') }}
               </div>
             </div>
             <button class="btn" style="font-size: 12px; padding: 5px 12px; align-self: flex-end" @click="resetNameTemplate">{{ t('settings.export.resetDefault') }}</button>
@@ -422,15 +464,15 @@ onMounted(() => {
         <div style="padding: 14px 0; display: flex; flex-direction: column; gap: 10px">
           <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary)">
             <AppCheckbox v-model="maintenanceRemoveOrphanBoxes" />
-            {{ t('settings.maintenance.repair') }}: 清理孤儿记录
+            {{ t('settings.maintenance.orphanBoxes') }}
           </div>
           <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary)">
             <AppCheckbox v-model="maintenanceFillMissingQuestionNo" />
-            填充缺失题号
+            {{ t('settings.maintenance.fillQuestionNo') }}
           </div>
           <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary)">
             <AppCheckbox v-model="maintenanceRenumberQuestionNo" />
-            题号重排为连续序列
+            {{ t('settings.maintenance.renumberQuestionNo') }}
           </div>
         </div>
 
@@ -440,31 +482,31 @@ onMounted(() => {
             {{ t('settings.maintenance.integrity') }}
           </button>
           <button class="btn" :disabled="maintenanceBusy" @click="runRepairDry">
-            干跑修复
+            {{ t('settings.maintenance.dryRun') }}
           </button>
           <button class="btn" :disabled="maintenanceBusy" style="color: var(--warning); border-color: rgba(255, 159, 10, 0.3)" @click="runRepairApply">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-            执行修复
+            {{ t('settings.maintenance.execute') }}
           </button>
         </div>
 
         <!-- 完整性检查结果 -->
         <div v-if="maintenanceIntegrityReport" style="margin-top: 14px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; padding: 12px; background: var(--bg-input); border-radius: var(--radius-sm)">
-          <div>总题数 {{ maintenanceIntegrityReport.total_questions || 0 }}，缺失题号 {{ maintenanceIntegrityReport.missing_question_no || 0 }}，题号跳号 {{ maintenanceIntegrityReport.question_no_gap_count || 0 }}</div>
-          <div>重复题号组 {{ maintenanceIntegrityReport.duplicate_question_no_groups || 0 }}，孤儿题框 {{ maintenanceIntegrityReport.orphan_question_boxes || 0 }}，孤儿答案框 {{ maintenanceIntegrityReport.orphan_answer_boxes || 0 }}，孤儿模块关联 {{ maintenanceIntegrityReport.orphan_question_sections || 0 }}</div>
+          <div>{{ t('settings.maintenance.totalQuestions') }} {{ maintenanceIntegrityReport.total_questions || 0 }}，{{ t('settings.maintenance.missingQuestionNo') }} {{ maintenanceIntegrityReport.missing_question_no || 0 }}，{{ t('settings.maintenance.questionNoGaps') }} {{ maintenanceIntegrityReport.question_no_gap_count || 0 }}</div>
+          <div>{{ t('settings.maintenance.duplicateGroups') }} {{ maintenanceIntegrityReport.duplicate_question_no_groups || 0 }}，{{ t('settings.maintenance.orphanQuestionBoxes') }} {{ maintenanceIntegrityReport.orphan_question_boxes || 0 }}，{{ t('settings.maintenance.orphanAnswerBoxes') }} {{ maintenanceIntegrityReport.orphan_answer_boxes || 0 }}，{{ t('settings.maintenance.orphanSections') }} {{ maintenanceIntegrityReport.orphan_question_sections || 0 }}</div>
           <div v-if="maintenanceIntegrityReport.question_no_gap_examples?.length" style="margin-top: 4px">
-            跳号示例：{{ maintenanceIntegrityReport.question_no_gap_examples.join(', ') }}
+            {{ t('settings.maintenance.gapExamples') }}{{ maintenanceIntegrityReport.question_no_gap_examples.join(', ') }}
           </div>
         </div>
 
         <!-- 修复结果 -->
         <div v-if="maintenanceRepairReport" style="margin-top: 8px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; padding: 12px; background: var(--bg-input); border-radius: var(--radius-sm)">
-          上次{{ maintenanceRepairReport.dry_run ? '干跑' : '修复' }}：
-          清理题框 {{ maintenanceRepairReport.orphan_question_boxes_removed || 0 }}，
-          清理答案框 {{ maintenanceRepairReport.orphan_answer_boxes_removed || 0 }}，
-          清理模块关联 {{ maintenanceRepairReport.orphan_question_sections_removed || 0 }}，
-          填充题号 {{ maintenanceRepairReport.missing_question_no_filled || 0 }}，
-          重排题号 {{ maintenanceRepairReport.question_no_resequenced_changed || 0 }}
+          {{ t('settings.maintenance.last') }}{{ maintenanceRepairReport.dry_run ? t('settings.maintenance.dryRunLabel') : t('settings.maintenance.repairLabel') }}：
+          {{ t('settings.maintenance.cleanQuestionBoxes') }} {{ maintenanceRepairReport.orphan_question_boxes_removed || 0 }}，
+          {{ t('settings.maintenance.cleanAnswerBoxes') }} {{ maintenanceRepairReport.orphan_answer_boxes_removed || 0 }}，
+          {{ t('settings.maintenance.cleanSections') }} {{ maintenanceRepairReport.orphan_question_sections_removed || 0 }}，
+          {{ t('settings.maintenance.fillQuestionNoLabel') }} {{ maintenanceRepairReport.missing_question_no_filled || 0 }}，
+          {{ t('settings.maintenance.renumberLabel') }} {{ maintenanceRepairReport.question_no_resequenced_changed || 0 }}
         </div>
       </div>
     </div>

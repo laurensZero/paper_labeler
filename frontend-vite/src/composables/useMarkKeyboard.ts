@@ -15,6 +15,15 @@ interface UseMarkKeyboardOptions {
 }
 
 export function useMarkKeyboard(options: UseMarkKeyboardOptions) {
+  let pageNavCooldown = false
+
+  function guardedNav(fn: () => void | Promise<any>) {
+    if (pageNavCooldown) return
+    pageNavCooldown = true
+    void fn()
+    setTimeout(() => { pageNavCooldown = false }, 120)
+  }
+
   function onKeyDown(evt: KeyboardEvent) {
     if (!options.isActive()) return
 
@@ -25,18 +34,26 @@ export function useMarkKeyboard(options: UseMarkKeyboardOptions) {
 
     if (key === 'j') {
       evt.preventDefault()
-      if (options.hasOcrDraftMode.value) void options.nextOcrDraft()
-      else options.nextPage()
+      if (options.hasOcrDraftMode.value) guardedNav(() => options.prevOcrDraft())
+      else guardedNav(() => options.prevPage())
     } else if (key === 'k') {
       evt.preventDefault()
-      if (options.hasOcrDraftMode.value) void options.prevOcrDraft()
-      else options.prevPage()
+      if (options.hasOcrDraftMode.value) guardedNav(() => options.nextOcrDraft())
+      else guardedNav(() => options.nextPage())
     } else if ((evt.ctrlKey || evt.metaKey) && key === 'z' && !evt.shiftKey) {
       evt.preventDefault()
       options.undo()
     } else if ((evt.ctrlKey || evt.metaKey) && (key === 'y' || (key === 'z' && evt.shiftKey))) {
       evt.preventDefault()
       options.redo()
+    } else if (key === 'arrowleft') {
+      evt.preventDefault()
+      if (options.hasOcrDraftMode.value) guardedNav(() => options.prevOcrDraft())
+      else guardedNav(() => options.prevPage())
+    } else if (key === 'arrowright') {
+      evt.preventDefault()
+      if (options.hasOcrDraftMode.value) guardedNav(() => options.nextOcrDraft())
+      else guardedNav(() => options.nextPage())
     } else if (key === 'delete' || key === 'backspace') {
       if (options.selectedNewBox.value) {
         evt.preventDefault()

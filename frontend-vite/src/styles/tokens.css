@@ -94,3 +94,21 @@
   --glass-bg: rgba(24, 24, 27, 0.8);
   --glass-border: rgba(255, 255, 255, 0.06);
 }
+
+/* Dark mode: dim paper images — filter on img/canvas directly to avoid flash on question switch */
+.dark img.ws-question-preview,
+.dark img.page-img,
+.dark img.ms-page-img,
+.dark .crop-canvas-element,
+.dark .merged-crop-preview-canvas {
+  filter: brightness(0.85) contrast(1.1);
+}
+
+/* Dark mode + setting ON: replace dim with full invert */
+.dark.img-invert img.ws-question-preview,
+.dark.img-invert img.page-img,
+.dark.img-invert img.ms-page-img,
+.dark.img-invert .crop-canvas-element,
+.dark.img-invert .merged-crop-preview-canvas {
+  filter: invert(1) hue-rotate(180deg);
+}

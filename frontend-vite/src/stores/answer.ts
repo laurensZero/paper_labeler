@@ -8,6 +8,7 @@ import { useFilterStore } from './filter'
 import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
+import { questionsApi } from '@/api/endpoints'
 import type { BoundingBox } from '@/types/common'
 import type { AnswerPaperListItem, Page } from '@/types/paper'
 import {
@@ -179,20 +180,22 @@ export const useAnswerStore = defineStore('answer', () => {
     return answerQuestions.value[answerQIndex.value] || null
   })
 
+  const t = i18n.global.t
+
   const answerQInfoText = computed(() => {
-    if (answerQIndex.value < 0 || answerQIndex.value >= answerQuestions.value.length) return '题号 -'
+    if (answerQIndex.value < 0 || answerQIndex.value >= answerQuestions.value.length) return t('answer.questionNoEmpty')
     const q = answerQuestions.value[answerQIndex.value]
-    return `题号 ${q.question_no || '(未填)'} / 共 ${answerQuestions.value.length}`
+    return t('answer.questionNoInfo', { no: q.question_no || t('filter.noQuestionNo'), total: answerQuestions.value.length })
   })
 
   const answerQuestionMetaText = computed(() => {
     const q = answerQuestions.value[answerQIndex.value]
     if (!q) return ''
-    return q.section || '(未填模块)'
+    return q.section || t('answer.noSection')
   })
 
   const answerBoxesHintText = computed(() =>
-    `已保存框：${answerExistingBoxes.value.length}，本次新框：${answerNewBoxes.value.length}`
+    t('answer.boxesHint', { existing: answerExistingBoxes.value.length, new: answerNewBoxes.value.length })
   )
 
   const canPrevAnswer = computed(() => answerQIndex.value > 0)
@@ -420,7 +423,7 @@ export const useAnswerStore = defineStore('answer', () => {
       const msMatch = forcedMsId ? { id: forcedMsId } : findMatchedMsPaper(qp, answerPapers)
       const msId = msMatch?.id || null
       if (!msId) {
-        appStore.setStatus('未找到答案卷，请先上传答案卷（MS）。', 'err')
+        appStore.setStatus(t('answer.msNotFound'), 'err')
         return
       }
       msPaperId.value = msId
@@ -431,7 +434,7 @@ export const useAnswerStore = defineStore('answer', () => {
       const qData = await api(`/papers/${papersStore.currentPaperId}/questions`)
       const qs = qData.questions || []
       if (!qs.length) {
-        appStore.setStatus('该试卷还没有题目。', 'err')
+        appStore.setStatus(t('answer.noQuestions'), 'err')
         return
       }
       answerQuestions.value = sortQuestionsByNoAsc(qs)
@@ -441,16 +444,33 @@ export const useAnswerStore = defineStore('answer', () => {
         if (idx >= 0) answerQIndex.value = idx
       } else {
         const last = getAnswerProgress('q', papersStore.currentPaperId, papersStore.currentPaperCacheToken, msId, papersStore.currentMsCacheToken)
-        if (last != null && last >= 0 && last < answerQuestions.value.length) answerQIndex.value = last
+        if (last != null && last >= 0 && last < answerQuestions.value.length) {
+          answerQIndex.value = last
+        } else {
+          // Jump to the first unanswered question
+          try {
+            const status = await questionsApi.getAnswerStatus(papersStore.currentPaperId)
+            const answeredSet = new Set(status.answered_ids)
+            // Find last unanswered (questions are sorted ascending by question_no)
+            let lastUnanswered = -1
+            for (let i = answerQuestions.value.length - 1; i >= 0; i--) {
+              if (!answeredSet.has(answerQuestions.value[i].id)) {
+                lastUnanswered = i
+                break
+              }
+            }
+            if (lastUnanswered >= 0) answerQIndex.value = lastUnanswered
+          } catch {}
+        }
       }
       answerAlignRef.value = loadAnswerAlignRef(papersStore.currentPaperId, msId)
       await ensureAnswerAlignRefFromFirstQuestion()
       appStore.setView('answer')
       await loadAnswerQuestion(answerQIndex.value)
       answerReadyPaperId.value = papersStore.currentPaperId
-      appStore.setStatus(`答案模式：共 ${answerQuestions.value.length} 题`, 'ok')
+      appStore.setStatus(t('answer.modeActive', { count: answerQuestions.value.length }), 'ok')
     } catch (e) {
-      appStore.setStatus('答案模式加载失败: ' + String(e), 'err')
+      appStore.setStatus(t('answer.loadFailed', { error: String(e) }), 'err')
     } finally {
       answerOpening.value = false
     }
@@ -485,7 +505,7 @@ export const useAnswerStore = defineStore('answer', () => {
         answerNewBoxes.value = alignAnswerBoxStatesToBoundsX(answerNewBoxes.value, bounds)
       }
       selectedAnswerNew.value = answerNewBoxes.value[0] || null
-      useAppStore().setStatus(`修改答案：题目 #${q.id}`, 'ok')
+      useAppStore().setStatus(t('answer.editingAnswer', { id: q.id }), 'ok')
     }
     setAnswerProgressIndex()
     if (preserveScroll) return
@@ -551,13 +571,13 @@ export const useAnswerStore = defineStore('answer', () => {
       ? alignAnswerBoxStatesToBoundsX(merged, bounds)
       : merged
     try {
-      appStore.setStatus(`保存答案中：题目 #${q.id}...`)
+      appStore.setStatus(t('answer.savingAnswer', { id: q.id }))
       await api(`/questions/${q.id}/answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ms_paper_id: msPaperId.value, boxes: aligned }),
       })
-      appStore.setStatus('已保存', 'ok')
+      appStore.setStatus(t('answer.saved'), 'ok')
       answerExistingBoxes.value = aligned.map((b) => ({ page: b.page, bbox: b.bbox }))
       answerNewBoxes.value = []
       resetAnswerHistory()
@@ -587,7 +607,7 @@ export const useAnswerStore = defineStore('answer', () => {
   async function refreshAnswerPapers() {
     const appStore = useAppStore()
     try {
-      appStore.setStatus('加载答案卷中...')
+      appStore.setStatus(t('answer.loadingMs'))
       const data = await api('/answer_papers')
       const aps = data.papers || []
       const sortVal = (p: any) => {
@@ -595,7 +615,7 @@ export const useAnswerStore = defineStore('answer', () => {
         return Number.isFinite(v) ? v : 0
       }
       answerPaperList.value = aps.slice().sort((a: any, b: any) => sortVal(b) - sortVal(a))
-      appStore.setStatus(`答案卷数量：${aps.length}`, 'ok')
+      appStore.setStatus(t('answer.msCount', { count: aps.length }), 'ok')
     } catch (e) {
       appStore.setStatus(String(e), 'err')
       answerPaperList.value = []
@@ -618,7 +638,6 @@ export const useAnswerStore = defineStore('answer', () => {
     }
     if (!answerNewBoxes.value.length) return
     const dialogStore = useDialogStore()
-    const t = i18n.global.t
     if (!await dialogStore.confirm(t('answer.clearNewBoxesConfirm'), {
       title: t('answer.clearNewBoxesTitle'),
       confirmText: t('dialog.clear'),
