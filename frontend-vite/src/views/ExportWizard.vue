@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useExportStore } from '@/stores/export'
 import RandomExport from '@/views/RandomExport.vue'
+import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 
 const { t } = useI18n()
 defineOptions({ name: 'ExportWizard' })
@@ -159,15 +160,14 @@ function persistOptions() {
 
             <!-- Filter Summary -->
             <div class="section-card">
-              <label class="checkbox-row" :class="{ disabled: exportFromRandomMode }">
-                <input
-                  type="checkbox"
+              <div class="checkbox-row" :class="{ disabled: exportFromRandomMode }">
+                <AppCheckbox
                   v-model="exportIncludeFilterSummary"
                   :disabled="exportFromRandomMode"
-                  @change="persistOptions"
+                  @update:model-value="persistOptions"
                 />
                 <span>{{ t('exportWizard.includeFilterSummary') }}</span>
-              </label>
+              </div>
               <div class="hint-text" v-if="!exportFromRandomMode">
                 {{ t('exportWizard.filterSummaryHint') }}
               </div>
@@ -177,12 +177,12 @@ function persistOptions() {
               <div v-if="exportIncludeFilterSummary && !exportFromRandomMode" class="summary-fields">
                 <div class="hint-text" style="margin-bottom: 8px">{{ t('exportWizard.selectSummaryFields') }}</div>
                 <div class="checkbox-grid">
-                  <label class="checkbox-item"><input type="checkbox" v-model="exportSummaryFieldSection" @change="persistOptions" /> {{ t('exportWizard.fieldSection') }}</label>
-                  <label class="checkbox-item"><input type="checkbox" v-model="exportSummaryFieldPaper" @change="persistOptions" /> {{ t('exportWizard.fieldPaper') }}</label>
-                  <label class="checkbox-item"><input type="checkbox" v-model="exportSummaryFieldYear" @change="persistOptions" /> {{ t('exportWizard.fieldYear') }}</label>
-                  <label class="checkbox-item"><input type="checkbox" v-model="exportSummaryFieldSeason" @change="persistOptions" /> {{ t('exportWizard.fieldSeason') }}</label>
-                  <label class="checkbox-item"><input type="checkbox" v-model="exportSummaryFieldFavorites" @change="persistOptions" /> {{ t('exportWizard.fieldFavorites') }}</label>
-                  <label class="checkbox-item"><input type="checkbox" v-model="exportSummaryFieldCount" @change="persistOptions" /> {{ t('exportWizard.fieldCount') }}</label>
+                  <div class="checkbox-item"><AppCheckbox v-model="exportSummaryFieldSection" @update:model-value="persistOptions" /> {{ t('exportWizard.fieldSection') }}</div>
+                  <div class="checkbox-item"><AppCheckbox v-model="exportSummaryFieldPaper" @update:model-value="persistOptions" /> {{ t('exportWizard.fieldPaper') }}</div>
+                  <div class="checkbox-item"><AppCheckbox v-model="exportSummaryFieldYear" @update:model-value="persistOptions" /> {{ t('exportWizard.fieldYear') }}</div>
+                  <div class="checkbox-item"><AppCheckbox v-model="exportSummaryFieldSeason" @update:model-value="persistOptions" /> {{ t('exportWizard.fieldSeason') }}</div>
+                  <div class="checkbox-item"><AppCheckbox v-model="exportSummaryFieldFavorites" @update:model-value="persistOptions" /> {{ t('exportWizard.fieldFavorites') }}</div>
+                  <div class="checkbox-item"><AppCheckbox v-model="exportSummaryFieldCount" @update:model-value="persistOptions" /> {{ t('exportWizard.fieldCount') }}</div>
                 </div>
               </div>
             </div>
@@ -194,11 +194,11 @@ function persistOptions() {
                 <span class="hint-text">{{ t('exportWizard.questionInfoHint') }}</span>
               </div>
               <div class="checkbox-grid">
-                <label class="checkbox-item"><input type="checkbox" v-model="exportIncludeQno" @change="persistOptions" /> {{ t('exportWizard.optQno') }}</label>
-                <label class="checkbox-item"><input type="checkbox" v-model="exportIncludeSection" @change="persistOptions" /> {{ t('exportWizard.optSection') }}</label>
-                <label class="checkbox-item"><input type="checkbox" v-model="exportIncludePaper" @change="persistOptions" /> {{ t('exportWizard.optPaper') }}</label>
-                <label class="checkbox-item"><input type="checkbox" v-model="exportIncludeOriginalQno" @change="persistOptions" /> {{ t('exportWizard.optOriginalQno') }}</label>
-                <label class="checkbox-item"><input type="checkbox" v-model="exportIncludeNotes" @change="persistOptions" /> {{ t('exportWizard.optNotes') }}</label>
+                <div class="checkbox-item"><AppCheckbox v-model="exportIncludeQno" @update:model-value="persistOptions" /> {{ t('exportWizard.optQno') }}</div>
+                <div class="checkbox-item"><AppCheckbox v-model="exportIncludeSection" @update:model-value="persistOptions" /> {{ t('exportWizard.optSection') }}</div>
+                <div class="checkbox-item"><AppCheckbox v-model="exportIncludePaper" @update:model-value="persistOptions" /> {{ t('exportWizard.optPaper') }}</div>
+                <div class="checkbox-item"><AppCheckbox v-model="exportIncludeOriginalQno" @update:model-value="persistOptions" /> {{ t('exportWizard.optOriginalQno') }}</div>
+                <div class="checkbox-item"><AppCheckbox v-model="exportIncludeNotes" @update:model-value="persistOptions" /> {{ t('exportWizard.optNotes') }}</div>
               </div>
             </div>
 
@@ -206,10 +206,10 @@ function persistOptions() {
             <div class="section-card">
               <div class="section-card-header">
                 <div class="section-card-title">{{ t('exportWizard.answers') }}</div>
-                <label class="checkbox-item" style="margin: 0">
-                  <input type="checkbox" v-model="exportIncludeAnswers" @change="persistOptions" />
+                <div class="checkbox-item" style="margin: 0">
+                  <AppCheckbox v-model="exportIncludeAnswers" @update:model-value="persistOptions" />
                   {{ t('exportWizard.includeAnswers') }}
-                </label>
+                </div>
               </div>
               <div class="radio-group">
                 <label class="radio-item" :class="{ disabled: !exportIncludeAnswers }">
@@ -475,12 +475,10 @@ function persistOptions() {
   gap: 8px;
   font-size: 13px;
   color: var(--text-primary);
-  cursor: pointer;
 }
 
 .checkbox-row.disabled {
   color: var(--text-tertiary);
-  cursor: default;
 }
 
 .checkbox-grid {
@@ -495,11 +493,6 @@ function persistOptions() {
   gap: 6px;
   font-size: 13px;
   color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.checkbox-item input[type="checkbox"] {
-  accent-color: var(--accent);
 }
 
 /* ── Radio ── */
@@ -524,7 +517,36 @@ function persistOptions() {
 }
 
 .radio-item input[type="radio"] {
-  accent-color: var(--accent);
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  position: relative;
+}
+
+.radio-item input[type="radio"]::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  transition: transform var(--duration-fast) var(--ease-spring);
+}
+
+.radio-item input[type="radio"]:checked {
+  border-color: var(--text-primary);
+}
+
+.radio-item input[type="radio"]:checked::after {
+  transform: translate(-50%, -50%) scale(1);
 }
 
 /* ── Hint ── */

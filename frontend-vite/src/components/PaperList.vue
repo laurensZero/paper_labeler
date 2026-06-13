@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { usePapersStore } from '@/stores/papers'
 import { useFilterStore } from '@/stores/filter'
 import { papersApi } from '@/api/endpoints'
+import AppCheckbox from './ui/AppCheckbox.vue'
 
 defineOptions({ name: 'PaperList' })
 
@@ -60,10 +61,9 @@ function openPaper(paperId: number) {
   router.push({ name: 'mark', params: { paperId: String(paperId) } })
 }
 
-async function togglePaperDone(paper: { id: number; done: boolean }, event: Event) {
-  event.stopPropagation()
+async function togglePaperDone(paper: { id: number; done: boolean }, newValue: boolean) {
   try {
-    await papersApi.update(paper.id, { done: !paper.done })
+    await papersApi.update(paper.id, { done: newValue })
     await papersStore.refreshPapers()
   } catch {
     // silently fail
@@ -112,13 +112,12 @@ async function deletePaper(paper: { id: number }, event: Event) {
         <div class="pl-item-main">
           <span class="pl-item-name">{{ formatPaperName(paper) || ('paper#' + paper.id) }}</span>
           <div class="pl-item-actions">
-            <label class="pl-item-done" @click.stop>
-              <input
-                type="checkbox"
-                :checked="paper.done"
-                @change="togglePaperDone(paper, $event)"
+            <div class="pl-item-done" @click.stop>
+              <AppCheckbox
+                :model-value="paper.done"
+                @update:model-value="togglePaperDone(paper, $event)"
               />
-            </label>
+            </div>
             <button class="pl-item-del" :title="t('paperList.delete')" @click="deletePaper(paper, $event)">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -281,14 +280,6 @@ async function deletePaper(paper: { id: number }, event: Event) {
 .pl-item-done {
   display: flex;
   align-items: center;
-  cursor: pointer;
-}
-
-.pl-item-done input {
-  width: 13px;
-  height: 13px;
-  accent-color: var(--accent);
-  cursor: pointer;
 }
 
 .pl-item-del {

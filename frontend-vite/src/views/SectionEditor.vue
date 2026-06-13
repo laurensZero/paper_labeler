@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useSectionsStore } from '@/stores/sections'
 import SimpleSelect from '@/components/ui/SimpleSelect.vue'
+import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 import type { SectionDef, SectionGroup } from '@/stores/sections'
 
 const { t } = useI18n()
@@ -84,9 +85,8 @@ function onSectionDefGroupChange(s: SectionDef, val: number | null) {
 }
 
 /* ── Toggle checkbox for a single section ── */
-function onToggleSectionSelect(s: SectionDef, e: Event) {
-  const checked = (e.target as HTMLInputElement).checked
-  store.toggleSectionSelection(s.id, checked)
+function onToggleSectionSelect(s: SectionDef, value: boolean) {
+  store.toggleSectionSelection(s.id, value)
 }
 
 /* ── Batch group change ── */
@@ -254,12 +254,11 @@ onMounted(() => {
           :key="s.id"
           class="se-row"
         >
-          <input
+          <AppCheckbox
             v-if="sectionMultiSelect"
-            type="checkbox"
-            :checked="selectedSectionDefIds.has(s.id)"
+            :model-value="selectedSectionDefIds.has(s.id)"
             style="flex-shrink: 0"
-            @change="onToggleSectionSelect(s, $event)"
+            @update:model-value="onToggleSectionSelect(s, $event)"
           />
           <span class="se-pill se-pill--section">{{ t('sectionEditor.sectionLabel') }}</span>
           <div style="min-width: 160px; width: 180px; flex-shrink: 0">

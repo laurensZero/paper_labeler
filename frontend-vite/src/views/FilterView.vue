@@ -8,7 +8,6 @@ import { useSectionsStore } from '@/stores/sections'
 import { usePapersStore } from '@/stores/papers'
 import { useExportStore } from '@/stores/export'
 import { useDialogStore } from '@/stores/dialog'
-import { useSettingsStore } from '@/stores/settings'
 import { questionsApi } from '@/api/endpoints'
 import MultiSelect from '@/components/ui/MultiSelect.vue'
 import PaperCascadeMultiSelect from '@/components/ui/PaperCascadeMultiSelect.vue'
@@ -17,6 +16,7 @@ import MergedCropPreview from '@/components/ui/MergedCropPreview.vue'
 import CropPreview from '@/components/ui/CropPreview.vue'
 import FilmStrip from '@/components/ui/FilmStrip.vue'
 import Inspector from '@/components/ui/Inspector.vue'
+import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 import { useDeferredQuestionPreview } from '@/composables/useDeferredQuestionPreview'
 
 const { t } = useI18n()
@@ -35,12 +35,10 @@ const {
   filterYearMulti,
   filterSeasonMulti,
   filterFavOnly,
-  filterPage,
-  filterPageSize,
-  filterTotal,
-  filterTotalPages,
   filterResults,
   filterLoading,
+  filterMultiSelect,
+  selectedQuestionIds,
 } = storeToRefs(filterStore)
 
 /* ── Local state ── */
@@ -273,9 +271,13 @@ function onSeasonMultiChange(v: string[]) {
   filterStore.onFilterChange()
 }
 
-function onFavOnlyChange(e: Event) {
-  filterFavOnly.value = (e.target as HTMLInputElement).checked
+function onFavOnlyChange(value: boolean) {
+  filterFavOnly.value = value
   filterStore.onFilterChange()
+}
+
+function onBatchFavorite() {
+  filterStore.batchUpdateSelected(undefined, true)
 }
 
 /* ── Question selection ── */
@@ -390,19 +392,6 @@ async function onToggleAnswer() {
   scrollToAnswer()
 }
 
-/* ── Pagination ── */
-function onPrevPage() {
-  if (filterPage.value > 1) {
-    filterStore.setFilterPage(filterPage.value - 1)
-  }
-}
-
-function onNextPage() {
-  if (filterPage.value < filterTotalPages.value) {
-    filterStore.setFilterPage(filterPage.value + 1)
-  }
-}
-
 /* ── Keyboard navigation ── */
 function onKeyDown(e: KeyboardEvent) {
   // Don't intercept if typing in input
@@ -476,7 +465,7 @@ watch(filterResults, (results) => {
   _filmStripTimer = setTimeout(loadAllFilmStripItems, 300)
 }, { flush: 'post' })
 
-let _filmStripTimer: ReturnType<typeof setTimeout> | null = null
+let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
 </script>
 
 <template>
@@ -517,12 +506,23 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | null = null
           class="ws-toolbar-select ws-toolbar-select--sm"
           @update:model-value="onSeasonMultiChange"
         />
-        <label class="ws-toolbar-check">
-          <input type="checkbox" :checked="filterFavOnly" @change="onFavOnlyChange" />
+        <div class="ws-toolbar-check">
+          <AppCheckbox
+            :model-value="filterFavOnly"
+            @update:model-value="onFavOnlyChange"
+          />
           <span>收藏</span>
-        </label>
+        </div>
       </div>
       <div class="ws-toolbar-right">
+        <button class="ws-toolbar-btn" :class="{ active: filterMultiSelect }" @click="filterStore.toggleFilterMultiSelect()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span>{{ filterMultiSelect ? `已选 ${selectedQuestionIds.size}` : '多选' }}</span>
+        </button>
+        <button v-if="filterMultiSelect && selectedQuestionIds.size" class="ws-toolbar-btn" @click="onBatchFavorite">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
+          <span>收藏</span>
+        </button>
         <button class="ws-toolbar-btn" @click="exportStore.exportFilterPdf()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>导出</span>
@@ -623,7 +623,10 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | null = null
       <FilmStrip
         :items="allFilmStripItems"
         :active-id="activeQuestionId"
+        :multi-select="filterMultiSelect"
+        :selected-ids="selectedQuestionIds"
         @select="selectQuestionById"
+        @toggle-selection="(id) => filterStore.toggleFilterItemSelection({ id })"
       />
     </div>
   </div>
@@ -682,15 +685,8 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | null = null
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
-  cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-}
-
-.ws-toolbar-check input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent);
 }
 
 .ws-toolbar-right {
@@ -719,6 +715,12 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | null = null
 .ws-toolbar-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.ws-toolbar-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
 }
 
 /* ══════════════════════════════════════
@@ -870,6 +872,7 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | null = null
 .ws-filmstrip {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 0 8px;
   background: var(--bg-elevated);

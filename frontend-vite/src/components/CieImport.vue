@@ -3,6 +3,7 @@ import { computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useCieImportStore } from '@/stores/cieImport'
+import AppCheckbox from './ui/AppCheckbox.vue'
 
 defineOptions({ name: 'CieImport' })
 
@@ -175,11 +176,10 @@ watch(cieImportOpen, (open) => {
                   done: group.qp.done,
                 }"
               >
-                <input
-                  type="checkbox"
+                <AppCheckbox
                   class="cie-checkbox"
-                  :checked="cieSelectedIds.has(group.qp.originalIdx)"
-                  @change="store.toggleCieSelection(group.qp, ($event.target as HTMLInputElement).checked)"
+                  :model-value="cieSelectedIds.has(group.qp.originalIdx)"
+                  @update:model-value="store.toggleCieSelection(group.qp, $event)"
                 />
                 <span class="cie-paper-filename">{{ group.qp.filename }}</span>
                 <span class="cie-badge cie-badge--qp">{{ t('cieImport.questionPaper') }}</span>
@@ -197,11 +197,10 @@ watch(cieImportOpen, (open) => {
                   done: group.ms.done,
                 }"
               >
-                <input
-                  type="checkbox"
+                <AppCheckbox
                   class="cie-checkbox"
-                  :checked="cieSelectedIds.has(group.ms.originalIdx)"
-                  @change="store.toggleCieSelection(group.ms, ($event.target as HTMLInputElement).checked)"
+                  :model-value="cieSelectedIds.has(group.ms.originalIdx)"
+                  @update:model-value="store.toggleCieSelection(group.ms, $event)"
                 />
                 <span class="cie-paper-filename">{{ group.ms.filename }}</span>
                 <span class="cie-badge cie-badge--ms">{{ t('cieImport.markScheme') }}</span>
@@ -220,11 +219,10 @@ watch(cieImportOpen, (open) => {
                 exists: paper.exists,
               }"
             >
-              <input
-                type="checkbox"
+              <AppCheckbox
                 class="cie-checkbox"
-                :checked="cieSelectedIds.has(paper.originalIdx)"
-                @change="store.toggleCieSelection(paper, ($event.target as HTMLInputElement).checked)"
+                :model-value="cieSelectedIds.has(paper.originalIdx)"
+                @update:model-value="store.toggleCieSelection(paper, $event)"
               />
               <span class="cie-paper-filename">{{ paper.filename }}</span>
               <span class="cie-badge cie-badge--other">{{ t('cieImport.other') }}</span>
@@ -584,11 +582,7 @@ watch(cieImportOpen, (open) => {
 }
 
 .cie-checkbox {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--accent);
   flex-shrink: 0;
-  cursor: pointer;
 }
 
 .cie-paper-filename {

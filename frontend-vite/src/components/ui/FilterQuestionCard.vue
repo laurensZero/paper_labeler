@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import CropPreview from './CropPreview.vue'
+import AppCheckbox from './AppCheckbox.vue'
 
 defineOptions({ name: 'FilterQuestionCard' })
 
@@ -83,13 +84,12 @@ function onToggleFavorite() {
   <div class="fqc" :class="{ 'fqc--selected': selected }">
     <div class="fqc-main">
       <!-- Checkbox -->
-      <label class="fqc-select" @click.stop>
-        <input
-          type="checkbox"
-          :checked="selected"
-          @change="emit('update:selected', ($event.target as HTMLInputElement).checked)"
+      <div class="fqc-select" @click.stop>
+        <AppCheckbox
+          :model-value="selected"
+          @update:model-value="emit('update:selected', $event)"
         />
-      </label>
+      </div>
 
       <!-- Content -->
       <div class="fqc-content">
@@ -167,15 +167,7 @@ function onToggleFavorite() {
   display: flex;
   align-items: flex-start;
   padding-top: 2px;
-  cursor: pointer;
   flex-shrink: 0;
-}
-
-.fqc-select input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--accent);
-  cursor: pointer;
 }
 
 /* Content */

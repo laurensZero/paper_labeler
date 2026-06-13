@@ -55,30 +55,6 @@
   color: var(--text-primary);
 }
 
-.collapse-trigger {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: var(--radius-xs);
-  opacity: 0;
-  transition: all var(--duration-fast) var(--ease-out);
-}
-
-.sidebar:hover .collapse-trigger {
-  opacity: 1;
-}
-
-.collapse-trigger:hover {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-}
-
 /* Search */
 .sidebar-search {
   padding: 0 10px 10px;
@@ -405,8 +381,7 @@
     padding: 12px 10px;
   }
 
-  .brand-name,
-  .collapse-trigger {
+  .brand-name {
     display: none;
   }
 

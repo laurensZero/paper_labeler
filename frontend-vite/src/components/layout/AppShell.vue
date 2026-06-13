@@ -83,14 +83,9 @@ function navigate(key: string) {
           </svg>
         </div>
         <span v-if="!siderCollapsed" class="brand-name">Paper Labeler</span>
-        <button v-if="!isNarrowViewport" class="collapse-trigger" @click="siderCollapsed = !siderCollapsed" :title="siderCollapsed ? t('sidebar.expand') : t('sidebar.collapse')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline :points="siderCollapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6'" />
-          </svg>
-        </button>
       </div>
 
-      <Sidebar :collapsed="siderCollapsed" />
+      <Sidebar :collapsed="siderCollapsed" @toggle-collapse="siderCollapsed = !siderCollapsed" />
     </aside>
 
     <main class="workspace">

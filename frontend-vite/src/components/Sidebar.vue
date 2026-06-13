@@ -12,6 +12,10 @@ const props = defineProps<{
   collapsed?: boolean
 }>()
 
+const emit = defineEmits<{
+  toggleCollapse: []
+}>()
+
 const { t } = useI18n()
 const router = useRouter()
 const papersStore = usePapersStore()
@@ -65,8 +69,8 @@ function openCieImport() {
       <PaperList :search-query="searchQuery" />
     </div>
 
-    <!-- Footer -->
-    <div v-if="!props.collapsed" class="sidebar-footer">
+    <!-- Footer — same structure for both states -->
+    <div class="sidebar-footer">
       <input
         ref="uploadInputRef"
         type="file"
@@ -75,30 +79,37 @@ function openCieImport() {
         class="upload-input-hidden"
         @change="onFileSelected"
       />
-      <button class="footer-action" :disabled="uploading" @click="triggerFileInput">
+      <button class="footer-btn" :class="{ collapsed: props.collapsed }" :disabled="uploading" @click="triggerFileInput" :title="t('upload.title')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <polyline points="17 8 12 3 7 8"/>
           <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
-        <span>{{ uploading ? t('upload.status') : t('upload.title') }}</span>
+        <span v-if="!props.collapsed" class="footer-btn-label">{{ uploading ? t('upload.status') : t('upload.title') }}</span>
       </button>
-      <button class="footer-action" @click="openCieImport">
+      <button class="footer-btn" :class="{ collapsed: props.collapsed }" @click="openCieImport" :title="t('upload.cieImport')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/>
           <line x1="2" y1="12" x2="22" y2="12"/>
           <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
         </svg>
-        <span>{{ t('upload.cieImport') }}</span>
+        <span v-if="!props.collapsed" class="footer-btn-label">{{ t('upload.cieImport') }}</span>
       </button>
-      <button class="footer-action" @click="router.push({ name: 'answer-admin' })">
+      <button class="footer-btn" :class="{ collapsed: props.collapsed }" @click="router.push({ name: 'answer-admin' })" :title="t('answerAdmin.title')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
           <polyline points="14 2 14 8 20 8" />
           <line x1="16" y1="13" x2="8" y2="13" />
           <line x1="16" y1="17" x2="8" y2="17" />
         </svg>
-        <span>{{ t('answerAdmin.title') }}</span>
+        <span v-if="!props.collapsed" class="footer-btn-label">{{ t('answerAdmin.title') }}</span>
+      </button>
+      <div class="sidebar-divider"></div>
+      <button class="footer-btn" :class="{ collapsed: props.collapsed }" @click="emit('toggleCollapse')" :title="props.collapsed ? t('sidebar.expand') : t('sidebar.collapse')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline :points="props.collapsed ? '9 18 15 12 9 6' : '15 18 9 12 15 6'" />
+        </svg>
+        <span v-if="!props.collapsed" class="footer-btn-label">{{ t('sidebar.collapse') }}</span>
       </button>
     </div>
   </div>
@@ -179,20 +190,26 @@ function openCieImport() {
 
 /* Footer */
 .sidebar-footer {
-  padding: 6px 4px;
+  padding: 8px 4px;
   border-top: 1px solid var(--border);
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
-.footer-action {
+.sidebar-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.footer-btn {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 10px;
+  padding: 8px 10px;
   border: none;
   background: none;
   color: var(--text-secondary);
@@ -202,15 +219,30 @@ function openCieImport() {
   border-radius: var(--radius-xs);
   cursor: pointer;
   transition: all 100ms ease;
+  white-space: nowrap;
 }
 
-.footer-action:hover {
+.footer-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
 
-.footer-action:disabled {
+.footer-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Collapsed: center icon, square hit area */
+.footer-btn.collapsed {
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  align-self: center;
+  padding: 0;
+}
+
+.footer-btn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

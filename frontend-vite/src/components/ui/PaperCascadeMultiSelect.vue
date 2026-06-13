@@ -966,13 +966,14 @@ onBeforeUnmount(() => {
   border: 1.5px solid var(--border-strong);
   border-radius: 4px;
   flex-shrink: 0;
-  color: white;
   transition: all var(--duration-fast) var(--ease-out);
+  background: transparent;
 }
 
 .pcms-checkbox--checked {
-  background: var(--accent);
-  border-color: var(--accent);
+  border-color: var(--text-primary);
+  background: transparent;
+  color: var(--text-primary);
 }
 
 .pcms-paper-label {

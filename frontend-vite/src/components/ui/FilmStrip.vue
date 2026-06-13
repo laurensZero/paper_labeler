@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 
 defineOptions({ name: 'FilmStrip' })
 
@@ -15,12 +15,17 @@ export interface FilmStripItem {
 const props = withDefaults(defineProps<{
   items: FilmStripItem[]
   activeId?: number | null
+  multiSelect?: boolean
+  selectedIds?: Set<number>
 }>(), {
   activeId: null,
+  multiSelect: false,
+  selectedIds: () => new Set(),
 })
 
 const emit = defineEmits<{
   select: [id: number]
+  'toggle-selection': [id: number]
 }>()
 
 const scrollRef = ref<HTMLElement | null>(null)
@@ -39,23 +44,34 @@ function scrollToActive() {
   }
 }
 
-// Auto-scroll when active changes
-const lastActiveId = ref(props.activeId)
-const observer = ref<MutationObserver | null>(null)
+function onItemClick(item: FilmStripItem) {
+  if (props.multiSelect) {
+    emit('toggle-selection', item.id)
+  } else {
+    emit('select', item.id)
+  }
+}
 
 function onKeyDown(e: KeyboardEvent) {
+  // Don't intercept if typing in input
+  const target = e.target as HTMLElement
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
+
   if (!props.items.length || props.activeId == null) return
   const idx = props.items.findIndex(i => i.id === props.activeId)
   if (idx < 0) return
 
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+  if (e.key === 'ArrowLeft') {
     e.preventDefault()
     const prev = Math.max(0, idx - 1)
     emit('select', props.items[prev].id)
-  } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+  } else if (e.key === 'ArrowRight') {
     e.preventDefault()
     const next = Math.min(props.items.length - 1, idx + 1)
     emit('select', props.items[next].id)
+  } else if (e.key === 'Enter' && props.multiSelect) {
+    e.preventDefault()
+    emit('toggle-selection', props.activeId)
   }
 }
 
@@ -68,7 +84,6 @@ onBeforeUnmount(() => {
 })
 
 // Watch activeId changes to scroll
-import { watch } from 'vue'
 watch(() => props.activeId, () => {
   setTimeout(scrollToActive, 50)
 })
@@ -81,10 +96,19 @@ watch(() => props.activeId, () => {
         v-for="item in items"
         :key="item.id"
         class="fs-item"
-        :class="{ 'fs-item--active': item.id === activeId, 'fs-item--fav': item.is_favorite }"
+        :class="{
+          'fs-item--active': item.id === activeId,
+          'fs-item--fav': item.is_favorite,
+          'fs-item--selected': multiSelect && selectedIds.has(item.id),
+        }"
         :data-fs-id="item.id"
-        @click="emit('select', item.id)"
+        @click="onItemClick(item)"
       >
+        <div v-if="multiSelect" class="fs-item-check">
+          <svg v-if="selectedIds.has(item.id)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
         <div class="fs-item-no">{{ item.question_no || '?' }}</div>
         <div v-if="getSectionLabel(item)" class="fs-item-tag">{{ getSectionLabel(item) }}</div>
         <button
@@ -118,6 +142,7 @@ watch(() => props.activeId, () => {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text-tertiary) 30%, transparent) transparent;
   flex: 1;
+  justify-content: center;
 }
 
 .fs-scroll::-webkit-scrollbar {
@@ -162,6 +187,20 @@ watch(() => props.activeId, () => {
   font-weight: 600;
 }
 
+.fs-item--selected {
+  background: var(--bg-pressed);
+  border-color: var(--text-secondary);
+}
+
+.fs-item--selected .fs-item-no {
+  font-weight: 600;
+}
+
+.fs-item--selected.fs-item--active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
 .fs-item-no {
   font-size: 13px;
   font-weight: 500;
@@ -174,6 +213,25 @@ watch(() => props.activeId, () => {
   max-width: 60px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.fs-item-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: transparent;
+  transition: all 100ms ease;
+}
+
+.fs-item--selected .fs-item-check {
+  border-color: var(--text-primary);
+  background: transparent;
+  color: var(--text-primary);
 }
 
 .fs-item-fav {

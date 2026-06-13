@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useExportStore } from '@/stores/export'
 import type { RandomExportGroup } from '@/stores/export'
+import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 
 const { t } = useI18n()
 defineOptions({ name: 'RandomExport' })
@@ -99,10 +100,10 @@ function toggleGroupSelectAll(group: RandomExportGroup) {
 
           <!-- Favorite Only -->
           <div class="option-row">
-            <label class="checkbox-item">
-              <input type="checkbox" v-model="randomExportFavOnly" @change="onFavOnlyChange" />
+            <div class="checkbox-item">
+              <AppCheckbox v-model="randomExportFavOnly" @update:model-value="onFavOnlyChange" />
               {{ t('randomExport.favOnly') }}
-            </label>
+            </div>
           </div>
 
           <!-- Scrollable Content -->
@@ -114,14 +115,14 @@ function toggleGroupSelectAll(group: RandomExportGroup) {
                 <span class="hint-text">{{ t('randomExport.yearHint') }}</span>
               </div>
               <div class="checkbox-grid">
-                <label
+                <div
                   v-for="y in randomExportYearList"
                   :key="y.year"
                   class="checkbox-item"
                 >
-                  <input type="checkbox" v-model="y.checked" />
+                  <AppCheckbox v-model="y.checked" />
                   {{ y.year }}
-                </label>
+                </div>
               </div>
             </div>
 
@@ -185,13 +186,13 @@ function toggleGroupSelectAll(group: RandomExportGroup) {
                       :key="item.section"
                       class="section-row"
                     >
-                      <label class="section-label">
-                        <input type="checkbox" v-model="item.selected" />
+                      <div class="section-label">
+                        <AppCheckbox v-model="item.selected" />
                         <span class="section-name" :title="item.section || t('randomExport.unsectioned')">
                           {{ item.section || t('randomExport.unsectioned') }}
                         </span>
                         <span class="section-stock">({{ t('randomExport.stock') }} {{ item.count }})</span>
-                      </label>
+                      </div>
                       <input
                         type="number"
                         min="0"
@@ -524,11 +525,6 @@ function toggleGroupSelectAll(group: RandomExportGroup) {
   gap: 6px;
   font-size: 13px;
   color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.checkbox-item input[type="checkbox"] {
-  accent-color: var(--accent);
 }
 
 .checkbox-grid {

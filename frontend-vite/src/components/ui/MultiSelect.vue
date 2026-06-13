@@ -444,9 +444,9 @@ watch(() => filteredOptions.value.length, (len) => {
 }
 
 .ms-checkbox--checked {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
+  border-color: var(--text-primary);
+  background: transparent;
+  color: var(--text-primary);
 }
 
 .ms-option-label {

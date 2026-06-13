@@ -9,6 +9,7 @@ import { usePapersStore } from '@/stores/papers'
 import { useMarkStore } from '@/stores/mark'
 import { useAnswerStore } from '@/stores/answer'
 import { useFilterStore } from '@/stores/filter'
+import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 
 const { t } = useI18n()
 
@@ -399,14 +400,13 @@ onMounted(() => {
                 <option value="display">显示名（含大类）</option>
                 <option value="raw">原始模块名</option>
               </select>
-              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap">
-                <input
-                  type="checkbox"
+              <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap">
+                <AppCheckbox
                   v-model="exportNameAutoTimestamp"
-                  @change="onExportNameOptionChange"
+                  @update:model-value="onExportNameOptionChange"
                 />
                 自动追加时间戳
-              </label>
+              </div>
             </div>
             <button class="btn" style="font-size: 12px; padding: 5px 12px; align-self: flex-end" @click="resetNameTemplate">{{ t('settings.export.resetDefault') }}</button>
           </div>
@@ -420,18 +420,18 @@ onMounted(() => {
       <div style="display: flex; flex-direction: column; gap: 0">
         <!-- 检查与修复选项 -->
         <div style="padding: 14px 0; display: flex; flex-direction: column; gap: 10px">
-          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); cursor: pointer">
-            <input type="checkbox" v-model="maintenanceRemoveOrphanBoxes" />
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary)">
+            <AppCheckbox v-model="maintenanceRemoveOrphanBoxes" />
             {{ t('settings.maintenance.repair') }}: 清理孤儿记录
-          </label>
-          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); cursor: pointer">
-            <input type="checkbox" v-model="maintenanceFillMissingQuestionNo" />
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary)">
+            <AppCheckbox v-model="maintenanceFillMissingQuestionNo" />
             填充缺失题号
-          </label>
-          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); cursor: pointer">
-            <input type="checkbox" v-model="maintenanceRenumberQuestionNo" />
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary)">
+            <AppCheckbox v-model="maintenanceRenumberQuestionNo" />
             题号重排为连续序列
-          </label>
+          </div>
         </div>
 
         <div style="display: flex; gap: 10px">
