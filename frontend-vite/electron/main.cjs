@@ -7,9 +7,15 @@ const http = require('http')
 let backendProcess = null
 let backendPort = 0
 
-// ROOT: where backend/ lives (for Python import). In dev, project root.
+// ROOT: where backend/ lives (for Python import).
+// 打包后：exeDir 有热更新的 backend/ 就用它，否则用 resourcesPath（原始打包）。
 function getRoot() {
   if (app.isPackaged) {
+    const exeDir = path.dirname(process.argv[0])
+    const fs = require('fs')
+    if (fs.existsSync(path.join(exeDir, 'backend', 'main.py'))) {
+      return exeDir
+    }
     return process.resourcesPath
   }
   return path.resolve(__dirname, '..', '..')
@@ -95,6 +101,7 @@ async function startBackend() {
       ...process.env,
       PAPER_LABELER_PORT: String(backendPort),
       PAPER_LABELER_ROOT: dataRoot,
+      PAPER_LABELER_BUNDLE_DIR: root,
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },

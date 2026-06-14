@@ -19,11 +19,14 @@ def _resolve_app_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 APP_DIR = _resolve_app_dir()
-BUNDLE_DIR = APP_DIR
 DATA_DIR = APP_DIR / "data"
 PDF_DIR = DATA_DIR / "pdfs"
 PAGE_DIR = DATA_DIR / "pages"
 EXPORT_DIR = DATA_DIR / "_export_jobs"
+
+# UI 文件位置：Electron 传入的 BUNDLE_DIR，否则和 APP_DIR 同级
+_env_bundle = os.getenv("PAPER_LABELER_BUNDLE_DIR", "").strip()
+BUNDLE_DIR = Path(_env_bundle) if _env_bundle else APP_DIR
 _ui_res = BUNDLE_DIR / "resources" / "frontend-vite" / "dist"
 _ui_dev = BUNDLE_DIR / "frontend-vite" / "dist"
 UI_DIR = _ui_res if _ui_res.exists() else _ui_dev
