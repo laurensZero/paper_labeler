@@ -530,6 +530,7 @@
     "forceHint": "This is a mandatory update",
     "checking": "Checking for updates...",
     "upToDate": "Already up to date",
-    "checkForUpdates": "Check for Updates"
+    "checkForUpdates": "Check for Updates",
+    "releaseNotes": "Release Notes"
   }
 }

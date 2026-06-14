@@ -5,7 +5,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from PIL import Image
 from sqlalchemy.orm import Session
-from backend.database import SessionLocal, Paper, Question, QuestionBox, Answer, AnswerBox, SectionDef
+import backend.database as _db_mod
+from backend.database import Paper, Question, QuestionBox, Answer, AnswerBox, SectionDef
 from backend.schemas.schemas import PurgeAllRequest
 from backend.config import PDF_DIR, PAGE_DIR
 from backend.dependencies import get_db
@@ -39,7 +40,7 @@ def _reset_convert_state():
 
 def _run_convert(quality: int):
     """Background worker: convert PNGs to WebP one by one, updating progress."""
-    db = SessionLocal()
+    db = _db_mod.SessionLocal()
     try:
         pngs = sorted(PAGE_DIR.rglob("page_*.png"))
         # Filter out those that already have a webp counterpart

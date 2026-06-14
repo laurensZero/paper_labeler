@@ -279,7 +279,8 @@ def download_export_file(job_id: str):
 from sqlalchemy.orm import Session
 from fpdf import FPDF
 from PIL import Image
-from backend.database import SessionLocal, Question, QuestionBox, Answer, AnswerBox, Paper, QuestionSection, SectionGroup, SectionGroupMember
+import backend.database as _db_mod
+from backend.database import Question, QuestionBox, Answer, AnswerBox, Paper, QuestionSection, SectionGroup, SectionGroupMember
 from backend.config import DATA_DIR, PAGE_DIR
 from backend.services.paper_utils import resolve_page_image
 import traceback
@@ -306,7 +307,7 @@ class PDFWithPageNumbers(FPDF):
         self.cell(0, 10, f'{display_no}', 0, 0, 'C')
 
 def get_db():
-    db = SessionLocal()
+    db = _db_mod.SessionLocal()
     try:
         yield db
     finally:
@@ -382,7 +383,7 @@ def _normalize_filter_summary_lines(lines: list[str] | None) -> list[str]:
 
 
 def _make_pdf(job_id, ids, options, progress_cb=None):
-    db: Session = SessionLocal()
+    db: Session = _db_mod.SessionLocal()
     out_dir = DATA_DIR / "_export_jobs"
     out_dir.mkdir(parents=True, exist_ok=True)
     temp_dir = out_dir / f"_tmp_{job_id}"

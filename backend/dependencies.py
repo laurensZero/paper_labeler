@@ -1,7 +1,7 @@
-from backend.database import SessionLocal
+import backend.database as _db_mod
 
 def get_db():
-    db = SessionLocal()
+    db = _db_mod.SessionLocal()
     try:
         yield db
     finally:

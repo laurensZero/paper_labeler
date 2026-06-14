@@ -4,18 +4,24 @@ from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstr
 from sqlalchemy.orm import declarative_base, sessionmaker
 from backend.config import DATA_DIR
 
-DB_PATH = (DATA_DIR / "app.db").resolve()
-DATABASE_URL = f"sqlite:///{DB_PATH.as_posix()}"
-
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
 Base = declarative_base()
 
 
+def _build_engine():
+    db_path = (DATA_DIR / "app.db").resolve()
+    url = f"sqlite:///{db_path.as_posix()}"
+    return create_engine(url, connect_args={"check_same_thread": False})
+
+
+engine = _build_engine()
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
+
+
 def reconnect_db():
+    """Dispose the old engine and create a new one pointing at the current DATA_DIR."""
     global engine, SessionLocal
     engine.dispose()
-    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    engine = _build_engine()
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
 
 
