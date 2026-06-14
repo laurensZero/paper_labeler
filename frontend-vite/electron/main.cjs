@@ -7,10 +7,38 @@ const http = require('http')
 let backendProcess = null
 let backendPort = 0
 
-// ROOT: where data/ lives. In packaged app, cwd (exe dir). In dev, project root.
+// ROOT: where backend/ lives (for Python import). In dev, project root.
 function getRoot() {
   if (app.isPackaged) {
-    return process.cwd()
+    return process.resourcesPath
+  }
+  return path.resolve(__dirname, '..', '..')
+}
+
+// DATA_ROOT: where data/ lives.
+// First: check marker file. Then: cwd. Fallback: project root.
+function getDataRoot() {
+  const fs = require('fs')
+  const markerPath = path.join(app.getPath('userData'), 'data-root.txt')
+  if (fs.existsSync(markerPath)) {
+    const stored = fs.readFileSync(markerPath, 'utf-8').trim()
+    if (stored && fs.existsSync(path.join(stored, 'data'))) return stored
+  }
+  if (app.isPackaged) {
+    const cwd = process.cwd()
+    // If CWD has data/, use it and remember
+    if (fs.existsSync(path.join(cwd, 'data'))) {
+      fs.mkdirSync(app.getPath('userData'), { recursive: true })
+      fs.writeFileSync(markerPath, cwd, 'utf-8')
+      return cwd
+    }
+    // CWD is temp dir, try exe dir from argv[0]
+    const exeDir = path.dirname(process.argv[0])
+    if (exeDir !== cwd && fs.existsSync(path.join(exeDir, 'data'))) {
+      fs.mkdirSync(app.getPath('userData'), { recursive: true })
+      fs.writeFileSync(markerPath, exeDir, 'utf-8')
+      return exeDir
+    }
   }
   return path.resolve(__dirname, '..', '..')
 }
@@ -48,8 +76,9 @@ async function startBackend() {
   }
 
   backendPort = await getFreePort()
-  const root = getRoot()
-  console.log(`Starting backend: ${python} on port ${backendPort}, cwd: ${root}`)
+  const root = getRoot()          // CWD for Python (resources/)
+  const dataRoot = getDataRoot()  // data/ directory (exe dir)
+  console.log(`Starting backend: ${python} on port ${backendPort}, cwd: ${root}, dataRoot: ${dataRoot}`)
 
   backendProcess = spawn(python, [
     '-X', 'utf8',
@@ -62,7 +91,7 @@ async function startBackend() {
     env: {
       ...process.env,
       PAPER_LABELER_PORT: String(backendPort),
-      PAPER_LABELER_ROOT: root,
+      PAPER_LABELER_ROOT: dataRoot,
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },
