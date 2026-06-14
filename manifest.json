@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "url": "bundle-1.0.0.zip",
-  "hash": "sha256:f18daaf3e4ab6133d8d86108bdf1788d0589de141ff65352822c5283e3cd337c",
-  "notes": "c0e268d fix: 修正仓库链接中的路径分隔符 ",
-  "publishedAt": "2026-06-14T07:09:44Z"
+  "hash": "sha256:5999ee89ddec48caa60796f9bab3df69714eb6ca4012af12169bff0a5fc50f1c",
+  "notes": "0fd7bdb fix: 修正代码中的仓库名称，统一使用下划线分隔符 ",
+  "publishedAt": "2026-06-14T07:23:22Z"
 }
