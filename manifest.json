@@ -1,7 +1,7 @@
 {
-  "version": "20260614.3",
-  "url": "bundle-20260614.3.zip",
-  "hash": "sha256:afb1fc87180654d1b48a4668bc51e1dcd0b672bca733c4c08680d7dcbfb26b74",
-  "notes": "38422a0 feat: 优化应用根目录解析逻辑，支持多种环境配置；重构数据库引擎构建；添加更新信息面板 ",
-  "publishedAt": "2026-06-14T14:03:58Z"
+  "version": "20260614.4",
+  "url": "bundle-20260614.4.zip",
+  "hash": "sha256:ffb5294b4a1971d3b44241ffd83c274f412ec65be0f60ac4d1bcc3d3cc8a471a",
+  "notes": "b1b98b8 refactor: 简化应用根目录解析逻辑，移除冗余函数 ",
+  "publishedAt": "2026-06-14T14:12:13Z"
 }
