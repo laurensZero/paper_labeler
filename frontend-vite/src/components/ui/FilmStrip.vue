@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch } from 'vue'
 
 defineOptions({ name: 'FilmStrip' })
 
@@ -75,13 +75,24 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => {
-  document.addEventListener('keydown', onKeyDown)
-})
+let _keyListenerAttached = false
+function attachKeyListener() {
+  if (!_keyListenerAttached) {
+    document.addEventListener('keydown', onKeyDown)
+    _keyListenerAttached = true
+  }
+}
+function detachKeyListener() {
+  if (_keyListenerAttached) {
+    document.removeEventListener('keydown', onKeyDown)
+    _keyListenerAttached = false
+  }
+}
 
-onBeforeUnmount(() => {
-  document.removeEventListener('keydown', onKeyDown)
-})
+onMounted(attachKeyListener)
+onActivated(attachKeyListener)
+onDeactivated(detachKeyListener)
+onBeforeUnmount(detachKeyListener)
 
 // Watch activeId changes to scroll
 watch(() => props.activeId, () => {

@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onActivated, onDeactivated, onMounted, onBeforeUnmount } from 'vue'
 import type { Ref } from 'vue'
 
 interface UseMarkKeyboardOptions {
@@ -62,11 +62,26 @@ export function useMarkKeyboard(options: UseMarkKeyboardOptions) {
     }
   }
 
-  onMounted(() => {
-    document.addEventListener('keydown', onKeyDown)
-  })
+  // keep-alive: onActivated fires right after onMounted on first mount,
+  // so use a flag to avoid double-registration.
+  let listenerAttached = false
 
-  onBeforeUnmount(() => {
-    document.removeEventListener('keydown', onKeyDown)
-  })
+  function attachListener() {
+    if (!listenerAttached) {
+      document.addEventListener('keydown', onKeyDown)
+      listenerAttached = true
+    }
+  }
+
+  function detachListener() {
+    if (listenerAttached) {
+      document.removeEventListener('keydown', onKeyDown)
+      listenerAttached = false
+    }
+  }
+
+  onMounted(attachListener)
+  onActivated(attachListener)
+  onDeactivated(detachListener)
+  onBeforeUnmount(detachListener)
 }

@@ -745,26 +745,42 @@ watch(
 )
 
 // --- lifecycle ---
+let _keyListenerAttached = false
+function attachKeyListener() {
+  if (!_keyListenerAttached) {
+    document.addEventListener('keydown', onKeyDown)
+    _keyListenerAttached = true
+  }
+}
+function detachKeyListener() {
+  if (_keyListenerAttached) {
+    document.removeEventListener('keydown', onKeyDown)
+    _keyListenerAttached = false
+  }
+}
+
 onMounted(async () => {
-  document.addEventListener('keydown', onKeyDown)
+  attachKeyListener()
   answerStore.setAnswerViewBridge({ getVisibleMsPageNum, scrollToMsPage, scrollToMsTarget })
   await ensureAnswerReady()
   attachMsScrollRenderListener()
 })
 
 onActivated(() => {
+  attachKeyListener()
   answerStore.setAnswerViewBridge({ getVisibleMsPageNum, scrollToMsPage, scrollToMsTarget })
   void ensureAnswerReady()
   nextTick(() => attachMsScrollRenderListener()).catch(() => {})
 })
 
 onDeactivated(() => {
+  detachKeyListener()
   answerStore.setAnswerViewBridge(null)
   detachMsScrollRenderListener()
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('keydown', onKeyDown)
+  detachKeyListener()
   answerStore.setAnswerViewBridge(null)
   disposeMsPageWindow()
 })

@@ -290,7 +290,15 @@
       "cleanAnswerBoxes": "清理答案框",
       "cleanSections": "清理模块关联",
       "fillQuestionNoLabel": "填充题号",
-      "renumberLabel": "重排题号"
+      "renumberLabel": "重排题号",
+      "webpTitle": "压缩页面图片",
+      "webpConfirm": "将所有页面 PNG 转换为 WebP 格式（体积减少约 40-60%），转换后删除原 PNG。确认继续？",
+      "webpButton": "开始压缩",
+      "webpRunning": "正在转换图片…",
+      "webpDone": "压缩完成：{converted} 张图片，{beforeMB}MB → {afterMB}MB",
+      "webpFailed": "压缩失败：{error}",
+      "webpConvert": "压缩页面图片",
+      "webpConvertDesc": "将已有页面图片从 PNG 转为 WebP 格式，减少磁盘占用。新导入的试卷自动使用 WebP。"
     },
     "export": {
       "title": "导出设置",

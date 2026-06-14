@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onActivated, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
@@ -436,7 +436,6 @@ onMounted(async () => {
   filterStore.loadFilterSettings()
   filterStore.loadFilterPresets()
   await refreshFilterOnEnter({ silent: false })
-  document.addEventListener('keydown', onKeyDown)
 })
 
 onActivated(() => {
@@ -448,10 +447,24 @@ onActivated(() => {
   refreshFilterOnEnter({ silent: true }).catch(() => {})
 })
 
-import { onBeforeUnmount } from 'vue'
-onBeforeUnmount(() => {
-  document.removeEventListener('keydown', onKeyDown)
-})
+let _keyListenerAttached = false
+function attachKeyListener() {
+  if (!_keyListenerAttached) {
+    document.addEventListener('keydown', onKeyDown)
+    _keyListenerAttached = true
+  }
+}
+function detachKeyListener() {
+  if (_keyListenerAttached) {
+    document.removeEventListener('keydown', onKeyDown)
+    _keyListenerAttached = false
+  }
+}
+
+onMounted(attachKeyListener)
+onActivated(attachKeyListener)
+onDeactivated(detachKeyListener)
+onBeforeUnmount(detachKeyListener)
 
 /* ── Auto-select first result ── */
 watch(filterResults, (results) => {

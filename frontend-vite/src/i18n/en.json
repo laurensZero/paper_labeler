@@ -290,7 +290,15 @@
       "cleanAnswerBoxes": "Clean answer boxes",
       "cleanSections": "Clean section links",
       "fillQuestionNoLabel": "Fill question numbers",
-      "renumberLabel": "Resequence numbers"
+      "renumberLabel": "Resequence numbers",
+      "webpTitle": "Compress Page Images",
+      "webpConfirm": "Convert all page PNGs to WebP format (~40-60% smaller). Original PNGs will be deleted. Continue?",
+      "webpButton": "Start Compression",
+      "webpRunning": "Converting images…",
+      "webpDone": "Done: {converted} images, {beforeMB}MB → {afterMB}MB",
+      "webpFailed": "Compression failed: {error}",
+      "webpConvert": "Compress Page Images",
+      "webpConvertDesc": "Convert existing page images from PNG to WebP to reduce disk usage. Newly imported papers use WebP automatically."
     },
     "export": {
       "title": "Export Settings",

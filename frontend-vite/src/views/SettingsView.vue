@@ -40,6 +40,8 @@ const {
   maintenanceRenumberQuestionNo,
   maintenanceIntegrityReport,
   maintenanceRepairReport,
+  webpConvertReport,
+  webpConvertProgress,
   darkImageInvert,
 } = storeToRefs(settingsStore)
 
@@ -507,6 +509,39 @@ onMounted(() => {
           {{ t('settings.maintenance.cleanSections') }} {{ maintenanceRepairReport.orphan_question_sections_removed || 0 }}，
           {{ t('settings.maintenance.fillQuestionNoLabel') }} {{ maintenanceRepairReport.missing_question_no_filled || 0 }}，
           {{ t('settings.maintenance.renumberLabel') }} {{ maintenanceRepairReport.question_no_resequenced_changed || 0 }}
+        </div>
+
+        <div class="divider" style="margin: 16px 0 0"></div>
+
+        <!-- 压缩页面图片 -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0">
+          <div>
+            <div style="font-weight: 500; font-size: 14px">{{ t('settings.maintenance.webpConvert') }}</div>
+            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.maintenance.webpConvertDesc') }}</div>
+          </div>
+          <button class="btn" :disabled="maintenanceBusy" @click="settingsStore.convertToWebp()">
+            {{ t('settings.maintenance.webpButton') }}
+          </button>
+        </div>
+
+        <!-- 转换进度 -->
+        <div v-if="webpConvertProgress.running && !webpConvertProgress.finished" style="margin-top: 4px">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px">
+            <span>{{ t('settings.maintenance.webpRunning') }}</span>
+            <span>{{ webpConvertProgress.done }} / {{ webpConvertProgress.total || '?' }}</span>
+          </div>
+          <div style="width: 100%; height: 6px; border-radius: 999px; background: var(--bg-pressed); overflow: hidden">
+            <div
+              style="height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #22c55e); transition: width 0.2s ease"
+              :style="{ width: webpConvertProgress.total > 0 ? (webpConvertProgress.done / webpConvertProgress.total * 100).toFixed(1) + '%' : '0%' }"
+            ></div>
+          </div>
+        </div>
+
+        <!-- 转换结果 -->
+        <div v-if="webpConvertReport" style="margin-top: 8px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; padding: 12px; background: var(--bg-input); border-radius: var(--radius-sm)">
+          {{ t('settings.maintenance.webpDone', { converted: webpConvertReport.converted || 0, beforeMB: ((webpConvertReport.before_bytes || 0) / 1024 / 1024).toFixed(1), afterMB: ((webpConvertReport.after_bytes || 0) / 1024 / 1024).toFixed(1) }) }}
+          <span v-if="webpConvertReport.errors" style="color: var(--warning)">（{{ webpConvertReport.errors }} 个错误）</span>
         </div>
       </div>
     </div>
