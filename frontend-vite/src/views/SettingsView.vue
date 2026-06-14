@@ -593,7 +593,7 @@ onMounted(() => {
           {{ importing ? t('settings.importData.importing') : t('settings.importData.selectFolder') }}
         </button>
         <span v-if="importResult" :style="{ fontSize: '13px', color: importResult.ok ? '#22c55e' : '#ef4444' }">
-          {{ importResult.ok ? t('settings.importData.success', { items: importResult.imported.join(', ') }) : importResult.error }}
+          {{ importResult.ok ? t('settings.importData.success', { items: (importResult.imported ?? []).join(', ') }) : importResult.error }}
         </span>
       </div>
     </div>
