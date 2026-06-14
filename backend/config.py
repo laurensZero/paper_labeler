@@ -1,33 +1,9 @@
-import os
 import sys
 from pathlib import Path
 
-
-def _resolve_app_dir() -> Path:
-    """Determine the application root directory.
-
-    Priority:
-    1. PAPER_LABELER_ROOT env var (set by Electron main.cjs)
-    2. Directory containing the running executable (PyInstaller / direct .exe)
-    3. Parent of this config.py file (development mode)
-    """
-    # 1) Explicit env var (Electron sets this)
-    env_root = os.getenv("PAPER_LABELER_ROOT", "").strip()
-    if env_root:
-        candidate = Path(env_root)
-        if (candidate / "data").is_dir():
-            return candidate
-
-    # 2) EXE directory — if data/ sits next to the executable, use it
-    exe_dir = Path(sys.executable).resolve().parent
-    if (exe_dir / "data").is_dir():
-        return exe_dir
-
-    # 3) Development fallback: project root (parent of backend/)
-    return Path(__file__).resolve().parents[1]
-
-
-APP_DIR = _resolve_app_dir()
+# EXE 同级目录有 data/ 就用它，否则用项目根目录
+_exe_dir = Path(sys.executable).resolve().parent
+APP_DIR = _exe_dir if (_exe_dir / "data").is_dir() else Path(__file__).resolve().parents[1]
 BUNDLE_DIR = APP_DIR
 DATA_DIR = APP_DIR / "data"
 PDF_DIR = DATA_DIR / "pdfs"
