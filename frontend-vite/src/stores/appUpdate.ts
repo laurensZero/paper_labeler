@@ -148,7 +148,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
         }
       }
 
-      const applyRes = await fetch('/admin/apply-update', { method: 'POST', body: blob })
+      const applyRes = await fetch('/admin/apply-update?version=' + encodeURIComponent(latestVersion.value), { method: 'POST', body: blob })
       if (!applyRes.ok) throw new Error(t('update.applyFailed'))
 
       dialogVisible.value = false

@@ -116,6 +116,12 @@ def debug_paths():
 @app.get("/data/version")
 def get_version():
     import json
+    from backend.config import DATA_DIR
+    # Hot update version takes priority
+    ver_file = DATA_DIR / ".hot_update_version"
+    if ver_file.exists():
+        return {"version": ver_file.read_text(encoding="utf-8").strip()}
+    # Fallback to package.json
     pkg = Path(__file__).resolve().parents[1] / "frontend-vite" / "package.json"
     ver = "0.0.0"
     if pkg.exists():
@@ -160,7 +166,7 @@ async def import_data(request: Request):
 
 
 @app.post("/admin/apply-update")
-async def apply_update(request: Request):
+async def apply_update(request: Request, version: str = ""):
     """Receive a ZIP with ui/ and backend/ dirs, extract to APP_DIR.
     ZIP structure:
       ui/...       → APP_DIR/frontend-vite/dist/
@@ -201,6 +207,12 @@ async def apply_update(request: Request):
                             shutil.copyfileobj(src, dst)
     except Exception as e:
         return JSONResponse({"error": f"bad zip: {e}"}, status_code=400)
+
+    # Save installed version
+    if version:
+        ver_path = APP_DIR / "data" / ".hot_update_version"
+        ver_path.parent.mkdir(parents=True, exist_ok=True)
+        ver_path.write_text(version, encoding="utf-8")
 
     return {"ok": True}
 

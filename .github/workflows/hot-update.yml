@@ -29,11 +29,24 @@ jobs:
           npm ci
           npm run build
 
-      - name: Get version
+      - name: Determine version (YYYYMMDD.N)
         id: ver
         run: |
-          VERSION=$(node -p "require('./frontend-vite/package.json').version")
+          TODAY=$(date -u +%Y%m%d)
+          # Fetch existing manifest to find last sequence
+          LAST_SEQ=0
+          MANIFEST_URL="https://laurenszero.github.io/paper_labeler/manifest.json"
+          EXISTING=$(curl -sf "$MANIFEST_URL" 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            LAST_VER=$(echo "$EXISTING" | jq -r '.version // ""')
+            if [[ "$LAST_VER" == "$TODAY."* ]]; then
+              LAST_SEQ=${LAST_VER##*.}
+            fi
+          fi
+          SEQ=$((LAST_SEQ + 1))
+          VERSION="${TODAY}.${SEQ}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
 
       - name: Create bundle ZIP
         run: |
