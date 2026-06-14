@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "url": "bundle-1.0.0.zip",
-  "hash": "sha256:57e820b653604713e66cbd5394fd6cb82b401f7ac13d8683f0568e2344178529",
-  "notes": "8ba57c0 fix: 修复导入结果显示，确保在没有导入项时不会抛出错误 ",
-  "publishedAt": "2026-06-14T06:46:27Z"
+  "hash": "sha256:5a37f1a8fba51f2b443c26b87b8196a8230ccb1cb1eb00387127e16920cfff57",
+  "notes": "756c35c feat: 更新配置和导入功能，添加重启应用选项并优化路径设置 ",
+  "publishedAt": "2026-06-14T07:08:01Z"
 }
