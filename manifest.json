@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "url": "bundle-1.0.0.zip",
-  "hash": "sha256:5a37f1a8fba51f2b443c26b87b8196a8230ccb1cb1eb00387127e16920cfff57",
-  "notes": "756c35c feat: 更新配置和导入功能，添加重启应用选项并优化路径设置 ",
-  "publishedAt": "2026-06-14T07:08:01Z"
+  "hash": "sha256:f18daaf3e4ab6133d8d86108bdf1788d0589de141ff65352822c5283e3cd337c",
+  "notes": "c0e268d fix: 修正仓库链接中的路径分隔符 ",
+  "publishedAt": "2026-06-14T07:09:44Z"
 }
