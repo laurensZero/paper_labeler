@@ -8,12 +8,14 @@ let backendProcess = null
 let backendPort = 0
 
 // ROOT: where backend/ lives (for Python import).
-// 打包后：exeDir 有热更新的 backend/ 就用它，否则用 resourcesPath（原始打包）。
+// 打包后：exeDir 有热更新的 backend/ 就用它，否则用 resourcesPath。
 function getRoot() {
   if (app.isPackaged) {
-    const exeDir = path.dirname(process.argv[0])
-    const fs = require('fs')
-    if (fs.existsSync(path.join(exeDir, 'backend', 'main.py'))) {
+    const portableDir = process.env.PORTABLE_EXECUTABLE_DIR
+    const exeDir = (portableDir && require('fs').existsSync(portableDir))
+      ? portableDir
+      : path.dirname(app.getPath('exe'))
+    if (require('fs').existsSync(path.join(exeDir, 'backend', 'main.py'))) {
       return exeDir
     }
     return process.resourcesPath
@@ -22,7 +24,7 @@ function getRoot() {
 }
 
 // DATA_ROOT: where data/ lives.
-// EXE 同级目录有 data/ 就用它，没有就创建。
+// 优先用 marker file，其次 EXE 所在目录，没有就创建 data/。
 function getDataRoot() {
   const fs = require('fs')
 
@@ -34,9 +36,19 @@ function getDataRoot() {
   }
 
   // 2) EXE 所在目录
-  const exeDir = app.isPackaged
-    ? path.dirname(process.argv[0])
-    : path.resolve(__dirname, '..', '..')
+  //    portable EXE 会解压到临时目录，process.argv[0] 和 app.getPath('exe') 都指向临时目录。
+  //    electron-builder 设置 PORTABLE_EXECUTABLE_DIR 指向原始 EXE 目录。
+  let exeDir
+  if (app.isPackaged) {
+    const portableDir = process.env.PORTABLE_EXECUTABLE_DIR
+    if (portableDir && fs.existsSync(portableDir)) {
+      exeDir = portableDir
+    } else {
+      exeDir = path.dirname(app.getPath('exe'))
+    }
+  } else {
+    exeDir = path.resolve(__dirname, '..', '..')
+  }
 
   const dataDir = path.join(exeDir, 'data')
   if (!fs.existsSync(dataDir)) {
@@ -101,7 +113,8 @@ async function startBackend() {
       ...process.env,
       PAPER_LABELER_PORT: String(backendPort),
       PAPER_LABELER_ROOT: dataRoot,
-      PAPER_LABELER_BUNDLE_DIR: root,
+      PAPER_LABELER_BUNDLE_DIR: dataRoot,
+      PAPER_LABELER_RESOURCES_DIR: root,
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },

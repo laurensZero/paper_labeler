@@ -19,17 +19,26 @@ def _resolve_app_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 APP_DIR = _resolve_app_dir()
+BUNDLE_DIR = APP_DIR
 DATA_DIR = APP_DIR / "data"
 PDF_DIR = DATA_DIR / "pdfs"
 PAGE_DIR = DATA_DIR / "pages"
 EXPORT_DIR = DATA_DIR / "_export_jobs"
 
-# UI 文件位置：Electron 传入的 BUNDLE_DIR，否则和 APP_DIR 同级
-_env_bundle = os.getenv("PAPER_LABELER_BUNDLE_DIR", "").strip()
-BUNDLE_DIR = Path(_env_bundle) if _env_bundle else APP_DIR
-_ui_res = BUNDLE_DIR / "resources" / "frontend-vite" / "dist"
-_ui_dev = BUNDLE_DIR / "frontend-vite" / "dist"
-UI_DIR = _ui_res if _ui_res.exists() else _ui_dev
+# UI 文件位置：热更新后在 APP_DIR，首次运行在原始打包目录
+_env_res = os.getenv("PAPER_LABELER_RESOURCES_DIR", "").strip()
+_resources_dir = Path(_env_res) if _env_res else APP_DIR
+_ui_hot = APP_DIR / "frontend-vite" / "dist"
+_ui_bundled = _resources_dir / "frontend-vite" / "dist"
+_ui_bundled_res = _resources_dir / "resources" / "frontend-vite" / "dist"
+if _ui_hot.exists():
+    UI_DIR = _ui_hot
+elif _ui_bundled.exists():
+    UI_DIR = _ui_bundled
+elif _ui_bundled_res.exists():
+    UI_DIR = _ui_bundled_res
+else:
+    UI_DIR = _ui_hot
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 

@@ -101,15 +101,27 @@ def health():
 @app.get("/debug/paths")
 def debug_paths():
     from backend.config import DATA_DIR, UI_DIR, APP_DIR, BUNDLE_DIR
+    db_path = DATA_DIR / "app.db"
+    papers_count = None
+    if db_path.exists():
+        import sqlite3
+        try:
+            conn = sqlite3.connect(str(db_path))
+            papers_count = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
+            conn.close()
+        except Exception:
+            papers_count = "error"
     return {
         "APP_DIR": str(APP_DIR),
         "BUNDLE_DIR": str(BUNDLE_DIR),
         "DATA_DIR": str(DATA_DIR),
         "UI_DIR": str(UI_DIR),
         "DATA_DIR_exists": DATA_DIR.exists(),
-        "UI_DIR_exists": UI_DIR.exists(),
-        "PAPER_LABELER_DATA_DIR": os.getenv("PAPER_LABELER_DATA_DIR", ""),
-        "PAPER_LABELER_ELECTRON": os.getenv("PAPER_LABELER_ELECTRON", ""),
+        "app.db_exists": db_path.exists(),
+        "app.db_size": db_path.stat().st_size if db_path.exists() else 0,
+        "papers_count": papers_count,
+        "PAPER_LABELER_ROOT": os.getenv("PAPER_LABELER_ROOT", ""),
+        "PAPER_LABELER_BUNDLE_DIR": os.getenv("PAPER_LABELER_BUNDLE_DIR", ""),
     }
 
 
