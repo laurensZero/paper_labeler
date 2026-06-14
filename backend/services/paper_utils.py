@@ -1,11 +1,13 @@
 import os
 import re
 import shutil
+from io import BytesIO
 from pathlib import Path
 from typing import Tuple, Union, Optional
 from datetime import datetime, timezone
 
 import fitz
+from PIL import Image
 from fastapi import UploadFile, HTTPException
 
 from backend.config import MAX_UPLOAD_BYTES
@@ -55,8 +57,38 @@ def save_upload_with_limit(upload: UploadFile, dest_path: Path, max_bytes: int =
     return written
 
 
+def resolve_page_image(pages_dir: Path, page_num: int) -> Path | None:
+    """Return the path to a page image, preferring WebP over PNG.
+
+    Checks for page_{num}.webp first, then falls back to page_{num}.png.
+    Returns None if neither exists.
+    """
+    webp = pages_dir / f"page_{page_num}.webp"
+    if webp.exists():
+        return webp
+    png = pages_dir / f"page_{page_num}.png"
+    if png.exists():
+        return png
+    return None
+
+
+def page_image_url_suffix(pages_dir: Path, page_num: int) -> tuple[str, Path | None]:
+    """Return (url_suffix, file_path) for a page image.
+
+    url_suffix is the filename portion like 'page_1.webp' or 'page_1.png'.
+    Returns ('page_{num}.png', None) as fallback if nothing found.
+    """
+    webp = pages_dir / f"page_{page_num}.webp"
+    if webp.exists():
+        return f"page_{page_num}.webp", webp
+    png = pages_dir / f"page_{page_num}.png"
+    if png.exists():
+        return f"page_{page_num}.png", png
+    return f"page_{page_num}.png", None
+
+
 def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
-    """Render PDF pages to PNG images.
+    """Render PDF pages to WebP images (with PNG fallback for existing data).
 
     Important: always clears output_dir first to avoid mixed/stale pages when
     a paper id is reused or old images remain on disk.
@@ -77,8 +109,11 @@ def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
             matrix = fitz.Matrix(4, 4)
             pix = page.get_pixmap(matrix=matrix)
 
-            image_path = output_dir / f"page_{page_index + 1}.png"
-            pix.save(str(image_path))
+            # PyMuPDF doesn't support WebP directly; convert via Pillow
+            png_data = pix.tobytes("png")
+            with Image.open(BytesIO(png_data)) as img:
+                image_path = output_dir / f"page_{page_index + 1}.webp"
+                img.save(str(image_path), "WEBP", quality=85)
         return len(doc)
     finally:
         doc.close()

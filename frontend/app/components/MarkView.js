@@ -51,7 +51,7 @@ export default {
       <div class="markLayout">
         <div class="markLeft">
           <div class="imgWrap" id="imgWrap">
-            <img id="pageImg" ref="pageImg" :src="pageImgUrl" alt="page" @load="onPageImgLoad" />
+            <img id="pageImg" ref="pageImg" :src="pageImgUrl" alt="page" :class="{ imgLoading: pageImgLoading, 'slide-next': pageSlideDir === 'next', 'slide-prev': pageSlideDir === 'prev' }" @load="onPageImgLoad" />
             <canvas id="overlay" ref="overlay"></canvas>
           </div>
         </div>

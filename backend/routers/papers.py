@@ -21,7 +21,9 @@ from backend.services.paper_utils import (
     normalize_exam_code_for_type,
     try_pair_papers,
     auto_suggest_allowed_by_filename,
-    extract_year_from_filename
+    extract_year_from_filename,
+    resolve_page_image,
+    page_image_url_suffix,
 )
 from backend.auto_suggest import suggest_question_boxes_from_pdf
 
@@ -564,13 +566,28 @@ def list_pages(paper_id: int):
     if not pages_path.exists():
         raise HTTPException(status_code=404, detail="pages not found")
 
+    # Support both WebP (new) and PNG (legacy) formats
+    webps = list(pages_path.glob("page_*.webp"))
     pngs = list(pages_path.glob("page_*.png"))
+
+    seen_nums: set[int] = set()
     pages: list[dict] = []
+    for p in webps:
+        try:
+            page_num = int(p.stem.split("_")[-1])
+        except Exception:
+            continue
+        seen_nums.add(page_num)
+        url = f"/data/pages/paper_{paper_id}/{p.name}"
+        pages.append({"page": page_num, "image_url": _with_cache_bust(url, _file_mtime_token(p))})
     for p in pngs:
         try:
             page_num = int(p.stem.split("_")[-1])
         except Exception:
             continue
+        if page_num in seen_nums:
+            continue
+        seen_nums.add(page_num)
         url = f"/data/pages/paper_{paper_id}/{p.name}"
         pages.append({"page": page_num, "image_url": _with_cache_bust(url, _file_mtime_token(p))})
     pages.sort(key=lambda x: x["page"])

@@ -78,10 +78,10 @@ let markCanvasInteractionActive = false
 // Adjacent page preload cache — loads prev/next images into browser HTTP cache
 function preloadAdjacentPages() {
   const idx = currentPageIndex.value
-  const prev = pages.value[idx - 1]
-  const next = pages.value[idx + 1]
-  if (prev?.image_url) { const i = new Image(); i.src = prev.image_url }
-  if (next?.image_url) { const i = new Image(); i.src = next.image_url }
+  for (const offset of [-2, -1, 1, 2]) {
+    const p = pages.value[idx + offset]
+    if (p?.image_url) { const i = new Image(); i.src = p.image_url }
+  }
 }
 
 // --- page navigation ---
@@ -98,6 +98,29 @@ const pagePlaceholderText = computed(() => {
   if (paperOpening.value || pageImgUrl.value) return '正在加载页面...'
   return '暂无页面图片'
 })
+// Whether we're navigating within the same paper (skip placeholder flash)
+const isPageNavWithinPaper = ref(false)
+// Slide direction: 'next' (right→left) or 'prev' (left→right)
+const pageSlideDir = ref<'next' | 'prev' | null>(null)
+
+const pageImgClass = computed(() => {
+  const cls: Record<string, boolean> = { loading: !pageImageLoaded.value }
+  if (isPageNavWithinPaper.value && pageSlideDir.value) {
+    cls[`slide-${pageSlideDir.value}`] = true
+  }
+  return cls
+})
+
+function restartSlideAnimation() {
+  const img = pageImg.value
+  if (!img) return
+  const cls = pageSlideDir.value === 'next' ? 'slide-next' : pageSlideDir.value === 'prev' ? 'slide-prev' : null
+  if (!cls) return
+  img.classList.remove(cls)
+  // Force reflow so the browser treats the next class addition as a new animation
+  void img.offsetWidth
+  img.classList.add(cls)
+}
 
 const canUndo = computed(() =>
   !markPersistBusy.value &&
@@ -537,12 +560,25 @@ watch(currentPageIndex, async () => {
 })
 
 // On page change: reset image state, preload adjacent pages for instant nav
-watch([currentPaperId, currentPageIndex, pageImgUrl], () => {
+watch([currentPaperId, currentPageIndex, pageImgUrl], ([newPaperId, newIdx], [oldPaperId, oldIdx]) => {
+  const paperChanged = newPaperId !== oldPaperId
+  isPageNavWithinPaper.value = !paperChanged && oldPaperId != null
+  // Determine slide direction for animation
+  if (isPageNavWithinPaper.value && typeof newIdx === 'number' && typeof oldIdx === 'number') {
+    pageSlideDir.value = newIdx > oldIdx ? 'next' : 'prev'
+  } else {
+    pageSlideDir.value = null
+  }
   pageImageLoaded.value = false
   pageImgResizeObserver?.disconnect()
   pageImgResizeObserver = null
-  pageImg.value = null
   clearOverlayCanvas()
+  // Restart slide animation after DOM updates
+  if (isPageNavWithinPaper.value && pageSlideDir.value) {
+    nextTick(() => {
+      requestAnimationFrame(() => restartSlideAnimation())
+    })
+  }
   if (canvasArea.value) {
     canvasArea.value.scrollTop = 0
     canvasArea.value.scrollLeft = 0
@@ -792,18 +828,19 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div v-else class="page-stage">
-              <div v-show="!pageImageLoaded" class="canvas-placeholder">
+              <div v-show="!pageImageLoaded && !isPageNavWithinPaper" class="canvas-placeholder">
                 <div class="empty">
                   <div class="empty-icon">&#128196;</div>
                   <div class="empty-text">{{ pagePlaceholderText }}</div>
                 </div>
               </div>
-              <div v-show="pageImageLoaded" :key="pageImageKey" class="img-wrap">
+              <div v-show="pageImageLoaded || isPageNavWithinPaper" class="img-wrap">
                 <img
                   ref="pageImg"
                   :src="pageImgUrl"
                   alt="page"
                   class="page-img"
+                  :class="pageImgClass"
                   @load="onPageImgLoad"
                 />
                 <canvas
@@ -1120,6 +1157,26 @@ onBeforeUnmount(() => {
   height: auto;
   user-select: none;
   -webkit-user-drag: none;
+  transition: opacity 0.12s ease;
+}
+.page-img.loading {
+  opacity: 0.3;
+}
+
+/* Page slide animation */
+.page-img.slide-next {
+  animation: slideFromRight 0.22s ease-out;
+}
+.page-img.slide-prev {
+  animation: slideFromLeft 0.22s ease-out;
+}
+@keyframes slideFromRight {
+  from { opacity: 0.35; transform: translateX(18px); }
+  to   { opacity: 1;    transform: translateX(0); }
+}
+@keyframes slideFromLeft {
+  from { opacity: 0.35; transform: translateX(-18px); }
+  to   { opacity: 1;    transform: translateX(0); }
 }
 
 .overlay-canvas {

@@ -101,7 +101,12 @@
       .muted { color: var(--muted); font-size: 12px; }
       .muted.disabled { opacity: 0.5; }
       .imgWrap { position: relative; display: inline-block; max-width: 100%; }
-      #pageImg { max-width: 100%; height: auto; display:block; border-radius: 14px; box-shadow: var(--shadow-soft); }
+      #pageImg { max-width: 100%; height: auto; display:block; border-radius: 14px; box-shadow: var(--shadow-soft); transition: opacity 0.15s ease; }
+      #pageImg.imgLoading { opacity: 0.35; }
+      #pageImg.slide-next { animation: slideFromRight 0.22s ease-out; }
+      #pageImg.slide-prev { animation: slideFromLeft 0.22s ease-out; }
+      @keyframes slideFromRight { from { opacity: 0.35; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
+      @keyframes slideFromLeft { from { opacity: 0.35; transform: translateX(-18px); } to { opacity: 1; transform: translateX(0); } }
       #overlay { position:absolute; left:0; top:0; pointer-events:none; touch-action: none; }
       .pill { display:inline-block; padding: 4px 10px; border-radius: 999px; background: rgba(15,23,42,0.06); font-size:12px; font-weight: 600; }
       .tagPill {

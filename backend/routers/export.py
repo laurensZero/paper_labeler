@@ -281,6 +281,7 @@ from fpdf import FPDF
 from PIL import Image
 from backend.database import SessionLocal, Question, QuestionBox, Answer, AnswerBox, Paper, QuestionSection, SectionGroup, SectionGroupMember
 from backend.config import DATA_DIR, PAGE_DIR
+from backend.services.paper_utils import resolve_page_image
 import traceback
 
 # Custom PDF class with page numbers
@@ -468,9 +469,10 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
                         pid = getattr(b, "ms_paper_id", None)
                     page_no = getattr(b, "page", None)
                     if pid is not None and page_no is not None:
-                        fallback = PAGE_DIR / f"paper_{int(pid)}" / f"page_{int(page_no)}.png"
-                        if fallback.exists():
-                            final_path = fallback
+                        pages_dir = PAGE_DIR / f"paper_{int(pid)}"
+                        resolved = resolve_page_image(pages_dir, int(page_no))
+                        if resolved is not None:
+                            final_path = resolved
                 return final_path
 
             def crop_one(idx, b):

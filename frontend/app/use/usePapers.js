@@ -210,6 +210,7 @@ export const paperMethods = {
     }
   
     if (this.currentPageIndex >= 0) await this.loadCurrentPage();
+    this.preloadAdjacentPages(this.currentPageIndex);
     await this.refreshSuggestedNextNo();
     await this.refreshSectionDefsIntoUI();
     await this.ensurePaperAlignRefFromFirstQuestion(paperId);
@@ -217,13 +218,38 @@ export const paperMethods = {
   },
   
   // -------- page navigation --------
+  preloadAdjacentPages(centerIdx) {
+    const range = [-2, -1, 1, 2];
+    for (const offset of range) {
+      const i = centerIdx + offset;
+      if (i < 0 || i >= this.pages.length) continue;
+      const url = this.pages[i]?.image_url;
+      if (!url) continue;
+      const img = new Image();
+      img.src = url;
+    }
+  },
   async gotoPageIndex(idx) {
     if (idx < 0 || idx >= this.pages.length) return;
+    const oldIdx = this.currentPageIndex;
+    this.pageSlideDir = idx > oldIdx ? 'next' : idx < oldIdx ? 'prev' : null;
+    this.pageImgLoading = true;
     this.currentPageIndex = idx;
-    await this.loadCurrentPage();
+    this.loadCurrentPage();
     this.updateBoxControls();
-    this.drawOverlay();
     if (this.currentPaperId != null) setLastMarkedPageNum(this.currentPaperId, this.currentPaperCacheToken, this.pages[idx].page);
+    this.preloadAdjacentPages(idx);
+    // Restart slide animation after DOM update
+    if (this.pageSlideDir) {
+      this.$nextTick(() => {
+        const img = document.getElementById('pageImg');
+        if (!img) return;
+        const cls = this.pageSlideDir === 'next' ? 'slide-next' : 'slide-prev';
+        img.classList.remove(cls);
+        void img.offsetWidth;
+        img.classList.add(cls);
+      });
+    }
   },
   async jumpToMarkPageFromUI() {
     if (!this.pages.length) return;
@@ -232,8 +258,10 @@ export const paperMethods = {
   },
   async loadCurrentPage() {
     if (this.currentPageIndex < 0) return;
-    await this.refreshPageQuestions();
-    this.$nextTick(() => this.drawOverlay());
+    // Don't await — let image load and API call run in parallel
+    this.refreshPageQuestions().then(() => {
+      this.$nextTick(() => this.drawOverlay());
+    }).catch(() => {});
   },
   
   // -------- question list --------

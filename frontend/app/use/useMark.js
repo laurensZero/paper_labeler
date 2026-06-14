@@ -484,6 +484,7 @@ export const markMethods = {
     canvas.style.pointerEvents = "auto";
   },
   onPageImgLoad() {
+    this.pageImgLoading = false;
     this.setCanvasSize();
     this.drawOverlay();
   },

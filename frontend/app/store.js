@@ -26,6 +26,8 @@ export const defaultState = () => ({
   // pages
   pages: [],
   currentPageIndex: -1,
+  pageImgLoading: false,
+  pageSlideDir: null,
 
   // question marking
   newBoxes: [],

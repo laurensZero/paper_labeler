@@ -15,6 +15,7 @@ from backend.schemas.schemas import (
 from backend.dependencies import get_db
 from backend.config import PAGE_DIR
 from backend.utils import _with_cache_bust, _file_mtime_token
+from backend.services.paper_utils import resolve_page_image, page_image_url_suffix
 from backend.services.question_preview import build_question_preview_png, question_preview_version
 
 router = APIRouter(tags=["questions"])
@@ -83,8 +84,8 @@ def _question_to_dict(
                 "page": b.page,
                 "bbox": b.bbox,
                 "image_url": _with_cache_bust(
-                    f"/data/pages/paper_{q.paper_id}/page_{b.page}.png",
-                    _file_mtime_token(PAGE_DIR / f"paper_{q.paper_id}" / f"page_{b.page}.png"),
+                    f"/data/pages/paper_{q.paper_id}/{page_image_url_suffix(PAGE_DIR / f'paper_{q.paper_id}', b.page)[0]}",
+                    _file_mtime_token(page_image_url_suffix(PAGE_DIR / f"paper_{q.paper_id}", b.page)[1]),
                 ),
             }
             for b in boxes
@@ -104,8 +105,8 @@ def _answer_to_dict(a: Answer, boxes: list[AnswerBox]) -> dict:
                 "page": b.page,
                 "bbox": b.bbox,
                 "image_url": _with_cache_bust(
-                    f"/data/pages/paper_{a.ms_paper_id}/page_{b.page}.png",
-                    _file_mtime_token(PAGE_DIR / f"paper_{a.ms_paper_id}" / f"page_{b.page}.png"),
+                    f"/data/pages/paper_{a.ms_paper_id}/{page_image_url_suffix(PAGE_DIR / f'paper_{a.ms_paper_id}', b.page)[0]}",
+                    _file_mtime_token(page_image_url_suffix(PAGE_DIR / f"paper_{a.ms_paper_id}", b.page)[1]),
                 ),
             }
             for b in boxes
@@ -169,8 +170,8 @@ def create_question(paper_id: int, payload: QuestionCreate, db: Session = Depend
     for box in payload.boxes:
         if len(box.bbox) != 4:
             raise HTTPException(status_code=400, detail="bbox must be 4 floats")
-        img_path = pages_path / f"page_{box.page}.png"
-        if not img_path.exists():
+        img_path = resolve_page_image(pages_path, box.page)
+        if img_path is None:
             raise HTTPException(status_code=400, detail=f"page image missing: {box.page}")
         br = QuestionBox(
             question_id=q.id,
@@ -325,8 +326,8 @@ def replace_question_boxes(question_id: int, payload: QuestionBoxesReplace, db: 
     for box in payload.boxes:
         if len(box.bbox) != 4:
             raise HTTPException(status_code=400, detail="bbox must be 4 floats")
-        img_path = pages_path / f"page_{box.page}.png"
-        if not img_path.exists():
+        img_path = resolve_page_image(pages_path, box.page)
+        if img_path is None:
             raise HTTPException(status_code=400, detail=f"page image missing: {box.page}")
         br = QuestionBox(
             question_id=q.id,
@@ -731,8 +732,8 @@ def upsert_answer_for_question(question_id: int, payload: AnswerUpsert, db: Sess
     for box in payload.boxes:
         if len(box.bbox) != 4:
             raise HTTPException(status_code=400, detail="bbox must be 4 floats")
-        img_path = ms_pages_path / f"page_{box.page}.png"
-        if not img_path.exists():
+        img_path = resolve_page_image(ms_pages_path, box.page)
+        if img_path is None:
             raise HTTPException(status_code=400, detail=f"ms page image missing: {box.page}")
         br = AnswerBox(
             answer_id=a.id,
