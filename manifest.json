@@ -1,7 +1,7 @@
 {
-  "version": "20260614.4",
-  "url": "bundle-20260614.4.zip",
-  "hash": "sha256:ffb5294b4a1971d3b44241ffd83c274f412ec65be0f60ac4d1bcc3d3cc8a471a",
-  "notes": "b1b98b8 refactor: 简化应用根目录解析逻辑，移除冗余函数 ",
-  "publishedAt": "2026-06-14T14:12:13Z"
+  "version": "20260614.5",
+  "url": "bundle-20260614.5.zip",
+  "hash": "sha256:f2655ef229b7e9923670c8640f2bf5c2d0c76ee62d49d1cce1ef29b45ebe0dfb",
+  "notes": "7f9ff13 feat: 更新应用目录解析逻辑，支持从可执行文件目录获取资源；添加数据库文件存在性检查 ",
+  "publishedAt": "2026-06-14T15:17:49Z"
 }
