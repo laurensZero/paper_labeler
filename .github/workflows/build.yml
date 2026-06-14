@@ -24,6 +24,9 @@ jobs:
         working-directory: frontend-vite
         run: npm ci
 
+      - name: Ensure data directory exists
+        run: mkdir -p data/pdfs data/pages
+
       - name: Build Electron app
         working-directory: frontend-vite
         run: npm run electron:build

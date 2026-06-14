@@ -93,7 +93,6 @@ const pageImgUrl = computed(() => {
   return p?.image_url ?? ''
 })
 const pageImageLoaded = ref(false)
-const pageImageKey = computed(() => `${currentPaperId.value ?? 'none'}:${currentPageIndex.value}:${pageImgUrl.value}`)
 const pagePlaceholderText = computed(() => {
   if (paperOpening.value || pageImgUrl.value) return '正在加载页面...'
   return '暂无页面图片'
