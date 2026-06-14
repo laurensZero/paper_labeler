@@ -54,13 +54,17 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
     }
   }
 
+  const upToDate = ref(false)
+
   async function checkForUpdates(_opts?: { source?: 'startup' | 'manual' }) {
     if (checking.value) return
     checking.value = true
     error.value = ''
+    upToDate.value = false
     try {
       await checkHotBundle()
       await checkFullRelease()
+      if (!dialogVisible.value) upToDate.value = true
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : t('update.checkFailed')
     } finally {
@@ -70,14 +74,17 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
 
   async function checkHotBundle() {
     const order = source.value === 'github' ? ['github', 'gitee'] : ['gitee', 'github']
+    const errors: string[] = []
     for (const src of order) {
       const base = MANIFEST_BASE[src]
       if (!base) continue
       try {
         const url = base + '/manifest.json'
+        console.log('[update] fetching', url)
         const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
-        if (!res.ok) continue
+        if (!res.ok) { errors.push(src + ': HTTP ' + res.status); continue }
         const m: Manifest = await res.json()
+        console.log('[update] manifest', m, 'current', currentVersion.value, 'cmp', compareVersions(m.version, currentVersion.value))
         if (compareVersions(m.version, currentVersion.value) > 0) {
           latestVersion.value = m.version
           downloadUrl.value = base + '/' + m.url
@@ -87,10 +94,12 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
           dialogVisible.value = true
           return
         }
-      } catch {
+      } catch (e: unknown) {
+        errors.push(src + ': ' + (e instanceof Error ? e.message : String(e)))
         continue
       }
     }
+    if (errors.length) console.log('[update] errors:', errors)
   }
 
   async function checkFullRelease() {
@@ -176,7 +185,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   return {
     currentVersion, latestVersion, updateLevel, releaseNotes,
     downloadUrl, releasePageUrl, checking, downloading, downloadProgress,
-    dialogVisible, error, source,
+    dialogVisible, error, source, upToDate,
     init, checkForUpdates, downloadAndApply, openReleasePage, dismiss,
   }
 })

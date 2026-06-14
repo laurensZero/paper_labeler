@@ -529,6 +529,7 @@
     "restartHint": "更新完成，即将重启",
     "forceHint": "此为强制更新，不可跳过",
     "checking": "正在检查更新...",
-    "upToDate": "已是最新版本"
+    "upToDate": "已是最新版本",
+    "checkForUpdates": "检查更新"
   }
 }

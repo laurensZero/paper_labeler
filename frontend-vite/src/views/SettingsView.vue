@@ -603,9 +603,6 @@ onMounted(() => {
         <span v-if="importResult" :style="{ fontSize: '13px', color: importResult.ok ? '#22c55e' : '#ef4444' }">
           {{ importResult.ok ? t('settings.importData.success', { items: (importResult.imported ?? []).join(', ') }) : importResult.error }}
         </span>
-        <button v-if="importResult?.ok" class="btn btn-primary btn-sm" @click="onRestartAfterImport">
-          {{ t('settings.importData.restart') }}
-        </button>
       </div>
     </div>
 
@@ -619,8 +616,9 @@ onMounted(() => {
       <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-secondary)">
         <span>{{ t('update.currentVersion') }}: {{ appUpdateStore.currentVersion || '...' }}</span>
         <button class="btn btn-ghost btn-sm" :disabled="appUpdateStore.checking" @click="appUpdateStore.checkForUpdates({ source: 'manual' })">
-          {{ appUpdateStore.checking ? t('update.checking') : t('update.upToDate') }}
+          {{ appUpdateStore.checking ? t('update.checking') : (appUpdateStore.upToDate ? t('update.upToDate') : t('update.checkForUpdates')) }}
         </button>
+        <span v-if="appUpdateStore.upToDate && !appUpdateStore.dialogVisible" style="font-size: 12px; color: #22c55e">✓</span>
       </div>
       <div v-if="appUpdateStore.error" style="margin-top: 6px; font-size: 12px; color: #ef4444">
         {{ appUpdateStore.error }}

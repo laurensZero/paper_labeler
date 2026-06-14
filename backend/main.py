@@ -162,7 +162,11 @@ async def import_data(request: Request):
     if not copied:
         return JSONResponse({"error": "文件夹中没有找到可导入的数据（需要 app.db、pdfs、pages）"}, status_code=400)
 
-    return {"ok": True, "imported": copied, "restartRequired": True}
+    # Reconnect database to imported data
+    from backend.database import reconnect_db
+    reconnect_db()
+
+    return {"ok": True, "imported": copied}
 
 
 @app.post("/admin/apply-update")

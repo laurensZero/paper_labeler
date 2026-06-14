@@ -7,10 +7,10 @@ const http = require('http')
 let backendProcess = null
 let backendPort = 0
 
-// In dev, ROOT is the project root. In packaged app, extraResources are next to the exe.
+// ROOT: where data/ lives. In packaged app, cwd (exe dir). In dev, project root.
 function getRoot() {
   if (app.isPackaged) {
-    return process.resourcesPath
+    return process.cwd()
   }
   return path.resolve(__dirname, '..', '..')
 }
@@ -62,6 +62,7 @@ async function startBackend() {
     env: {
       ...process.env,
       PAPER_LABELER_PORT: String(backendPort),
+      PAPER_LABELER_ROOT: root,
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },

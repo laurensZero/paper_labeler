@@ -529,6 +529,7 @@
     "restartHint": "Update complete, restarting...",
     "forceHint": "This is a mandatory update",
     "checking": "Checking for updates...",
-    "upToDate": "Already up to date"
+    "upToDate": "Already up to date",
+    "checkForUpdates": "Check for Updates"
   }
 }
