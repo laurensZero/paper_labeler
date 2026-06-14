@@ -1,7 +1,7 @@
 {
-  "version": "20260614.2",
-  "url": "bundle-20260614.2.zip",
-  "hash": "sha256:141c4ae633a82b4551003ab1d664eb3046dc00aed9afebde50293a496507b50d",
-  "notes": "1e640b3 fix: 移除导入后重启应用的逻辑 ",
-  "publishedAt": "2026-06-14T09:47:42Z"
+  "version": "20260614.3",
+  "url": "bundle-20260614.3.zip",
+  "hash": "sha256:afb1fc87180654d1b48a4668bc51e1dcd0b672bca733c4c08680d7dcbfb26b74",
+  "notes": "38422a0 feat: 优化应用根目录解析逻辑，支持多种环境配置；重构数据库引擎构建；添加更新信息面板 ",
+  "publishedAt": "2026-06-14T14:03:58Z"
 }
