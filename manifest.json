@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
-  "url": "bundle-1.0.0.zip",
-  "hash": "sha256:5999ee89ddec48caa60796f9bab3df69714eb6ca4012af12169bff0a5fc50f1c",
-  "notes": "0fd7bdb fix: 修正代码中的仓库名称，统一使用下划线分隔符 ",
-  "publishedAt": "2026-06-14T07:23:22Z"
+  "version": "20260614.1",
+  "url": "bundle-20260614.1.zip",
+  "hash": "sha256:7594fe5c421bb38708faa9af61a663ffb225747cde507cf4ca6e9b5f38bb4bf9",
+  "notes": "cf3d760 feat: 添加热更新版本管理功能，支持从文件读取版本并在应用更新时保存版本信息 ",
+  "publishedAt": "2026-06-14T07:27:53Z"
 }
