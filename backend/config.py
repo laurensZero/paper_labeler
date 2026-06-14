@@ -28,6 +28,9 @@ EXPORT_DIR = DATA_DIR / "_export_jobs"
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100MB per file
 
+import logging as _logging
+_logging.warning(f"[config] DATA_DIR={DATA_DIR} exists={DATA_DIR.exists()} contents={list(DATA_DIR.iterdir()) if DATA_DIR.exists() else 'N/A'}")
+
 # Ensure directories exist
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 PDF_DIR.mkdir(parents=True, exist_ok=True)

@@ -98,6 +98,21 @@ def health():
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
 
 
+@app.get("/debug/paths")
+def debug_paths():
+    from backend.config import DATA_DIR, UI_DIR, APP_DIR, BUNDLE_DIR
+    return {
+        "APP_DIR": str(APP_DIR),
+        "BUNDLE_DIR": str(BUNDLE_DIR),
+        "DATA_DIR": str(DATA_DIR),
+        "UI_DIR": str(UI_DIR),
+        "DATA_DIR_exists": DATA_DIR.exists(),
+        "UI_DIR_exists": UI_DIR.exists(),
+        "PAPER_LABELER_DATA_DIR": os.getenv("PAPER_LABELER_DATA_DIR", ""),
+        "PAPER_LABELER_ELECTRON": os.getenv("PAPER_LABELER_ELECTRON", ""),
+    }
+
+
 @app.get("/data/version")
 def get_version():
     import json
@@ -109,6 +124,39 @@ def get_version():
         except Exception:
             pass
     return {"version": ver}
+
+
+@app.post("/admin/import-data")
+async def import_data(request: Request):
+    """Import data from a user-selected folder into DATA_DIR."""
+    import shutil
+
+    body = await request.json()
+    src = body.get("path", "").strip()
+    if not src or not Path(src).is_dir():
+        return JSONResponse({"error": "无效的文件夹路径"}, status_code=400)
+
+    from backend.config import DATA_DIR
+    src_path = Path(src)
+
+    copied = []
+    for item in ("app.db", "pdfs", "pages"):
+        s = src_path / item
+        if not s.exists():
+            continue
+        d = DATA_DIR / item
+        if s.is_dir():
+            if d.exists():
+                shutil.rmtree(d)
+            shutil.copytree(s, d)
+        else:
+            shutil.copy2(s, d)
+        copied.append(item)
+
+    if not copied:
+        return JSONResponse({"error": "文件夹中没有找到可导入的数据（需要 app.db、pdfs、pages）"}, status_code=400)
+
+    return {"ok": True, "imported": copied}
 
 
 @app.post("/admin/apply-update")

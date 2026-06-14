@@ -320,6 +320,14 @@
       "custom": "Custom value",
       "resetDefault": "Reset Default"
     },
+    "importData": {
+      "title": "Import Old Data",
+      "hint": "Select a previous data folder (containing app.db, pdfs, pages) to import into the current app.",
+      "selectFolder": "Select Folder",
+      "importing": "Importing...",
+      "success": "Imported: {items}",
+      "enterPath": "Enter data folder path:"
+    },
     "about": {
       "title": "About",
       "version": "Paper Labeler v2.0",

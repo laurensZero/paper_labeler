@@ -146,6 +146,15 @@ function createWindow() {
     app.relaunch()
     app.quit()
   })
+  ipcMain.handle('select-folder', async () => {
+    const { dialog } = require('electron')
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: '选择旧数据文件夹',
+    })
+    if (result.canceled || !result.filePaths.length) return null
+    return result.filePaths[0]
+  })
   ipcMain.handle('window-is-maximized', () => win.isMaximized())
   win.on('maximize', () => win.webContents.send('maximize-change', true))
   win.on('unmaximize', () => win.webContents.send('maximize-change', false))

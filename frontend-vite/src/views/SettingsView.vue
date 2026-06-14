@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useSettingsStore } from '@/stores/settings'
@@ -25,6 +25,41 @@ const markStore = useMarkStore()
 const answerStore = useAnswerStore()
 const filterStore = useFilterStore()
 const appUpdateStore = useAppUpdateStore()
+
+const importing = ref(false)
+const importResult = ref<{ ok: boolean; imported?: string[]; error?: string } | null>(null)
+
+async function onImportData() {
+  importResult.value = null
+  let folderPath: string | null = null
+
+  if (window.electronAPI?.selectFolder) {
+    folderPath = await window.electronAPI.selectFolder()
+  } else {
+    // Fallback for non-Electron: prompt for path
+    folderPath = prompt(t('settings.importData.enterPath'))
+  }
+  if (!folderPath) return
+
+  importing.value = true
+  try {
+    const res = await fetch('/admin/import-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: folderPath }),
+    })
+    const data = await res.json()
+    if (res.ok) {
+      importResult.value = { ok: true, imported: data.imported }
+    } else {
+      importResult.value = { ok: false, error: data.error || '导入失败' }
+    }
+  } catch (e: unknown) {
+    importResult.value = { ok: false, error: e instanceof Error ? e.message : '导入失败' }
+  } finally {
+    importing.value = false
+  }
+}
 
 // Alignment / OCR — use storeToRefs so v-model binds reactively
 const {
@@ -546,6 +581,20 @@ onMounted(() => {
           {{ t('settings.maintenance.webpDone', { converted: webpConvertReport.converted || 0, beforeMB: ((webpConvertReport.before_bytes || 0) / 1024 / 1024).toFixed(1), afterMB: ((webpConvertReport.after_bytes || 0) / 1024 / 1024).toFixed(1) }) }}
           <span v-if="webpConvertReport.errors" style="color: var(--warning)">（{{ webpConvertReport.errors }} 个错误）</span>
         </div>
+      </div>
+    </div>
+
+    <!-- 导入旧数据 -->
+    <div class="card">
+      <div class="card-title">{{ t('settings.importData.title') }}</div>
+      <p style="font-size: 13px; color: var(--text-tertiary); margin-bottom: 12px">{{ t('settings.importData.hint') }}</p>
+      <div style="display: flex; align-items: center; gap: 12px">
+        <button class="btn btn-ghost" :disabled="importing" @click="onImportData">
+          {{ importing ? t('settings.importData.importing') : t('settings.importData.selectFolder') }}
+        </button>
+        <span v-if="importResult" :style="{ fontSize: '13px', color: importResult.ok ? '#22c55e' : '#ef4444' }">
+          {{ importResult.ok ? t('settings.importData.success', { items: importResult.imported.join(', ') }) : importResult.error }}
+        </span>
       </div>
     </div>
 

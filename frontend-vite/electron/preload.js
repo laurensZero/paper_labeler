@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
   onMaximizeChange: (cb) => ipcRenderer.on('maximize-change', (_, val) => cb(val)),
   restartApp: () => ipcRenderer.send('app-restart'),
+  selectFolder: () => ipcRenderer.invoke('select-folder'),
 })

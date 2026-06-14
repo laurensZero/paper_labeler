@@ -320,6 +320,14 @@
       "custom": "自定义值",
       "resetDefault": "恢复默认"
     },
+    "importData": {
+      "title": "导入旧数据",
+      "hint": "选择之前的数据文件夹（包含 app.db、pdfs、pages），将自动导入到当前应用。",
+      "selectFolder": "选择文件夹",
+      "importing": "正在导入...",
+      "success": "导入成功：{items}",
+      "enterPath": "请输入数据文件夹路径："
+    },
     "about": {
       "title": "关于",
       "version": "Paper Labeler v2.0",

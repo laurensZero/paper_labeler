@@ -23,7 +23,7 @@ interface Manifest {
 
 declare global {
   interface Window {
-    electronAPI?: { restartApp?: () => void }
+    electronAPI?: { restartApp?: () => void; selectFolder?: () => Promise<string | null> }
   }
 }
 
