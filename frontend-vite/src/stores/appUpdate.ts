@@ -8,8 +8,8 @@ function t(key: string) { return i18n.global.t(key) }
 const REPO_OWNER = 'laurensZero'
 const REPO_REPO = 'paper-labeler'
 const MANIFEST_BASE: Record<string, string> = {
-  gitee: 'https://gitee.com/laurenszero/paper-labeler/raw/gh-pages',
-  github: 'https://laurenszero.github.io/paper-labeler',
+  gitee: 'https://gitee.com/laurenszero/paper_labeler/raw/gh-pages',
+  github: 'https://laurenszero.github.io/paper_labeler',
 }
 
 interface Manifest {
