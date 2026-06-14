@@ -7,11 +7,9 @@ const http = require('http')
 let backendProcess = null
 let backendPort = 0
 
-// In dev, ROOT is the project root. In packaged app, prefer hot-updated backend in AppData.
+// In dev, ROOT is the project root. In packaged app, extraResources are next to the exe.
 function getRoot() {
   if (app.isPackaged) {
-    const appdataBackend = path.join(process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming'), 'PaperLabeler', 'backend')
-    if (require('fs').existsSync(appdataBackend)) return appdataBackend
     return process.resourcesPath
   }
   return path.resolve(__dirname, '..', '..')
@@ -64,8 +62,6 @@ async function startBackend() {
     env: {
       ...process.env,
       PAPER_LABELER_PORT: String(backendPort),
-      PAPER_LABELER_ELECTRON: '1',
-      PAPER_LABELER_DATA_DIR: path.join(process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming'), 'PaperLabeler', 'data'),
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },

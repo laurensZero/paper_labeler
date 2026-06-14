@@ -29,6 +29,14 @@ const appUpdateStore = useAppUpdateStore()
 const importing = ref(false)
 const importResult = ref<{ ok: boolean; imported?: string[]; error?: string } | null>(null)
 
+function onRestartAfterImport() {
+  if (window.electronAPI?.restartApp) {
+    window.electronAPI.restartApp()
+  } else {
+    window.location.reload()
+  }
+}
+
 async function onImportData() {
   importResult.value = null
   let folderPath: string | null = null
@@ -595,6 +603,9 @@ onMounted(() => {
         <span v-if="importResult" :style="{ fontSize: '13px', color: importResult.ok ? '#22c55e' : '#ef4444' }">
           {{ importResult.ok ? t('settings.importData.success', { items: (importResult.imported ?? []).join(', ') }) : importResult.error }}
         </span>
+        <button v-if="importResult?.ok" class="btn btn-primary btn-sm" @click="onRestartAfterImport">
+          {{ t('settings.importData.restart') }}
+        </button>
       </div>
     </div>
 

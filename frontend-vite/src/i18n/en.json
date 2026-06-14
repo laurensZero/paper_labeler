@@ -326,7 +326,8 @@
       "selectFolder": "Select Folder",
       "importing": "Importing...",
       "success": "Imported: {items}",
-      "enterPath": "Enter data folder path:"
+      "enterPath": "Enter data folder path:",
+      "restart": "Restart App"
     },
     "about": {
       "title": "About",

@@ -326,7 +326,8 @@
       "selectFolder": "选择文件夹",
       "importing": "正在导入...",
       "success": "导入成功：{items}",
-      "enterPath": "请输入数据文件夹路径："
+      "enterPath": "请输入数据文件夹路径：",
+      "restart": "重启应用"
     },
     "about": {
       "title": "关于",

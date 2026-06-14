@@ -48,6 +48,13 @@
       {
         "from": "dist",
         "to": "frontend-vite/dist"
+      },
+      {
+        "from": "../data",
+        "to": "data",
+        "filter": [
+          "**/*"
+        ]
       }
     ]
   },
