@@ -124,7 +124,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
       const total = Number(res.headers.get('content-length')) || 0
       const reader = res.body?.getReader()
       if (!reader) throw new Error('无法读取响应流')
-      const chunks: Uint8Array[] = []
+      const chunks: BlobPart[] = []
       let received = 0
 
       for (;;) {
