@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "url": "bundle-1.0.0.zip",
-  "hash": "sha256:49ced357c2b80fb43a7f79821a60b962fa02c312b52070ea52776eef6d82aa6a",
-  "notes": "34de910 fix: 添加权限设置以允许写入内容 ",
-  "publishedAt": "2026-06-14T06:37:08Z"
+  "hash": "sha256:57e820b653604713e66cbd5394fd6cb82b401f7ac13d8683f0568e2344178529",
+  "notes": "8ba57c0 fix: 修复导入结果显示，确保在没有导入项时不会抛出错误 ",
+  "publishedAt": "2026-06-14T06:46:27Z"
 }
