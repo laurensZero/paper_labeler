@@ -161,31 +161,48 @@ async def import_data(request: Request):
 
 @app.post("/admin/apply-update")
 async def apply_update(request: Request):
-    """Receive a ZIP with ui/ and/or backend/ dirs, extract to AppData.
+    """Receive a ZIP with ui/ and backend/ dirs, extract to APP_DIR.
     ZIP structure:
-      ui/...       → %APPDATA%/PaperLabeler/ui/
-      backend/...  → %APPDATA%/PaperLabeler/backend/
+      ui/...       → APP_DIR/frontend-vite/dist/
+      backend/...  → APP_DIR/backend/
     """
     import io, shutil, zipfile
+    from backend.config import APP_DIR, BUNDLE_DIR
 
     body = await request.body()
     if not body:
         return JSONResponse({"error": "empty body"}, status_code=400)
 
-    appdata = Path(os.getenv("APPDATA") or str(Path.home() / "AppData" / "Roaming"))
-    base_dir = appdata / "PaperLabeler"
-    base_dir.mkdir(parents=True, exist_ok=True)
-
     try:
         with zipfile.ZipFile(io.BytesIO(body)) as zf:
-            # Extract ui/ and backend/ to AppData/PaperLabeler/
             for name in zf.namelist():
-                if name.startswith('ui/') or name.startswith('backend/'):
-                    zf.extract(name, base_dir)
+                if name.startswith('ui/'):
+                    # ui/ → frontend-vite/dist/
+                    rel = name[3:]
+                    if not rel:
+                        continue
+                    target = BUNDLE_DIR / "frontend-vite" / "dist" / rel
+                    if name.endswith('/'):
+                        target.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(name) as src, open(target, 'wb') as dst:
+                            shutil.copyfileobj(src, dst)
+                elif name.startswith('backend/'):
+                    rel = name[8:]
+                    if not rel:
+                        continue
+                    target = APP_DIR / "backend" / rel
+                    if name.endswith('/'):
+                        target.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(name) as src, open(target, 'wb') as dst:
+                            shutil.copyfileobj(src, dst)
     except Exception as e:
         return JSONResponse({"error": f"bad zip: {e}"}, status_code=400)
 
-    return {"ok": True, "base": str(base_dir)}
+    return {"ok": True}
 
 
 # Include API Routers

@@ -1,27 +1,13 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from datetime import datetime
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine, Column, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 
-def _resolve_app_dir() -> Path:
-    """Resolve a stable writable app directory.
+from backend.config import DATA_DIR
 
-    Avoid relying on process CWD because uvicorn reload/spawn can change it,
-    causing the app to accidentally create/use a different SQLite file.
-    """
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[1]
-
-
-APP_DIR = _resolve_app_dir()
-DATA_DIR = APP_DIR / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = (DATA_DIR / "app.db").resolve()
 
 # SQLAlchemy expects forward slashes in sqlite URLs.

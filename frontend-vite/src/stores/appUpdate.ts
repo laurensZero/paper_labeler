@@ -6,7 +6,7 @@ import { compareVersions, getLatestRelease, getLatestReleaseFromGitee, parseUpda
 function t(key: string) { return i18n.global.t(key) }
 
 const REPO_OWNER = 'laurensZero'
-const REPO_REPO = 'paper-labeler'
+const REPO_REPO = 'paper_labeler'
 const MANIFEST_BASE: Record<string, string> = {
   gitee: 'https://gitee.com/laurenszero/paper_labeler/raw/gh-pages',
   github: 'https://laurenszero.github.io/paper_labeler',
