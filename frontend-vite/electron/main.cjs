@@ -62,6 +62,7 @@ async function startBackend() {
     env: {
       ...process.env,
       PAPER_LABELER_PORT: String(backendPort),
+      PAPER_LABELER_ELECTRON: '1',
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },

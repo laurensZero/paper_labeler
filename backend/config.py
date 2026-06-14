@@ -2,19 +2,26 @@ import os
 import sys
 from pathlib import Path
 
+# Determine BUNDLE_DIR (where bundled assets like frontend/ live)
 if getattr(sys, "frozen", False):
-    # PyInstaller one-dir: keep writable data next to the exe, but read bundled
-    # assets (like frontend/) from sys._MEIPASS which points at the bundle dir.
     APP_DIR = Path(sys.executable).resolve().parent
     BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR)).resolve()
 else:
-    # Assuming this file is at backend/config.py, parents[1] is backend/, parents[2] is root paper_labeler
-    # Wait, main.py was in backend/main.py and used parents[1].
-    # backend/config.py is at same depth as main.py.
     APP_DIR = Path(__file__).resolve().parents[1]
     BUNDLE_DIR = APP_DIR
 
-DATA_DIR = APP_DIR / "data"
+# Determine DATA_DIR (writable user data — must persist across updates)
+# If PAPER_LABELER_DATA_DIR is set (by Electron), use it.
+# Otherwise, use <project>/data for dev, or AppData for packaged apps.
+_data_override = os.getenv("PAPER_LABELER_DATA_DIR", "").strip()
+if _data_override:
+    DATA_DIR = Path(_data_override).expanduser().resolve()
+elif os.getenv("PAPER_LABELER_ELECTRON"):
+    # Electron packaged app → use AppData
+    _appdata = os.getenv("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+    DATA_DIR = Path(_appdata) / "PaperLabeler" / "data"
+else:
+    DATA_DIR = APP_DIR / "data"
 PDF_DIR = DATA_DIR / "pdfs"
 PAGE_DIR = DATA_DIR / "pages"
 EXPORT_DIR = DATA_DIR / "_export_jobs"
