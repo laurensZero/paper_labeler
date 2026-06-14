@@ -29,14 +29,6 @@ const appUpdateStore = useAppUpdateStore()
 const importing = ref(false)
 const importResult = ref<{ ok: boolean; imported?: string[]; error?: string } | null>(null)
 
-function onRestartAfterImport() {
-  if (window.electronAPI?.restartApp) {
-    window.electronAPI.restartApp()
-  } else {
-    window.location.reload()
-  }
-}
-
 async function onImportData() {
   importResult.value = null
   let folderPath: string | null = null
