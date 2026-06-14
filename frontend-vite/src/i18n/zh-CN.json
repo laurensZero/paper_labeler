@@ -144,7 +144,10 @@
     "jumpToMark": "跳转定位",
     "noQuestionNo": "(未填)",
     "noSection": "(未填模块)",
-    "notesPrefix": "备注："
+    "notesPrefix": "备注：",
+    "fullscreen": "全屏",
+    "exitFullscreen": "退出全屏",
+    "exitFullscreenHint": "退出全屏 (Esc)"
   },
   "mark": {
     "title": "题目标注",

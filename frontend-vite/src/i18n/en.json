@@ -144,7 +144,10 @@
     "jumpToMark": "Jump",
     "noQuestionNo": "(none)",
     "noSection": "(unsectioned)",
-    "notesPrefix": "Notes: "
+    "notesPrefix": "Notes: ",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit Fullscreen",
+    "exitFullscreenHint": "Exit Fullscreen (Esc)"
   },
   "mark": {
     "title": "Question Marking",

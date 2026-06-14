@@ -398,6 +398,12 @@ function onKeyDown(e: KeyboardEvent) {
   const target = e.target as HTMLElement
   if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return
 
+  if (e.key === 'Escape' && fullscreen.value) {
+    e.preventDefault()
+    toggleFullscreen()
+    return
+  }
+
   if (e.key === 'j' || e.key === 'ArrowDown') {
     e.preventDefault()
     navigateQuestion(1)
@@ -479,10 +485,68 @@ watch(filterResults, (results) => {
 }, { flush: 'post' })
 
 let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
+
+/* ── Fullscreen mode ── */
+const fullscreen = ref(false)
+const fsZoom = ref(1)
+
+const fsExiting = ref(false)
+const fsBarX = ref(-1) // -1 = use CSS default
+const fsBarY = ref(-1)
+let fsDragging = false
+let fsDragOffX = 0
+let fsDragOffY = 0
+
+function onFsBarPointerDown(e: PointerEvent) {
+  // Only drag from the bar background, not from buttons
+  if ((e.target as HTMLElement).closest('button')) return
+  const el = e.currentTarget as HTMLElement
+  fsDragging = true
+  fsDragOffX = e.clientX - el.offsetLeft
+  fsDragOffY = e.clientY - el.offsetTop
+  el.setPointerCapture(e.pointerId)
+}
+
+function onFsBarPointerMove(e: PointerEvent) {
+  if (!fsDragging) return
+  fsBarX.value = e.clientX - fsDragOffX
+  fsBarY.value = e.clientY - fsDragOffY
+}
+
+function onFsBarPointerUp() {
+  fsDragging = false
+}
+
+function toggleFullscreen() {
+  if (fullscreen.value) {
+    // exit: play animation, then remove fullscreen
+    fsExiting.value = true
+    setTimeout(() => {
+      fullscreen.value = false
+      fsExiting.value = false
+      fsZoom.value = 1
+    }, 280)
+  } else {
+    fullscreen.value = true
+  }
+}
+
+function fsZoomIn() { fsZoom.value = Math.min(5, +(fsZoom.value + 0.25).toFixed(2)) }
+function fsZoomOut() { fsZoom.value = Math.max(0.25, +(fsZoom.value - 0.25).toFixed(2)) }
+function fsZoomReset() { fsZoom.value = 1 }
+
+function onFsWheel(e: WheelEvent) {
+  if (!fullscreen.value || !e.ctrlKey) return
+  e.preventDefault()
+  if (e.deltaY < 0) fsZoomIn(); else fsZoomOut()
+}
+
 </script>
 
 <template>
-  <div class="ws">
+  <div class="ws" :class="{ 'ws--fs': fullscreen, 'ws--fs-exit': fsExiting }" @wheel="onFsWheel">
+
+    <!-- ═══ Normal layout (hidden in fullscreen) ═══ -->
     <!-- ── Top Toolbar ── -->
     <div class="ws-toolbar">
       <div class="ws-toolbar-main">
@@ -528,6 +592,11 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
         </div>
       </div>
       <div class="ws-toolbar-right">
+        <button class="ws-toolbar-btn" :class="{ active: fullscreen }" @click="toggleFullscreen" :title="fullscreen ? t('filter.exitFullscreenHint') : t('filter.fullscreen')">
+          <svg v-if="!fullscreen" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          <span>{{ fullscreen ? t('filter.exitFullscreen') : t('filter.fullscreen') }}</span>
+        </button>
         <button class="ws-toolbar-btn" :class="{ active: filterMultiSelect }" @click="filterStore.toggleFilterMultiSelect()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           <span>{{ filterMultiSelect ? t('filter.multiSelectActive', { count: selectedQuestionIds.size }) : t('filter.multiSelect') }}</span>
@@ -546,7 +615,7 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
     <!-- ── Main Content ── -->
     <div class="ws-main">
       <!-- Question hero -->
-      <div class="ws-content">
+      <div class="ws-content" :style="fullscreen ? { transform: `scale(${fsZoom})`, transformOrigin: 'top center' } : undefined">
         <!-- Loading -->
         <div v-if="filterLoading" class="ws-loading">
           <div class="ws-loading-skeleton"></div>
@@ -604,7 +673,8 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
         </div>
       </div>
 
-      <!-- Inspector -->
+      <!-- Inspector (hidden in fullscreen; shown via zone overlay) -->
+      <div class="ws-fs-inspector-wrap">
       <Inspector
         :question="selectedQuestion"
         :collapsed="inspectorCollapsed"
@@ -628,9 +698,10 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
         @update:editSections="editSections = $event"
         @update:editNotes="editNotes = $event"
       />
+      </div>
     </div>
 
-    <!-- ── Film Strip (all questions, horizontal scroll) ── -->
+    <!-- ── Film Strip ── -->
     <div class="ws-filmstrip">
       <span class="ws-filmstrip-count">{{ t('filter.questionCount', { count: allFilmStripItems.length }) }}</span>
       <FilmStrip
@@ -641,6 +712,27 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
         @select="selectQuestionById"
         @toggle-selection="(id) => filterStore.toggleFilterItemSelection({ id })"
       />
+    </div>
+
+    <!-- ═══ Fullscreen floating buttons ═══ -->
+    <div v-if="fullscreen" class="ws-fs-bar" :style="fsBarX >= 0 ? { left: fsBarX + 'px', top: fsBarY + 'px', right: 'auto' } : undefined" @pointerdown="onFsBarPointerDown" @pointermove="onFsBarPointerMove" @pointerup="onFsBarPointerUp">
+      <button class="ws-fs-btn" @click="toggleFullscreen" :title="t('filter.exitFullscreenHint')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        <span>{{ t('filter.exitFullscreen') }}</span>
+      </button>
+      <div class="ws-fs-zoom">
+        <button class="ws-fs-btn ws-fs-btn--sm" @click="fsZoomOut" title="缩小">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        </button>
+        <button class="ws-fs-zoom-label" @click="fsZoomReset" title="重置">{{ Math.round(fsZoom * 100) }}%</button>
+        <button class="ws-fs-btn ws-fs-btn--sm" @click="fsZoomIn" title="放大">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        </button>
+      </div>
+      <button class="ws-fs-btn" @click="onToggleAnswer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span>{{ ansOpen ? t('filter.answerHide') : t('filter.answerShow') }}</span>
+      </button>
     </div>
   </div>
 </template>
@@ -653,6 +745,65 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
   background: var(--bg);
   border-radius: 16px;
   gap: 1px;
+  transition: border-radius 0.3s ease;
+}
+
+.ws--fs {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  border-radius: 0;
+  animation: fs-enter 0.3s ease;
+}
+
+@keyframes fs-enter {
+  from { opacity: 0.6; transform: scale(0.97); }
+  to   { opacity: 1;   transform: scale(1); }
+}
+
+.ws--fs-exit {
+  animation: fs-exit 0.28s ease forwards;
+}
+
+@keyframes fs-exit {
+  from { opacity: 1;   transform: scale(1); }
+  to   { opacity: 0;   transform: scale(0.97); }
+}
+
+/* Hide chrome in fullscreen with fade */
+.ws--fs .ws-toolbar,
+.ws--fs .ws-filmstrip,
+.ws--fs .ws-fs-inspector-wrap {
+  display: none;
+}
+
+/* Fullscreen: question centered by default, side-by-side when answer open */
+.ws--fs .ws-question {
+  flex-direction: row;
+  gap: 24px;
+  align-items: flex-start;
+  max-width: none;
+  width: 100%;
+  justify-content: center;
+}
+
+.ws--fs .ws-question-img {
+  flex: 1;
+  min-width: 0;
+  max-width: 900px;
+}
+
+/* When answer is present: 50/50 split */
+.ws--fs .ws-question:has(.ws-answer) .ws-question-img {
+  max-width: 50%;
+}
+
+.ws--fs .ws-answer {
+  flex: 1;
+  min-width: 0;
+  max-width: 50%;
+  margin-top: 0;
+  align-self: flex-start;
 }
 
 /* ══════════════════════════════════════
@@ -941,6 +1092,117 @@ let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
   white-space: nowrap;
   flex-shrink: 0;
   padding: 0 4px;
+}
+
+/* ══════════════════════════════════════
+   FULLSCREEN MODE
+   ══════════════════════════════════════ */
+.ws--fs {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--bg);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+/* ── Fullscreen floating bar ── */
+.ws-fs-bar {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.ws-fs-bar:active {
+  cursor: grabbing;
+}
+
+.ws-fs-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 100ms ease;
+  white-space: nowrap;
+}
+
+.ws-fs-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ws-fs-btn--sm {
+  padding: 6px;
+  min-width: 32px;
+  min-height: 32px;
+  justify-content: center;
+}
+
+.ws-fs-zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-input);
+  border-radius: 8px;
+}
+
+.ws-fs-zoom-label {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 48px;
+  text-align: center;
+  transition: all 100ms ease;
+}
+
+.ws-fs-zoom-label:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Hide normal UI chrome in fullscreen */
+.ws--fs .ws-toolbar,
+.ws--fs .ws-filmstrip,
+.ws--fs .ws-fs-inspector-wrap {
+  display: none;
+}
+
+/* ── Fullscreen main content ── */
+.ws--fs .ws-main {
+  height: 100%;
+  overflow: auto;
+}
+
+.ws--fs .ws-content {
+  padding: 24px;
+  min-height: 100%;
 }
 
 /* ══════════════════════════════════════
