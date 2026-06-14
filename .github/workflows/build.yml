@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如 1.0.0)'
+        required: true
 
 permissions:
   contents: write
@@ -23,6 +27,15 @@ jobs:
           cache: npm
           cache-dependency-path: frontend-vite/package-lock.json
 
+      - name: Update version
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: frontend-vite
+        run: |
+          $version = "${{ github.event.inputs.version }}"
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $pkg.version = $version
+          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json -Encoding UTF8
+
       - name: Install dependencies
         working-directory: frontend-vite
         run: npm ci
@@ -30,8 +43,6 @@ jobs:
       - name: Build Electron app
         working-directory: frontend-vite
         run: npm run electron:build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -44,6 +55,17 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          files: frontend-vite/release/*.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release (on manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: v${{ github.event.inputs.version }}
           files: frontend-vite/release/*.exe
           generate_release_notes: true
         env:

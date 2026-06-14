@@ -19,7 +19,7 @@
     "e2e:api": "node tests/api-e2e.mjs",
     "electron:dev": "vite build && electron .",
     "electron:watch": "node electron/watch.cjs",
-    "electron:build": "vue-tsc -b && vite build && electron-builder --win portable"
+    "electron:build": "vue-tsc -b && vite build && electron-builder --win portable --publish never"
   },
   "build": {
     "publish": null,
@@ -44,6 +44,10 @@
         "filter": [
           "**/*.py"
         ]
+      },
+      {
+        "from": "dist",
+        "to": "frontend-vite/dist"
       }
     ]
   },
