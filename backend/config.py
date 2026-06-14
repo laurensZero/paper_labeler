@@ -1,9 +1,24 @@
+import os
 import sys
 from pathlib import Path
 
-# EXE 同级目录有 data/ 就用它，否则用项目根目录
-_exe_dir = Path(sys.executable).resolve().parent
-APP_DIR = _exe_dir if (_exe_dir / "data").is_dir() else Path(__file__).resolve().parents[1]
+def _resolve_app_dir() -> Path:
+    # 1) Electron 传入的路径（打包后最重要）
+    env_root = os.getenv("PAPER_LABELER_ROOT", "").strip()
+    if env_root:
+        candidate = Path(env_root)
+        if (candidate / "data").is_dir():
+            return candidate
+
+    # 2) EXE 同级目录有 data/ 就用它
+    exe_dir = Path(sys.executable).resolve().parent
+    if (exe_dir / "data").is_dir():
+        return exe_dir
+
+    # 3) 开发模式兜底
+    return Path(__file__).resolve().parents[1]
+
+APP_DIR = _resolve_app_dir()
 BUNDLE_DIR = APP_DIR
 DATA_DIR = APP_DIR / "data"
 PDF_DIR = DATA_DIR / "pdfs"

@@ -16,31 +16,34 @@ function getRoot() {
 }
 
 // DATA_ROOT: where data/ lives.
-// First: check marker file. Then: cwd. Fallback: project root.
+// EXE 同级目录有 data/ 就用它，没有就创建。
 function getDataRoot() {
   const fs = require('fs')
+
+  // 1) marker file（记住上次的路径）
   const markerPath = path.join(app.getPath('userData'), 'data-root.txt')
   if (fs.existsSync(markerPath)) {
     const stored = fs.readFileSync(markerPath, 'utf-8').trim()
     if (stored && fs.existsSync(path.join(stored, 'data'))) return stored
   }
-  if (app.isPackaged) {
-    const cwd = process.cwd()
-    // If CWD has data/, use it and remember
-    if (fs.existsSync(path.join(cwd, 'data'))) {
-      fs.mkdirSync(app.getPath('userData'), { recursive: true })
-      fs.writeFileSync(markerPath, cwd, 'utf-8')
-      return cwd
-    }
-    // CWD is temp dir, try exe dir from argv[0]
-    const exeDir = path.dirname(process.argv[0])
-    if (exeDir !== cwd && fs.existsSync(path.join(exeDir, 'data'))) {
-      fs.mkdirSync(app.getPath('userData'), { recursive: true })
-      fs.writeFileSync(markerPath, exeDir, 'utf-8')
-      return exeDir
-    }
+
+  // 2) EXE 所在目录
+  const exeDir = app.isPackaged
+    ? path.dirname(process.argv[0])
+    : path.resolve(__dirname, '..', '..')
+
+  const dataDir = path.join(exeDir, 'data')
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true })
   }
-  return path.resolve(__dirname, '..', '..')
+
+  // 记住这个路径
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true })
+    fs.writeFileSync(markerPath, exeDir, 'utf-8')
+  } catch {}
+
+  return exeDir
 }
 
 // Find a free port
