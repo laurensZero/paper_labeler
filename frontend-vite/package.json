@@ -4,7 +4,7 @@
   "description": "试卷题目标注工具",
   "repository": {
     "type": "git",
-    "url": "https://github.com/laurenZero/paper_labeler.git"
+    "url": "https://github.com/laurens1995s/paper_labeler.git"
   },
   "private": true,
   "version": "1.0.0",
@@ -22,6 +22,7 @@
     "electron:build": "vue-tsc -b && vite build && electron-builder --win portable"
   },
   "build": {
+    "publish": null,
     "appId": "com.paper-labeler.app",
     "productName": "Paper Labeler",
     "icon": "build/icon.png",
