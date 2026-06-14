@@ -2,6 +2,10 @@
   "name": "paper-labeler",
   "productName": "Paper Labeler",
   "description": "试卷题目标注工具",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/laurenZero/paper_labeler.git"
+  },
   "private": true,
   "version": "1.0.0",
   "type": "module",
