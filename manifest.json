@@ -1,7 +1,7 @@
 {
-  "version": "20260614.1",
-  "url": "bundle-20260614.1.zip",
-  "hash": "sha256:7594fe5c421bb38708faa9af61a663ffb225747cde507cf4ca6e9b5f38bb4bf9",
-  "notes": "cf3d760 feat: 添加热更新版本管理功能，支持从文件读取版本并在应用更新时保存版本信息 ",
-  "publishedAt": "2026-06-14T07:27:53Z"
+  "version": "20260614.2",
+  "url": "bundle-20260614.2.zip",
+  "hash": "sha256:141c4ae633a82b4551003ab1d664eb3046dc00aed9afebde50293a496507b50d",
+  "notes": "1e640b3 fix: 移除导入后重启应用的逻辑 ",
+  "publishedAt": "2026-06-14T09:47:42Z"
 }
