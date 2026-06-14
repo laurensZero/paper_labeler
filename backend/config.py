@@ -37,8 +37,18 @@ EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 # UI_DIR: 前端构建输出目录
 # 默认优先使用 Vite 迁移版；如果尚未构建，则回退到旧版 frontend 目录。
 _ui_dir_override = os.getenv("PAPER_LABELER_UI_DIR", "").strip()
-_vite_ui_dir = BUNDLE_DIR / "frontend-vite" / "dist"
-_legacy_ui_dir = BUNDLE_DIR / "frontend"
-UI_DIR = Path(_ui_dir_override).expanduser().resolve() if _ui_dir_override else (
-    _vite_ui_dir if _vite_ui_dir.exists() else _legacy_ui_dir
-)
+if _ui_dir_override:
+    UI_DIR = Path(_ui_dir_override).expanduser().resolve()
+elif os.getenv("PAPER_LABELER_ELECTRON"):
+    # Electron: prefer hot-updated UI in AppData, fall back to bundled
+    _appdata_ui = Path(os.getenv("APPDATA") or str(Path.home() / "AppData" / "Roaming")) / "PaperLabeler" / "ui"
+    if _appdata_ui.exists():
+        UI_DIR = _appdata_ui
+    else:
+        _vite_ui_dir = BUNDLE_DIR / "frontend-vite" / "dist"
+        _legacy_ui_dir = BUNDLE_DIR / "frontend"
+        UI_DIR = _vite_ui_dir if _vite_ui_dir.exists() else _legacy_ui_dir
+else:
+    _vite_ui_dir = BUNDLE_DIR / "frontend-vite" / "dist"
+    _legacy_ui_dir = BUNDLE_DIR / "frontend"
+    UI_DIR = _vite_ui_dir if _vite_ui_dir.exists() else _legacy_ui_dir

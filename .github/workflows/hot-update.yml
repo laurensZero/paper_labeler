@@ -1,0 +1,67 @@
+name: Publish Hot Update Bundle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend-vite/src/**'
+      - 'backend/**/*.py'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend-vite/package-lock.json
+
+      - name: Install & Build frontend
+        working-directory: frontend-vite
+        run: |
+          npm ci
+          npm run build
+
+      - name: Get version
+        id: ver
+        run: |
+          VERSION=$(node -p "require('./frontend-vite/package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create bundle ZIP
+        run: |
+          mkdir -p _bundle/ui _bundle/backend
+          cp -r frontend-vite/dist/* _bundle/ui/
+          cp -r backend/*.py _bundle/backend/
+          cd _bundle
+          zip -r ../bundle-${{ steps.ver.outputs.version }}.zip ui/ backend/
+
+      - name: Compute SHA-256
+        id: hash
+        run: echo "sha256=$(sha256sum bundle-${{ steps.ver.outputs.version }}.zip | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Generate manifest & deploy
+        run: |
+          mkdir _deploy
+          cat > _deploy/manifest.json <<EOF
+          {
+            "version": "${{ steps.ver.outputs.version }}",
+            "url": "bundle-${{ steps.ver.outputs.version }}.zip",
+            "hash": "sha256:${{ steps.hash.outputs.sha256 }}",
+            "notes": "$(git log --oneline -5 | tr '\n' ' ')",
+            "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          cp bundle-${{ steps.ver.outputs.version }}.zip _deploy/
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: _deploy
+          destination_dir: /
+          keep_files: false

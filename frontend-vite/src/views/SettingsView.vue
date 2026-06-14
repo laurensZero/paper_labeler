@@ -9,6 +9,7 @@ import { usePapersStore } from '@/stores/papers'
 import { useMarkStore } from '@/stores/mark'
 import { useAnswerStore } from '@/stores/answer'
 import { useFilterStore } from '@/stores/filter'
+import { useAppUpdateStore } from '@/stores/appUpdate'
 import { i18n } from '@/i18n'
 import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 
@@ -23,6 +24,7 @@ const papersStore = usePapersStore()
 const markStore = useMarkStore()
 const answerStore = useAnswerStore()
 const filterStore = useFilterStore()
+const appUpdateStore = useAppUpdateStore()
 
 // Alignment / OCR — use storeToRefs so v-model binds reactively
 const {
@@ -172,6 +174,7 @@ onMounted(() => {
   settingsStore.loadFromStorage()
   exportStore.loadExportSettings()
   exportStore.refreshExportCacheOverview()
+  appUpdateStore.init()
 })
 </script>
 
@@ -552,6 +555,15 @@ onMounted(() => {
       <div style="font-size: 14px; color: var(--text-secondary); line-height: 1.6">
         {{ t('settings.about.version') }}<br/>
         <span style="font-size: 13px; color: var(--text-tertiary)">{{ t('settings.about.description') }}</span>
+      </div>
+      <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-secondary)">
+        <span>{{ t('update.currentVersion') }}: {{ appUpdateStore.currentVersion || '...' }}</span>
+        <button class="btn btn-ghost btn-sm" :disabled="appUpdateStore.checking" @click="appUpdateStore.checkForUpdates({ source: 'manual' })">
+          {{ appUpdateStore.checking ? t('update.checking') : t('update.upToDate') }}
+        </button>
+      </div>
+      <div v-if="appUpdateStore.error" style="margin-top: 6px; font-size: 12px; color: #ef4444">
+        {{ appUpdateStore.error }}
       </div>
     </div>
   </div>

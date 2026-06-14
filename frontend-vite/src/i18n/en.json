@@ -503,5 +503,23 @@
     "pairedQp": "Paired QP",
     "unpaired": "Not paired",
     "noPair": "This answer paper is not paired with a question paper. Please pair it first."
+  },
+  "update": {
+    "checkFailed": "Failed to check for updates",
+    "downloadFailed": "Download failed",
+    "applyFailed": "Failed to apply update",
+    "hashMismatch": "File verification failed, may have been tampered with",
+    "newVersion": "New version available",
+    "currentVersion": "Current version",
+    "latestVersion": "Latest version",
+    "downloadAndApply": "Download & Update",
+    "openReleasePage": "Go to download",
+    "dismiss": "Later",
+    "downloading": "Downloading...",
+    "applying": "Applying update...",
+    "restartHint": "Update complete, restarting...",
+    "forceHint": "This is a mandatory update",
+    "checking": "Checking for updates...",
+    "upToDate": "Already up to date"
   }
 }

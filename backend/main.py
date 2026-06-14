@@ -98,6 +98,48 @@ def health():
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
 
 
+@app.get("/data/version")
+def get_version():
+    import json
+    pkg = Path(__file__).resolve().parents[1] / "frontend-vite" / "package.json"
+    ver = "0.0.0"
+    if pkg.exists():
+        try:
+            ver = json.loads(pkg.read_text(encoding="utf-8")).get("version", ver)
+        except Exception:
+            pass
+    return {"version": ver}
+
+
+@app.post("/admin/apply-update")
+async def apply_update(request: Request):
+    """Receive a ZIP with ui/ and/or backend/ dirs, extract to AppData.
+    ZIP structure:
+      ui/...       → %APPDATA%/PaperLabeler/ui/
+      backend/...  → %APPDATA%/PaperLabeler/backend/
+    """
+    import io, shutil, zipfile
+
+    body = await request.body()
+    if not body:
+        return JSONResponse({"error": "empty body"}, status_code=400)
+
+    appdata = Path(os.getenv("APPDATA") or str(Path.home() / "AppData" / "Roaming"))
+    base_dir = appdata / "PaperLabeler"
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(body)) as zf:
+            # Extract ui/ and backend/ to AppData/PaperLabeler/
+            for name in zf.namelist():
+                if name.startswith('ui/') or name.startswith('backend/'):
+                    zf.extract(name, base_dir)
+    except Exception as e:
+        return JSONResponse({"error": f"bad zip: {e}"}, status_code=400)
+
+    return {"ok": True, "base": str(base_dir)}
+
+
 # Include API Routers
 app.include_router(papers.router)
 app.include_router(questions.router)

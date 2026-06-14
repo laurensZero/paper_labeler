@@ -7,9 +7,11 @@ const http = require('http')
 let backendProcess = null
 let backendPort = 0
 
-// In dev, ROOT is the project root. In packaged app, extraResources are next to the exe.
+// In dev, ROOT is the project root. In packaged app, prefer hot-updated backend in AppData.
 function getRoot() {
   if (app.isPackaged) {
+    const appdataBackend = path.join(process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming'), 'PaperLabeler', 'backend')
+    if (require('fs').existsSync(appdataBackend)) return appdataBackend
     return process.resourcesPath
   }
   return path.resolve(__dirname, '..', '..')
@@ -63,6 +65,7 @@ async function startBackend() {
       ...process.env,
       PAPER_LABELER_PORT: String(backendPort),
       PAPER_LABELER_ELECTRON: '1',
+      PAPER_LABELER_DATA_DIR: path.join(process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming'), 'PaperLabeler', 'data'),
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },
@@ -138,6 +141,11 @@ function createWindow() {
     else win.maximize()
   })
   ipcMain.on('window-close', () => win.close())
+  ipcMain.on('app-restart', () => {
+    killBackend()
+    app.relaunch()
+    app.quit()
+  })
   ipcMain.handle('window-is-maximized', () => win.isMaximized())
   win.on('maximize', () => win.webContents.send('maximize-change', true))
   win.on('unmaximize', () => win.webContents.send('maximize-change', false))

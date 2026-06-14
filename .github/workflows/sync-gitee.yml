@@ -1,0 +1,23 @@
+name: Sync to Gitee
+
+on:
+  workflow_run:
+    workflows: ["Publish Hot Update Bundle", "Build Electron EXE"]
+    types: [completed]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync gh-pages to Gitee
+        uses: wearerequired/git-mirror-action@master
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.GITEE_SSH_KEY }}
+        with:
+          source-repo: git@github.com:laurensZero/paper-labeler.git
+          destination-repo: git@gitee.com:laurenszero/paper-labeler.git
