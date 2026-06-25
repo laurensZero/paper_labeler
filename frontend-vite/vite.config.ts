@@ -9,7 +9,7 @@ const apiPaths = [
   '/data', '/papers', '/upload_pdf', '/upload_pdfs', '/answer_papers',
   '/questions', '/sections', '/section_defs', '/section_groups',
   '/section_stats', '/random_by_sections', '/stats', '/export', '/maintenance',
-  '/admin', '/cie_import', '/health',
+  '/admin', '/cie_import', '/compositions', '/health',
 ]
 
 const proxy = Object.fromEntries(

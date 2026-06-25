@@ -227,7 +227,9 @@
       "langZhCN": "简体中文",
       "langEn": "English",
       "darkImageInvert": "Dark mode image invert",
-      "darkImageInvertDesc": "Default: dim brightness. When enabled: invert colors (white bg → black bg)"
+      "darkImageInvertDesc": "Default: dim brightness. When enabled: invert colors (white bg → black bg)",
+      "filmStripDots": "Show section color dots",
+      "filmStripDotsDesc": "Display colored dots on each question in the bottom filmstrip to indicate its section"
     },
     "ocr": {
       "title": "OCR Recognition",
@@ -299,15 +301,7 @@
       "cleanAnswerBoxes": "Clean answer boxes",
       "cleanSections": "Clean section links",
       "fillQuestionNoLabel": "Fill question numbers",
-      "renumberLabel": "Resequence numbers",
-      "webpTitle": "Compress Page Images",
-      "webpConfirm": "Convert all page PNGs to WebP format (~40-60% smaller). Original PNGs will be deleted. Continue?",
-      "webpButton": "Start Compression",
-      "webpRunning": "Converting images…",
-      "webpDone": "Done: {converted} images, {beforeMB}MB → {afterMB}MB",
-      "webpFailed": "Compression failed: {error}",
-      "webpConvert": "Compress Page Images",
-      "webpConvertDesc": "Convert existing page images from PNG to WebP to reduce disk usage. Newly imported papers use WebP automatically."
+      "renumberLabel": "Resequence numbers"
     },
     "export": {
       "title": "Export Settings",
@@ -544,7 +538,9 @@
     "questions": "Questions",
     "answersMarked": "Answers",
     "pairedMs": "Answer Paper",
-    "noMs": "None"
+    "noMs": "None",
+    "markDone": "Mark Done",
+    "unmarkDone": "Unmark Done"
   },
   "update": {
     "checkFailed": "Failed to check for updates",

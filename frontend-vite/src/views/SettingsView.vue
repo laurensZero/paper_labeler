@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useSettingsStore } from '@/stores/settings'
+import { useSectionsStore } from '@/stores/sections'
 import { useExportStore } from '@/stores/export'
 import { useAppStore } from '@/stores/app'
 import { usePapersStore } from '@/stores/papers'
@@ -18,6 +19,7 @@ const { t } = useI18n()
 defineOptions({ name: 'SettingsView' })
 
 const settingsStore = useSettingsStore()
+const sectionsStore = useSectionsStore()
 const exportStore = useExportStore()
 const appStore = useAppStore()
 const papersStore = usePapersStore()
@@ -77,9 +79,8 @@ const {
   maintenanceRenumberQuestionNo,
   maintenanceIntegrityReport,
   maintenanceRepairReport,
-  webpConvertReport,
-  webpConvertProgress,
   darkImageInvert,
+  filmStripSectionDots,
 } = storeToRefs(settingsStore)
 
 // Export settings
@@ -126,6 +127,44 @@ async function onToggleAnswerAlign() {
 
 function onToggleOcrAuto() {
   settingsStore.saveOcrAuto(!ocrAutoEnabled.value)
+}
+
+function onToggleFilmStripDots() {
+  const next = !filmStripSectionDots.value
+  settingsStore.saveFilmStripSectionDots(next)
+  if (next) {
+    // First time enabling: auto-assign colors to sections without one
+    const alreadyDone = localStorage.getItem('setting:filmStripDotsAutoAssigned')
+    if (!alreadyDone) {
+      const PALETTE = [
+        '#ef4444', '#f97316', '#f59e0b', '#eab308',
+        '#84cc16', '#22c55e', '#10b981', '#14b8a6',
+        '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1',
+        '#8b5cf6', '#a855f7', '#d946ef', '#ec4899',
+      ]
+      const usedColors = new Set(sectionsStore.sectionDefs.map(s => s.color).filter(Boolean))
+      const shuffled = [...PALETTE].sort(() => Math.random() - 0.5)
+      let ci = 0
+      for (const s of sectionsStore.sectionDefs) {
+        if (s.color) continue
+        for (let i = 0; i < shuffled.length; i++) {
+          const idx = (ci + i) % shuffled.length
+          if (!usedColors.has(shuffled[idx])) {
+            s.color = shuffled[idx]
+            usedColors.add(s.color)
+            ci = idx + 1
+            break
+          }
+        }
+        if (!s.color) {
+          s.color = shuffled[ci % shuffled.length]
+          ci++
+        }
+        sectionsStore.updateSectionDef(s)
+      }
+      localStorage.setItem('setting:filmStripDotsAutoAssigned', '1')
+    }
+  }
 }
 
 const currentLocale = computed(() => i18n.global.locale.value)
@@ -244,6 +283,21 @@ onMounted(() => {
             type="checkbox"
             :checked="darkImageInvert"
             @change="settingsStore.saveDarkImageInvert(($event.target as HTMLInputElement).checked)"
+          />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
+      </div>
+      <div class="divider" style="margin: 0"></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0">
+        <div>
+          <div style="font-weight: 500; font-size: 14px">{{ t('settings.appearance.filmStripDots') }}</div>
+          <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.appearance.filmStripDotsDesc') }}</div>
+        </div>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            :checked="filmStripSectionDots"
+            @change="onToggleFilmStripDots"
           />
           <span class="toggle-track"><span class="toggle-thumb"></span></span>
         </label>
@@ -438,38 +492,6 @@ onMounted(() => {
           {{ t('settings.maintenance.renumberLabel') }} {{ maintenanceRepairReport.question_no_resequenced_changed || 0 }}
         </div>
 
-        <div class="divider" style="margin: 16px 0 0"></div>
-
-        <!-- 压缩页面图片 -->
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0">
-          <div>
-            <div style="font-weight: 500; font-size: 14px">{{ t('settings.maintenance.webpConvert') }}</div>
-            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.maintenance.webpConvertDesc') }}</div>
-          </div>
-          <button class="btn" :disabled="maintenanceBusy" @click="settingsStore.convertToWebp()">
-            {{ t('settings.maintenance.webpButton') }}
-          </button>
-        </div>
-
-        <!-- 转换进度 -->
-        <div v-if="webpConvertProgress.running && !webpConvertProgress.finished" style="margin-top: 4px">
-          <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px">
-            <span>{{ t('settings.maintenance.webpRunning') }}</span>
-            <span>{{ webpConvertProgress.done }} / {{ webpConvertProgress.total || '?' }}</span>
-          </div>
-          <div style="width: 100%; height: 6px; border-radius: 999px; background: var(--bg-pressed); overflow: hidden">
-            <div
-              style="height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #22c55e); transition: width 0.2s ease"
-              :style="{ width: webpConvertProgress.total > 0 ? (webpConvertProgress.done / webpConvertProgress.total * 100).toFixed(1) + '%' : '0%' }"
-            ></div>
-          </div>
-        </div>
-
-        <!-- 转换结果 -->
-        <div v-if="webpConvertReport" style="margin-top: 8px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; padding: 12px; background: var(--bg-input); border-radius: var(--radius-sm)">
-          {{ t('settings.maintenance.webpDone', { converted: webpConvertReport.converted || 0, beforeMB: ((webpConvertReport.before_bytes || 0) / 1024 / 1024).toFixed(1), afterMB: ((webpConvertReport.after_bytes || 0) / 1024 / 1024).toFixed(1) }) }}
-          <span v-if="webpConvertReport.errors" style="color: var(--warning)">（{{ webpConvertReport.errors }} 个错误）</span>
-        </div>
       </div>
     </div>
 

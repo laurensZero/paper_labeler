@@ -8,6 +8,7 @@ import { usePapersStore } from '@/stores/papers'
 import { useAppStore } from '@/stores/app'
 import { useDialogStore } from '@/stores/dialog'
 import { api } from '@/api/client'
+import { papersApi } from '@/api/endpoints'
 import type { PaperListItem } from '@/types/paper'
 
 const { t } = useI18n()
@@ -112,6 +113,16 @@ async function deletePaper(p: PaperListItem) {
     appStore.setStatus(t('paperAdmin.deleted'), 'ok')
     await papersStore.refreshPapers()
     await answerStore.refreshAnswerPapers()
+  } catch (e) {
+    appStore.setStatus(String(e), 'err')
+  }
+}
+
+async function toggleDone(p: PaperListItem) {
+  try {
+    await papersApi.update(p.id, { done: !p.done })
+    appStore.setStatus(t(p.done ? 'paperAdmin.unmarkDone' : 'paperAdmin.markDone'), 'ok')
+    await papersStore.refreshPapers()
   } catch (e) {
     appStore.setStatus(String(e), 'err')
   }
@@ -277,6 +288,17 @@ onMounted(async () => {
 
         <div class="paper-card-footer">
           <div class="btn-group">
+            <button
+              class="btn btn-sm"
+              :class="p.done ? 'btn-done-active' : ''"
+              :title="p.done ? t('paperAdmin.unmarkDone') : t('paperAdmin.markDone')"
+              @click="toggleDone(p)"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              {{ p.done ? t('paperAdmin.unmarkDone') : t('paperAdmin.markDone') }}
+            </button>
             <button class="btn btn-sm" @click="startMark(p)">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -591,6 +613,16 @@ onMounted(async () => {
 .btn-delete:hover {
   color: var(--danger);
   background: rgba(255, 59, 48, 0.08);
+}
+
+.btn-done-active {
+  color: var(--success);
+  background: rgba(52, 199, 89, 0.08);
+}
+
+.btn-done-active:hover {
+  color: var(--success);
+  background: rgba(52, 199, 89, 0.15);
 }
 
 /* ── Empty state ── */

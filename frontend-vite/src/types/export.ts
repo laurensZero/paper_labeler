@@ -15,6 +15,12 @@ export interface ExportOptions {
   includeFilterSummary?: boolean
   filterSummaryLines?: string[] | null
   cropWorkers?: number
+  // Composition mode extensions
+  title?: string | null
+  headerText?: string | null
+  footerText?: string | null
+  blankPagesPerQuestion?: number[] | null
+  showPageNumbers?: boolean
 }
 
 /** Export request payload (POST /questions_pdf_job) */

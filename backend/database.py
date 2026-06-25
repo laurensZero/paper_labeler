@@ -92,6 +92,7 @@ class SectionDef(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, unique=True, index=True)
     content = Column(String, nullable=True)
+    color = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -164,5 +165,12 @@ def init_db():
                 conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN year_token VARCHAR")
             if "season_token" not in cols:
                 conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN season_token VARCHAR")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
+            cols = {str(r[1]) for r in conn.exec_driver_sql("PRAGMA table_info(section_defs)").fetchall()}
+            if "color" not in cols:
+                conn.exec_driver_sql("ALTER TABLE section_defs ADD COLUMN color VARCHAR")
     except Exception:
         pass

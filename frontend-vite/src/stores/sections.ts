@@ -1,18 +1,27 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { useAppStore } from './app'
 import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 
+const SECTION_COLOR_PALETTE = [
+  '#ef4444', '#f97316', '#f59e0b', '#eab308',
+  '#84cc16', '#22c55e', '#10b981', '#14b8a6',
+  '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1',
+  '#8b5cf6', '#a855f7', '#d946ef', '#ec4899',
+]
+
 export interface SectionDef {
   id: number
   name: string
   content: string | null
+  color: string | null
   group_id: number | null
   __lastSavedName?: string
   __lastSavedGroupId?: number | null
   __lastSavedContent?: string
+  __lastSavedColor?: string | null
 }
 
 export interface SectionGroup {
@@ -47,6 +56,15 @@ export const useSectionsStore = defineStore('sections', () => {
   const newSectionGroupName = ref('')
   const newSectionGroupId = ref<number | null>(null)
 
+  // --- computed ---
+  const sectionColorMap = computed(() => {
+    const map: Record<string, string> = {}
+    for (const s of sectionDefs.value) {
+      if (s.name && s.color) map[s.name] = s.color
+    }
+    return map
+  })
+
   // --- actions ---
   async function refreshSectionDefs() {
     try {
@@ -63,6 +81,7 @@ export const useSectionsStore = defineStore('sections', () => {
           __lastSavedName: s?.name ?? '',
           __lastSavedGroupId: s?.group_id != null ? Number(s.group_id) : null,
           __lastSavedContent: s?.content ?? '',
+          __lastSavedColor: s?.color ?? null,
         }))
       sectionDefs.value = defs
 
@@ -154,15 +173,29 @@ export const useSectionsStore = defineStore('sections', () => {
     sectionLabelMap.value = labelMap
   }
 
-  async function createSectionDef(name: string, content = '', groupId: number | null = null) {
+  async function createSectionDef(name: string, content = '', groupId: number | null = null, color: string | null = null) {
     const appStore = useAppStore()
     if (!name) return
+    // Auto-pick a color if not provided
+    if (!color) {
+      const usedColors = new Set(sectionDefs.value.map(s => s.color).filter(Boolean))
+      const idx = sectionDefs.value.length % SECTION_COLOR_PALETTE.length
+      // Find next unused color starting from idx, fallback to idx itself
+      color = SECTION_COLOR_PALETTE[idx]
+      for (let i = 0; i < SECTION_COLOR_PALETTE.length; i++) {
+        const ci = (idx + i) % SECTION_COLOR_PALETTE.length
+        if (!usedColors.has(SECTION_COLOR_PALETTE[ci])) {
+          color = SECTION_COLOR_PALETTE[ci]
+          break
+        }
+      }
+    }
     try {
       appStore.setStatus('添加模块中...')
       await api('/section_defs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, content, group_id: groupId }),
+        body: JSON.stringify({ name, content, group_id: groupId, color }),
       })
       appStore.setStatus('已添加', 'ok')
       newSectionName.value = ''
@@ -181,7 +214,7 @@ export const useSectionsStore = defineStore('sections', () => {
       const resp = await api(`/section_defs/${s.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: s.name, content: s.content, group_id: gid }),
+        body: JSON.stringify({ name: s.name, content: s.content, group_id: gid, color: s.color }),
       })
       const updatedCount = Number(resp?.updated_questions ?? resp?.renamed_count ?? resp?.renamedCount ?? 0)
       if (Number.isFinite(updatedCount) && updatedCount > 0) {
@@ -353,6 +386,7 @@ export const useSectionsStore = defineStore('sections', () => {
     sectionOptionGroupsAll,
     sectionOptionGroupsVisible,
     sectionLabelMap,
+    sectionColorMap,
     sectionMultiSelect,
     selectedSectionDefIds,
     sectionBatchGroupId,

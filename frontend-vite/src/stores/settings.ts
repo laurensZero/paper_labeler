@@ -28,12 +28,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const maintenanceRenumberQuestionNo = ref(false)
   const maintenanceIntegrityReport = ref<QuestionsIntegrityReport | null>(null)
   const maintenanceRepairReport = ref<QuestionsRepairReport | null>(null)
-  const webpConvertReport = ref<any>(null)
-  const webpConvertProgress = ref({ running: false, total: 0, done: 0, converted: 0, errors: 0, before_bytes: 0, after_bytes: 0, finished: false, message: '' })
-  let webpPollTimer: ReturnType<typeof setInterval> | null = null
+
 
   // --- appearance ---
   const darkImageInvert = ref(false)
+  const filmStripSectionDots = ref(false)
 
   // --- OCR ---
   const ocrAutoEnabled = ref(false)
@@ -64,6 +63,10 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       const v = localStorage.getItem('setting:darkImageInvert')
       if (v != null) darkImageInvert.value = v === '1' || v === 'true'
+    } catch {}
+    try {
+      const v = localStorage.getItem('setting:filmStripSectionDots')
+      if (v != null) filmStripSectionDots.value = v === '1' || v === 'true'
     } catch {}
     try {
       const v = localStorage.getItem('setting:ocrAutoEnabled')
@@ -181,6 +184,13 @@ export const useSettingsStore = defineStore('settings', () => {
     saveOcrYPadding(ocrYPaddingPx.value)
     saveFilterVirtualThreshold(filterVirtualThreshold.value)
     saveFilterVirtualOverscanPx(filterVirtualOverscanPx.value)
+    saveFilmStripSectionDots(filmStripSectionDots.value)
+  }
+
+  function saveFilmStripSectionDots(v: boolean) {
+    filmStripSectionDots.value = !!v
+    try { localStorage.setItem('setting:filmStripSectionDots', filmStripSectionDots.value ? '1' : '0') } catch {}
+    return filmStripSectionDots.value
   }
 
   async function runIntegrityCheck() {
@@ -233,52 +243,6 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function pollWebpStatus() {
-    try {
-      const data = await api('/admin/convert_webp/status')
-      webpConvertProgress.value = data
-      if (data.finished) {
-        if (webpPollTimer) { clearInterval(webpPollTimer); webpPollTimer = null }
-        maintenanceBusy.value = false
-        webpConvertReport.value = {
-          converted: data.converted,
-          errors: data.errors,
-          before_bytes: data.before_bytes,
-          after_bytes: data.after_bytes,
-        }
-        const appStore = useAppStore()
-        const t = i18n.global.t
-        const beforeMB = ((data.before_bytes || 0) / 1024 / 1024).toFixed(1)
-        const afterMB = ((data.after_bytes || 0) / 1024 / 1024).toFixed(1)
-        appStore.setStatus(t('settings.maintenance.webpDone', { converted: data.converted, beforeMB, afterMB }), 'ok')
-      }
-    } catch { /* ignore poll errors */ }
-  }
-
-  async function convertToWebp() {
-    if (maintenanceBusy.value) return
-    const t = i18n.global.t
-    const ok = await useDialogStore().confirm(t('settings.maintenance.webpConfirm'), {
-      title: t('settings.maintenance.webpTitle'),
-      confirmText: t('settings.maintenance.webpButton'),
-    })
-    if (!ok) return
-    maintenanceBusy.value = true
-    webpConvertReport.value = null
-    webpConvertProgress.value = { running: true, total: 0, done: 0, converted: 0, errors: 0, before_bytes: 0, after_bytes: 0, finished: false, message: '' }
-    const appStore = useAppStore()
-    try {
-      await api('/admin/convert_webp?quality=85', { method: 'POST' })
-      appStore.setStatus(t('settings.maintenance.webpRunning'), 'info')
-      // Start polling every 300ms
-      if (webpPollTimer) clearInterval(webpPollTimer)
-      webpPollTimer = setInterval(() => pollWebpStatus(), 300)
-    } catch (e) {
-      maintenanceBusy.value = false
-      appStore.setStatus(t('settings.maintenance.webpFailed', { error: String(e) }), 'err')
-    }
-  }
-
   return {
     // alignment
     alignLeftEnabled,
@@ -296,10 +260,9 @@ export const useSettingsStore = defineStore('settings', () => {
     maintenanceRenumberQuestionNo,
     maintenanceIntegrityReport,
     maintenanceRepairReport,
-    webpConvertReport,
-    webpConvertProgress,
     // appearance
     darkImageInvert,
+    filmStripSectionDots,
     // OCR
     ocrAutoEnabled,
     ocrMinHeightPx,
@@ -312,6 +275,7 @@ export const useSettingsStore = defineStore('settings', () => {
     saveAnswerAlign,
     savePaperAlignRef,
     saveDarkImageInvert,
+    saveFilmStripSectionDots,
     saveOcrAuto,
     saveOcrMinHeight,
     saveOcrYPadding,
@@ -319,6 +283,5 @@ export const useSettingsStore = defineStore('settings', () => {
     saveFilterVirtualOverscanPx,
     runIntegrityCheck,
     runRepair,
-    convertToWebp,
   }
 })

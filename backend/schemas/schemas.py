@@ -19,11 +19,13 @@ class SectionDefCreate(BaseModel):
     name: str
     content: str | None = None
     group_id: int | None = None
+    color: str | None = None
 
 class SectionDefUpdate(BaseModel):
     name: str | None = None
     content: str | None = None
     group_id: int | None = None
+    color: str | None = None
 
 class SectionGroupCreate(BaseModel):
     name: str

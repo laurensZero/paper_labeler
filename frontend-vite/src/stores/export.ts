@@ -144,6 +144,15 @@ export const useExportStore = defineStore('export', () => {
   const randomExportExcludeYears = ref<string[]>([])
   const randomExportFavoriteOnly = ref(false)
 
+  // --- compose export meta (transient, set by ComposeView before opening wizard) ---
+  const composeExportMeta = ref<{
+    title: string | null
+    headerText: string | null
+    footerText: string | null
+    blankPagesPerQuestion: number[] | null
+    showPageNumbers: boolean
+  } | null>(null)
+
   // --- computed ---
   const exportCacheHitRateText = computed(() => {
     const s = exportCacheStats.value
@@ -1033,7 +1042,9 @@ export const useExportStore = defineStore('export', () => {
         ? buildExportFilterSummaryLines(ids.length)
         : []
       const shouldIncludeSummary = !exportFromRandomMode.value && exportIncludeFilterSummary.value && selectedSummaryLines.length > 0
-      const options = {
+      // Merge composition-specific export metadata if present
+      const composeMeta = composeExportMeta.value
+      const options: Record<string, unknown> = {
         include_question_no: exportIncludeQno.value,
         include_section: exportIncludeSection.value,
         include_paper: exportIncludePaper.value,
@@ -1047,6 +1058,14 @@ export const useExportStore = defineStore('export', () => {
         include_filter_summary: shouldIncludeSummary,
         filter_summary_lines: selectedSummaryLines,
         crop_workers: Math.max(0, Number(exportCropWorkers.value || 0)),
+      }
+      if (composeMeta) {
+        options.title = composeMeta.title || null
+        options.header_text = composeMeta.headerText || null
+        options.footer_text = composeMeta.footerText || null
+        options.blank_pages_per_question = composeMeta.blankPagesPerQuestion || null
+        options.show_page_numbers = composeMeta.showPageNumbers !== false
+        composeExportMeta.value = null
       }
       if (!exportFromRandomMode.value) persistExportWizardOptions()
       exportBusy.value = true
@@ -1139,6 +1158,8 @@ export const useExportStore = defineStore('export', () => {
     randomExportConfig,
     randomExportExcludeYears,
     randomExportFavoriteOnly,
+    // compose export
+    composeExportMeta,
     // actions
     openExportWizard,
     closeExportWizard,

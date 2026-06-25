@@ -27,6 +27,7 @@ def list_section_defs(db: Session = Depends(get_db)):
                 "id": r.id,
                 "name": r.name,
                 "content": r.content,
+                "color": r.color,
                 "group_id": member_by_name.get(r.name),
                 "group_name": group_by_id.get(member_by_name.get(r.name)).name if member_by_name.get(r.name) in group_by_id else None,
                 "updated_at": r.updated_at,
@@ -44,7 +45,7 @@ def create_section_def(payload: SectionDefCreate, db: Session = Depends(get_db))
     exists = db.query(SectionDef).filter(SectionDef.name == name).one_or_none()
     if exists is not None:
         raise HTTPException(status_code=409, detail="section name exists")
-    row = SectionDef(name=name, content=payload.content)
+    row = SectionDef(name=name, content=payload.content, color=payload.color)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -55,7 +56,7 @@ def create_section_def(payload: SectionDefCreate, db: Session = Depends(get_db))
         db.add(SectionGroupMember(group_id=payload.group_id, section_name=row.name))
         db.commit()
         db.refresh(row)
-    return {"section": {"id": row.id, "name": row.name, "content": row.content, "group_id": payload.group_id, "updated_at": row.updated_at}}
+    return {"section": {"id": row.id, "name": row.name, "content": row.content, "color": row.color, "group_id": payload.group_id, "updated_at": row.updated_at}}
 
 @router.patch("/section_defs/{section_id}")
 def update_section_def(section_id: int, payload: SectionDefUpdate, db: Session = Depends(get_db)):
@@ -77,6 +78,8 @@ def update_section_def(section_id: int, payload: SectionDefUpdate, db: Session =
         renamed_to = new_name
     if "content" in data:
         row.content = data["content"]
+    if "color" in data:
+        row.color = data["color"]
     group_handled = False
     if "group_id" in data:
         gid = data.get("group_id")
@@ -143,6 +146,7 @@ def update_section_def(section_id: int, payload: SectionDefUpdate, db: Session =
             "id": row.id,
             "name": row.name,
             "content": row.content,
+            "color": row.color,
             "group_id": member.group_id if member else None,
             "updated_at": row.updated_at,
         },

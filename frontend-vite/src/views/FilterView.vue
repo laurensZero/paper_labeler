@@ -9,6 +9,7 @@ import { usePapersStore } from '@/stores/papers'
 import { useAppStore } from '@/stores/app'
 import { useExportStore } from '@/stores/export'
 import { useDialogStore } from '@/stores/dialog'
+import { useSettingsStore } from '@/stores/settings'
 import { questionsApi } from '@/api/endpoints'
 import MultiSelect from '@/components/ui/MultiSelect.vue'
 import PaperCascadeMultiSelect from '@/components/ui/PaperCascadeMultiSelect.vue'
@@ -33,6 +34,7 @@ const papersStore = usePapersStore()
 const exportStore = useExportStore()
 const dialogStore = useDialogStore()
 const appStore = useAppStore()
+const settingsStore = useSettingsStore()
 
 const {
   filterSection,
@@ -674,6 +676,7 @@ const {
         :active-id="activeQuestionId"
         :multi-select="filterMultiSelect"
         :selected-ids="selectedQuestionIds"
+        :section-color-map="settingsStore.filmStripSectionDots ? sectionsStore.sectionColorMap : {}"
         @select="selectQuestionById"
         @toggle-selection="(id) => filterStore.toggleFilterItemSelection({ id })"
       />

@@ -1,7 +1,6 @@
 import os
 import re
 import shutil
-from io import BytesIO
 from pathlib import Path
 from typing import Tuple, Union, Optional
 from datetime import datetime, timezone
@@ -85,8 +84,25 @@ def page_image_url_suffix(pages_dir: Path, page_num: int) -> tuple[str, Path | N
     return f"page_{page_num}.png", None
 
 
+def _auto_grayscale(img: "Image.Image") -> "Image.Image":
+    """自动检测：无彩色内容的页面转灰度，有彩色的保留 RGB。"""
+    if img.mode in ("L", "LA", "1"):
+        return img.convert("L")
+    if img.mode not in ("RGB", "RGBA"):
+        img = img.convert("RGB")
+    from PIL import ImageStat
+    r, g, b = img.split()[:3]
+    sr, sg, sb = ImageStat.Stat(r), ImageStat.Stat(g), ImageStat.Stat(b)
+    # 三通道均值和标准差都接近 → 无彩色信息
+    mean_diff = max(abs(sr.mean[0] - sg.mean[0]), abs(sr.mean[0] - sb.mean[0]), abs(sg.mean[0] - sb.mean[0]))
+    std_diff = max(abs(sr.stddev[0] - sg.stddev[0]), abs(sr.stddev[0] - sb.stddev[0]), abs(sg.stddev[0] - sb.stddev[0]))
+    if mean_diff < 3 and std_diff < 3:
+        return img.convert("L")
+    return img
+
+
 def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
-    """Render PDF pages to WebP images (with PNG fallback for existing data).
+    """Render PDF pages to PNG images (无损，最高清晰度，最大压缩).
 
     Important: always clears output_dir first to avoid mixed/stale pages when
     a paper id is reused or old images remain on disk.
@@ -95,6 +111,7 @@ def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
     """
     import fitz
     from PIL import Image
+    from io import BytesIO
 
     try:
         if output_dir.exists() and output_dir.is_dir():
@@ -107,14 +124,13 @@ def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
     try:
         for page_index in range(len(doc)):
             page = doc[page_index]
-            matrix = fitz.Matrix(4, 4)
+            matrix = fitz.Matrix(4, 4)  # 4x zoom = 288 DPI
             pix = page.get_pixmap(matrix=matrix)
-
-            # PyMuPDF doesn't support WebP directly; convert via Pillow
             png_data = pix.tobytes("png")
             with Image.open(BytesIO(png_data)) as img:
-                image_path = output_dir / f"page_{page_index + 1}.webp"
-                img.save(str(image_path), "WEBP", quality=85)
+                img = _auto_grayscale(img)
+                image_path = output_dir / f"page_{page_index + 1}.png"
+                img.save(str(image_path), "PNG", optimize=True, compress_level=9)
         return len(doc)
     finally:
         doc.close()

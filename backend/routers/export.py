@@ -32,6 +32,12 @@ class ExportOptions(BaseModel):
     include_filter_summary: bool = False
     filter_summary_lines: Optional[List[str]] = None
     crop_workers: int = 0  # 0=auto
+    # Composition mode extensions
+    title: Optional[str] = None  # 试卷标题
+    header_text: Optional[str] = None  # 页眉
+    footer_text: Optional[str] = None  # 页脚
+    blank_pages_per_question: Optional[List[int]] = None  # 每题后的空白页数，与ids一一对应
+    show_page_numbers: bool = True
 
 class ExportRequest(BaseModel):
     ids: List[int]
@@ -490,9 +496,21 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
             options.filename if options else None,
             f"export_{job_id}",
         )
+        # Composition mode extensions
+        comp_title = str(options.title or "").strip() if options else ""
+        comp_header_text = str(options.header_text or "").strip() if options else ""
+        comp_footer_text = str(options.footer_text or "").strip() if options else ""
+        blank_pages_map: dict[int, int] = {}
+        if options and options.blank_pages_per_question:
+            for i, qid in enumerate(ids):
+                if i < len(options.blank_pages_per_question):
+                    blank_pages_map[qid] = max(0, int(options.blank_pages_per_question[i] or 0))
+        show_page_numbers = options.show_page_numbers if options else True
             
         pdf = PDFWithPageNumbers()  # Use custom PDF class with page numbers
-        pdf.page_number_offset = 1 if include_filter_summary else 0
+        extra_front_pages = (1 if include_filter_summary else 0) + (1 if comp_title else 0)
+        pdf.page_number_offset = extra_front_pages
+        pdf.page_number_enabled = show_page_numbers
         pdf.set_auto_page_break(auto=False, margin=15)
         pdf.set_font("Arial", size=10)
 
@@ -624,12 +642,20 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
             """Render a single question page."""
             paper = db.query(Paper).filter(Paper.id == q.paper_id).first()
             q_boxes = db.query(QuestionBox).filter(QuestionBox.question_id == q.id).order_by(QuestionBox.page, QuestionBox.id).all()
-            
+
             if not q_boxes:
                 return
-            
+
             # One page per question
             pdf.add_page()
+
+            # Header text (page header)
+            if comp_header_text:
+                pdf.set_font("Arial", 'I', 8)
+                pdf.set_text_color(128, 128, 128)
+                pdf.cell(0, 6, _pdf_text(comp_header_text), ln=True, align="C")
+                pdf.set_text_color(0, 0, 0)
+                pdf.ln(2)
             
             # Question Header - show according to options
             header_parts = []
@@ -804,9 +830,43 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
             finish_answer_page()
             pdf.set_y(current_y)
         
+        def render_title_page(title_text):
+            """Render a title page."""
+            pdf.add_page()
+            page_h = pdf.h
+            box_x = 13
+            box_y = 12
+            box_w = 184
+            box_h = page_h - 20
+            pdf.rect(box_x, box_y, box_w, box_h)
+            # Title centered vertically
+            title_y = box_y + box_h / 2 - 20
+            pdf.set_y(title_y)
+            pdf.set_font("Arial", 'B', size=24)
+            pdf.cell(0, 14, _pdf_text(title_text), ln=True, align="C")
+            # Subtitle / header text below
+            if comp_header_text:
+                pdf.ln(8)
+                pdf.set_font("Arial", 'I', 12)
+                pdf.set_text_color(100, 100, 100)
+                pdf.cell(0, 10, _pdf_text(comp_header_text), ln=True, align="C")
+                pdf.set_text_color(0, 0, 0)
+
+        def render_blank_pages(count):
+            """Render N blank pages for writing space."""
+            for _ in range(count):
+                pdf.add_page()
+                # Draw a light border to indicate blank writing space
+                pdf.set_draw_color(200, 200, 200)
+                pdf.rect(13, 12, 184, pdf.h - 20)
+                pdf.set_draw_color(0, 0, 0)
+
         # Render questions and answers according to placement option
         if include_filter_summary:
             render_filter_summary_page(filter_summary_lines)
+
+        if comp_title:
+            render_title_page(comp_title)
 
         if answers_placement == "interleaved" and include_answers:
             # One question, then its answer, repeat
@@ -815,11 +875,19 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
                 report_progress(f"正在渲染题目 {idx}/{len(questions)}")
                 render_answer(q, idx)
                 report_progress(f"正在渲染答案 {idx}/{len(questions)}")
+                # Blank pages after question+answer
+                blank_count = blank_pages_map.get(q.id, 0)
+                if blank_count > 0:
+                    render_blank_pages(blank_count)
         else:
             # All questions first
             for idx, q in enumerate(questions, start=1):
                 render_question(q, idx)
                 report_progress(f"正在渲染题目 {idx}/{len(questions)}")
+                # Blank pages after each question
+                blank_count = blank_pages_map.get(q.id, 0)
+                if blank_count > 0:
+                    render_blank_pages(blank_count)
             # Then all answers at the end
             if include_answers:
                 for idx, q in enumerate(questions, start=1):

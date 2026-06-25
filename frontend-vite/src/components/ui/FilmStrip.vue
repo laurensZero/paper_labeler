@@ -17,10 +17,12 @@ const props = withDefaults(defineProps<{
   activeId?: number | null
   multiSelect?: boolean
   selectedIds?: Set<number>
+  sectionColorMap?: Record<string, string>
 }>(), {
   activeId: null,
   multiSelect: false,
   selectedIds: () => new Set(),
+  sectionColorMap: () => ({}),
 })
 
 const emit = defineEmits<{
@@ -30,10 +32,40 @@ const emit = defineEmits<{
 
 const scrollRef = ref<HTMLElement | null>(null)
 
-function getSectionLabel(item: FilmStripItem): string {
-  if (item.sections?.length) return item.sections[0]
+// Tooltip state
+const tipText = ref('')
+const tipX = ref(0)
+const tipY = ref(0)
+const tipVisible = ref(false)
+
+function getItemColor(item: FilmStripItem): string | null {
+  const map = props.sectionColorMap
+  if (!map) return null
+  const sections = item.sections?.length ? item.sections : (item.section ? [item.section] : [])
+  for (const s of sections) {
+    if (map[s]) return map[s]
+  }
+  return null
+}
+
+function getItemSectionLabel(item: FilmStripItem): string {
+  if (item.sections?.length) return item.sections.join(', ')
   if (item.section) return item.section
   return ''
+}
+
+function onItemMouseEnter(e: MouseEvent, item: FilmStripItem) {
+  const label = getItemSectionLabel(item)
+  if (!label) return
+  tipText.value = label
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  tipX.value = rect.left + rect.width / 2
+  tipY.value = rect.top - 6
+  tipVisible.value = true
+}
+
+function onItemMouseLeave() {
+  tipVisible.value = false
 }
 
 function scrollToActive() {
@@ -114,6 +146,8 @@ watch(() => props.activeId, () => {
         }"
         :data-fs-id="item.id"
         @click="onItemClick(item)"
+        @mouseenter="onItemMouseEnter($event, item)"
+        @mouseleave="onItemMouseLeave"
       >
         <div v-if="multiSelect" class="fs-item-check">
           <svg v-if="selectedIds.has(item.id)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -121,7 +155,7 @@ watch(() => props.activeId, () => {
           </svg>
         </div>
         <div class="fs-item-no">{{ item.question_no || '?' }}</div>
-        <div v-if="getSectionLabel(item)" class="fs-item-tag">{{ getSectionLabel(item) }}</div>
+        <span v-if="getItemColor(item)" class="fs-item-dot" :style="{ background: getItemColor(item) }"></span>
         <button
           v-if="item.is_favorite"
           class="fs-item-fav"
@@ -133,6 +167,14 @@ watch(() => props.activeId, () => {
         </button>
       </div>
     </div>
+    <!-- Fixed tooltip -->
+    <Teleport to="body">
+      <div
+        v-if="tipVisible && tipText"
+        class="fs-tooltip"
+        :style="{ left: tipX + 'px', top: tipY + 'px' }"
+      >{{ tipText }}</div>
+    </Teleport>
   </div>
 </template>
 
@@ -153,7 +195,6 @@ watch(() => props.activeId, () => {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text-tertiary) 30%, transparent) transparent;
   flex: 1;
-  justify-content: center;
 }
 
 .fs-scroll::-webkit-scrollbar {
@@ -187,6 +228,22 @@ watch(() => props.activeId, () => {
   border-color: var(--border-strong);
 }
 
+.fs-tooltip {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10000;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+
 .fs-item--active {
   background: var(--accent-soft);
   border-color: var(--accent);
@@ -216,6 +273,14 @@ watch(() => props.activeId, () => {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+.fs-item-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .fs-item-tag {

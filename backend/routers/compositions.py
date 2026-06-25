@@ -106,6 +106,10 @@ def _get_paper_exam_code(db: Session, paper_id: int) -> str | None:
 
 @router.post("/compositions")
 def create_composition(body: CompositionCreate, db: Session = Depends(get_db)):
+    # Check duplicate name
+    existing = db.query(Composition).filter(Composition.name == body.name).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="方案名已存在")
     comp = Composition(
         name=body.name,
         title=body.title,
@@ -178,6 +182,16 @@ def update_composition(comp_id: int, body: CompositionUpdate, db: Session = Depe
         raise HTTPException(status_code=404, detail="Composition not found")
 
     update_data = body.model_dump(exclude_unset=True)
+
+    # Check duplicate name on rename
+    if "name" in update_data and update_data["name"] != comp.name:
+        dup = db.query(Composition).filter(
+            Composition.name == update_data["name"],
+            Composition.id != comp_id,
+        ).first()
+        if dup:
+            raise HTTPException(status_code=409, detail="方案名已存在")
+
     for field, value in update_data.items():
         setattr(comp, field, value)
 

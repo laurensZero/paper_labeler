@@ -3,6 +3,7 @@ export interface SectionDef {
   id: number
   name: string
   content: string | null
+  color: string | null
   group_id: number | null
   group_name: string | null
   updated_at: string

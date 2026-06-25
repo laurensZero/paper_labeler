@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useSectionsStore } from '@/stores/sections'
@@ -23,6 +23,96 @@ const {
   newSectionGroupName,
   newSectionGroupId,
 } = storeToRefs(store)
+
+// ── Color picker state ──
+const openColorPicker = ref<number | null>(null)
+const pickerHue = ref(200)
+const pickerSat = ref(80)
+const pickerLit = ref(55)
+
+function onDocClick(e: MouseEvent) {
+  if (openColorPicker.value == null) return
+  const target = e.target as HTMLElement
+  if (!target.closest('.se-color-picker')) {
+    // Save current section's color before closing
+    const sid = openColorPicker.value
+    const s = sectionDefs.value.find(d => d.id === sid)
+    if (s) store.updateSectionDef(s)
+    openColorPicker.value = null
+  }
+}
+onMounted(() => document.addEventListener('click', onDocClick))
+onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+
+function hslToHex(h: number, s: number, l: number): string {
+  s /= 100; l /= 100
+  const a = s * Math.min(l, 1 - l)
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12
+    const color = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+    return Math.round(255 * color).toString(16).padStart(2, '0')
+  }
+  return `#${f(0)}${f(8)}${f(4)}`
+}
+
+function hexToHsl(hex: string): { h: number; s: number; l: number } | null {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  if (!m) return null
+  let r = parseInt(m[1], 16) / 255
+  let g = parseInt(m[2], 16) / 255
+  let b = parseInt(m[3], 16) / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  let h = 0, s = 0, l = (max + min) / 2
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) * 60; break
+      case g: h = ((b - r) / d + 2) * 60; break
+      case b: h = ((r - g) / d + 4) * 60; break
+    }
+  }
+  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) }
+}
+
+function openPickerFor(s: SectionDef) {
+  if (openColorPicker.value === s.id) {
+    // Closing — save
+    store.updateSectionDef(s)
+    openColorPicker.value = null
+    return
+  }
+  // Save previous section if open
+  if (openColorPicker.value != null) {
+    const prev = sectionDefs.value.find(d => d.id === openColorPicker.value)
+    if (prev) store.updateSectionDef(prev)
+  }
+  if (s.color) {
+    const hsl = hexToHsl(s.color)
+    if (hsl) { pickerHue.value = hsl.h; pickerSat.value = hsl.s; pickerLit.value = hsl.l }
+  }
+  openColorPicker.value = s.id
+}
+
+function applyPickerColor(s: SectionDef) {
+  // Only update local state, save on close
+  s.color = hslToHex(pickerHue.value, pickerSat.value, pickerLit.value)
+}
+
+function saveAndClosePicker(s: SectionDef) {
+  store.updateSectionDef(s)
+  openColorPicker.value = null
+}
+
+function clearColor(s: SectionDef) {
+  s.color = null
+  store.updateSectionDef(s)
+  openColorPicker.value = null
+}
+
+const pickerPreviewColor = computed(() =>
+  hslToHex(pickerHue.value, pickerSat.value, pickerLit.value)
+)
 
 // ── Section stats (question counts) ──
 const sectionCounts = ref<Record<string, number>>({})
@@ -332,6 +422,50 @@ onMounted(() => {
               @blur="autoSaveSectionDef(s)"
               @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
             />
+            <!-- Color picker -->
+            <div class="se-color-picker" @click.stop>
+              <button
+                class="se-color-swatch"
+                :class="{ 'se-color-swatch--empty': !s.color }"
+                :style="s.color ? { background: s.color } : undefined"
+                :title="s.color || '设置颜色'"
+                @click="openPickerFor(s)"
+              ></button>
+              <div v-if="openColorPicker === s.id" class="se-color-popover">
+                <div class="se-color-preview" :style="{ background: pickerPreviewColor }"></div>
+                <label class="se-color-label">
+                  色相
+                  <input
+                    type="range" min="0" max="360" step="1"
+                    v-model.number="pickerHue"
+                    class="se-color-slider se-color-slider--hue"
+                    @input="applyPickerColor(s)"
+                  />
+                </label>
+                <label class="se-color-label">
+                  饱和度
+                  <input
+                    type="range" min="0" max="100" step="1"
+                    v-model.number="pickerSat"
+                    class="se-color-slider"
+                    :style="{ background: `linear-gradient(to right, hsl(${pickerHue},0%,${pickerLit}%), hsl(${pickerHue},100%,${pickerLit}%))` }"
+                    @input="applyPickerColor(s)"
+                  />
+                </label>
+                <label class="se-color-label">
+                  亮度
+                  <input
+                    type="range" min="0" max="100" step="1"
+                    v-model.number="pickerLit"
+                    class="se-color-slider"
+                    :style="{ background: `linear-gradient(to right, hsl(${pickerHue},${pickerSat}%,0%), hsl(${pickerHue},${pickerSat}%,50%), hsl(${pickerHue},${pickerSat}%,100%))` }"
+                    @input="applyPickerColor(s)"
+                  />
+                </label>
+                <div class="se-color-hex">{{ s.color || '未设置' }}</div>
+                <button class="se-color-clear" @click="clearColor(s)">清除颜色</button>
+              </div>
+            </div>
             <div class="se-section-meta">
               <span class="se-section-qcount" :class="{ 'se-section-qcount--zero': !(sectionCounts[s.name] || 0) }">
                 {{ sectionCounts[s.name] || 0 }} {{ t('sectionEditor.questions') }}
@@ -474,7 +608,7 @@ onMounted(() => {
 /* ── Group card ── */
 .se-group-card {
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* ── Group header ── */
@@ -693,6 +827,144 @@ onMounted(() => {
   padding: 4px;
   min-width: 28px;
   min-height: 28px;
+}
+
+/* ── Color picker ── */
+.se-color-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.se-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  transition: all 100ms;
+  padding: 0;
+}
+
+.se-color-swatch:hover {
+  border-color: var(--text-secondary);
+  transform: scale(1.1);
+}
+
+.se-color-swatch--empty {
+  background: var(--bg-hover);
+  position: relative;
+}
+
+.se-color-swatch--empty::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 2px;
+  background: var(--text-tertiary);
+  transform: translate(-50%, -50%) rotate(-45deg);
+  border-radius: 1px;
+}
+
+.se-color-popover {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 4px;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+  z-index: 100;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.se-color-preview {
+  width: 100%;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.se-color-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.se-color-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.se-color-slider--hue {
+  background: linear-gradient(to right,
+    hsl(0,100%,50%), hsl(30,100%,50%), hsl(60,100%,50%),
+    hsl(90,100%,50%), hsl(120,100%,50%), hsl(150,100%,50%),
+    hsl(180,100%,50%), hsl(210,100%,50%), hsl(240,100%,50%),
+    hsl(270,100%,50%), hsl(300,100%,50%), hsl(330,100%,50%),
+    hsl(360,100%,50%)
+  );
+}
+
+.se-color-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid var(--text-primary);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  cursor: grab;
+}
+
+.se-color-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid var(--text-primary);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  cursor: grab;
+}
+
+.se-color-hex {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  font-family: monospace;
+}
+
+.se-color-clear {
+  display: block;
+  width: 100%;
+  padding: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.se-color-clear:hover {
+  background: var(--bg-hover);
 }
 
 /* ── Toggle switch ── */

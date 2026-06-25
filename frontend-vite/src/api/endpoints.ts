@@ -470,6 +470,11 @@ export const exportApi = {
               include_filter_summary: params.options.includeFilterSummary,
               filter_summary_lines: params.options.filterSummaryLines,
               crop_workers: params.options.cropWorkers,
+              title: params.options.title,
+              header_text: params.options.headerText,
+              footer_text: params.options.footerText,
+              blank_pages_per_question: params.options.blankPagesPerQuestion,
+              show_page_numbers: params.options.showPageNumbers,
             }
           : undefined,
       }),

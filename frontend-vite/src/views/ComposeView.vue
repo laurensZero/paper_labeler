@@ -10,7 +10,8 @@ import { usePapersStore } from '@/stores/papers'
 import { useAppStore } from '@/stores/app'
 import { useDialogStore } from '@/stores/dialog'
 import { useExportStore } from '@/stores/export'
-import { questionsApi } from '@/api/endpoints'
+import { api } from '@/api/client'
+import { questionsApi, compositionsApi } from '@/api/endpoints'
 import MultiSelect from '@/components/ui/MultiSelect.vue'
 import SectionCascadeSelect from '@/components/ui/SectionCascadeSelect.vue'
 import type { Question, FilterQuestion } from '@/types'
@@ -58,9 +59,50 @@ const bankPageSize = ref(30)
 const showListModal = ref(false)
 const newName = ref('')
 
+/* ── Preview modal ── */
+const previewQuestion = ref<Question | null>(null)
+
+function onBankItemDblClick(q: Question, e: MouseEvent) {
+  e.preventDefault()
+  previewQuestion.value = q
+}
+
+function closePreview() {
+  previewQuestion.value = null
+}
+
 /* ── Edit name inline ── */
 const editingName = ref(false)
 const editNameInput = ref('')
+
+/* ── Rename in list ── */
+const renamingId = ref<number | null>(null)
+const renameInput = ref('')
+
+function startRename(comp: { id: number; name: string }) {
+  renamingId.value = comp.id
+  renameInput.value = comp.name
+}
+
+async function confirmRename(compId: number) {
+  const name = renameInput.value.trim()
+  if (!name) { renamingId.value = null; return }
+  try {
+    await compositionsApi.update(compId, { name })
+    // Update local list
+    const idx = compositions.value.findIndex(c => c.id === compId)
+    if (idx >= 0) compositions.value[idx].name = name
+    if (current.value?.id === compId) current.value.name = name
+  } catch (e: any) {
+    const msg = e?.body?.includes('已存在') ? '方案名已存在' : `重命名失败：${e}`
+    appStore.setStatus(msg, 'err')
+  }
+  renamingId.value = null
+}
+
+function cancelRename() {
+  renamingId.value = null
+}
 
 /* ── Load composition from route ── */
 onMounted(async () => {
@@ -151,7 +193,19 @@ async function toggleQuestion(q: Question) {
 
 /* ── Composition management ── */
 async function createNew() {
-  const name = newName.value.trim() || t('compose.untitled')
+  let name = newName.value.trim()
+  if (!name) {
+    // Auto-generate "未命名方案N"
+    const existing = compositions.value.map(c => c.name)
+    let n = 1
+    while (existing.includes(`未命名方案${n}`)) n++
+    name = `未命名方案${n}`
+  }
+  // Check duplicate
+  if (compositions.value.some(c => c.name === name)) {
+    appStore.setStatus('方案名已存在，请换一个名称', 'err')
+    return
+  }
   const id = await composeStore.createComposition({ name })
   if (id) {
     newName.value = ''
@@ -210,22 +264,140 @@ function onKeydown(e: KeyboardEvent) {
   }
   if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault()
-    // Save is auto, just clear dirty
     appStore.setStatus('已保存', 'ok')
   }
 }
 
+/* ── Drag & Drop ── */
+const dragSourceId = ref<number | null>(null)
+const dragOverId = ref<number | null>(null)
+
+function onDragStart(e: DragEvent, itemId: number) {
+  dragSourceId.value = itemId
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(itemId))
+  }
+}
+
+function onDragOver(e: DragEvent, itemId: number) {
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  dragOverId.value = itemId
+}
+
+function onDragLeave() {
+  dragOverId.value = null
+}
+
+function onDrop(e: DragEvent, targetItemId: number) {
+  e.preventDefault()
+  dragOverId.value = null
+  const sourceId = dragSourceId.value
+  dragSourceId.value = null
+  if (sourceId == null || sourceId === targetItemId) return
+
+  // Reorder: move source before target
+  const currentIds = items.value.map(i => i.id)
+  const srcIdx = currentIds.indexOf(sourceId)
+  const tgtIdx = currentIds.indexOf(targetItemId)
+  if (srcIdx < 0 || tgtIdx < 0) return
+
+  const newOrder = [...currentIds]
+  newOrder.splice(srcIdx, 1)
+  newOrder.splice(tgtIdx, 0, sourceId)
+  composeStore.reorderItems(newOrder)
+}
+
+function onDragEnd() {
+  dragSourceId.value = null
+  dragOverId.value = null
+}
+
 /* ── Export ── */
+const exportBusy = ref(false)
+
 async function exportComposition() {
   if (!current.value || !items.value.length) {
     appStore.setStatus('没有可导出的题目', 'err')
     return
   }
-  const ids = items.value
-    .filter(i => i.item_type === 'question')
-    .map(i => i.question_id)
-  exportStore.pendingExportIds = ids
-  exportStore.exportWizardOpen = true
+  if (exportBusy.value) return
+
+  // Pick save directory
+  let saveDir = exportStore.exportDefaultSaveDir || ''
+  if (!saveDir) {
+    try {
+      const resp = await api('/export/pick_save_dir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initial_dir: null }),
+      })
+      if (resp?.cancelled) return
+      saveDir = String(resp?.selected || '').trim()
+      if (!saveDir) return
+      exportStore.exportDefaultSaveDir = saveDir
+    } catch {
+      appStore.setStatus('选择目录失败', 'err')
+      return
+    }
+  }
+
+  const questionItems = items.value.filter(i => i.item_type === 'question')
+  const ids = questionItems.map(i => i.question_id)
+  const blankPages = questionItems.map(i => i.blank_pages)
+
+  exportBusy.value = true
+  appStore.setStatus(`正在导出 ${ids.length} 题...`, 'busy')
+
+  try {
+    const createResp = await api('/export/questions_pdf_job', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ids,
+        options: {
+          include_question_no: true,
+          include_section: true,
+          include_paper: true,
+          include_answers: current.value.include_answers,
+          answers_placement: current.value.answers_placement,
+          title: current.value.title || null,
+          header_text: current.value.header_text || null,
+          footer_text: current.value.footer_text || null,
+          blank_pages_per_question: blankPages,
+          show_page_numbers: current.value.show_page_numbers,
+          filename: current.value.name,
+          save_dir: saveDir,
+        },
+      }),
+    })
+
+    const jobId = createResp?.job_id
+    if (!jobId) throw new Error('导出任务创建失败')
+
+    // Poll until done
+    while (true) {
+      await new Promise(r => setTimeout(r, 500))
+      const status = await api(`/export/questions_pdf_job/${jobId}`)
+      if (status?.status === 'done') {
+        appStore.setStatus(`已保存到：${status.saved_copy_path || saveDir}`, 'ok')
+        break
+      }
+      if (status?.status === 'error') {
+        throw new Error(status.message || '导出失败')
+      }
+      if (status?.status === 'cancelled') {
+        appStore.setStatus('导出已取消', 'info')
+        break
+      }
+      // queued or processing — continue
+    }
+  } catch (e) {
+    appStore.setStatus(`导出失败：${e}`, 'err')
+  } finally {
+    exportBusy.value = false
+  }
 }
 </script>
 
@@ -279,11 +451,24 @@ async function exportComposition() {
                   class="comp-list-item"
                   @click="openComposition(comp.id)"
                 >
-                  <div class="comp-list-info">
+                  <div class="comp-list-info" v-if="renamingId !== comp.id">
                     <span class="comp-list-name">{{ comp.name }}</span>
                     <span class="comp-list-meta">{{ comp.item_count }} {{ t('compose.totalQuestions').toLowerCase() }}</span>
                   </div>
+                  <div class="comp-list-info" v-else @click.stop>
+                    <input
+                      v-model="renameInput"
+                      class="rename-input"
+                      @keyup.enter="confirmRename(comp.id)"
+                      @keyup.esc="cancelRename"
+                      @blur="confirmRename(comp.id)"
+                      autofocus
+                    />
+                  </div>
                   <div class="comp-list-actions">
+                    <button class="btn-icon" @click.stop="startRename(comp)" title="重命名">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
                     <button class="btn-icon" @click.stop="duplicateComposition(comp.id)" :title="t('compose.duplicate')">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     </button>
@@ -332,8 +517,8 @@ async function exportComposition() {
           <button class="btn-ghost btn-ghost--danger" @click="deleteComposition(current.id)" :title="t('compose.delete')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
-          <button class="btn-primary" @click="exportComposition" :disabled="!items.length">
-            {{ t('compose.export') }}
+          <button class="btn-primary" @click="exportComposition" :disabled="!items.length || exportBusy">
+            {{ exportBusy ? '导出中...' : t('compose.export') }}
           </button>
         </div>
       </div>
@@ -348,7 +533,7 @@ async function exportComposition() {
           <div class="bank-filters">
             <SectionCascadeSelect
               v-model="bankSection"
-              :groups="sectionCascadeOptions"
+              :options="sectionCascadeOptions"
               @update:model-value="searchBank()"
             />
             <MultiSelect
@@ -377,20 +562,16 @@ async function exportComposition() {
                 class="bank-item"
                 :class="{ 'bank-item--added': isInComposition(q.id) }"
                 @click="toggleQuestion(q)"
+                @dblclick="onBankItemDblClick(q, $event)"
               >
                 <div class="bank-item-check">
                   <svg v-if="isInComposition(q.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
                 <div class="bank-item-info">
                   <span class="bank-item-qno">{{ q.question_no || '?' }}</span>
-                  <span class="bank-item-sections">{{ q.sections?.[0] || '' }}</span>
+                  <span class="bank-item-sections">{{ q.sections?.[0] || '-' }}</span>
+                  <span class="bank-item-paper">{{ q.paper?.exam_code || '' }}</span>
                 </div>
-                <img
-                  v-if="q.preview_image_url"
-                  :src="q.preview_image_url"
-                  class="bank-item-thumb"
-                  loading="lazy"
-                />
               </div>
             </template>
             <div v-if="!bankLoading && bankTotal > bankPageSize" class="bank-pagination">
@@ -431,11 +612,22 @@ async function exportComposition() {
                     {{ group.section === '__ungrouped' ? t('compose.sectionHeader') : group.section }}
                   </div>
                   <template v-for="item in group.items" :key="item.id">
+                    <!-- Question page -->
                     <div
                       v-if="item.item_type === 'question'"
                       class="preview-page"
-                      :class="{ 'preview-page--selected': selectedItemId === item.id }"
+                      :class="{
+                        'preview-page--selected': selectedItemId === item.id,
+                        'preview-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
+                        'preview-page--dragging': dragSourceId === item.id,
+                      }"
+                      draggable="true"
                       @click="onPreviewItemClick(item.id)"
+                      @dragstart="onDragStart($event, item.id)"
+                      @dragover="onDragOver($event, item.id)"
+                      @dragleave="onDragLeave"
+                      @drop="onDrop($event, item.id)"
+                      @dragend="onDragEnd"
                     >
                       <div class="page-header" v-if="current.show_question_info">
                         <span class="page-qno">{{ item.question_no || '?' }}</span>
@@ -452,16 +644,22 @@ async function exportComposition() {
                         </div>
                       </div>
                     </div>
-                    <div v-else class="preview-blank-page" :class="{ 'preview-page--selected': selectedItemId === item.id }" @click="onPreviewItemClick(item.id)">
-                      <span>{{ t('compose.insertBlank') }}</span>
-                    </div>
-                    <!-- Attached blank pages -->
+                    <!-- Attached blank pages (each is a separate A4 page) -->
                     <div
                       v-for="n in (item.item_type === 'question' ? item.blank_pages : 0)"
                       :key="`blank-${item.id}-${n}`"
-                      class="preview-blank-page"
+                      class="preview-page preview-page--blank"
                     >
-                      <span>{{ t('compose.insertBlank') }}</span>
+                      <span class="blank-label">空白页</span>
+                    </div>
+                    <!-- Independent blank page -->
+                    <div
+                      v-if="item.item_type === 'blank_page'"
+                      class="preview-page preview-page--blank"
+                      :class="{ 'preview-page--selected': selectedItemId === item.id }"
+                      @click="onPreviewItemClick(item.id)"
+                    >
+                      <span class="blank-label">空白页</span>
                     </div>
                   </template>
                 </template>
@@ -469,11 +667,22 @@ async function exportComposition() {
               <!-- Free mode -->
               <template v-else>
                 <template v-for="item in items" :key="item.id">
+                  <!-- Question page -->
                   <div
                     v-if="item.item_type === 'question'"
                     class="preview-page"
-                    :class="{ 'preview-page--selected': selectedItemId === item.id }"
+                    :class="{
+                      'preview-page--selected': selectedItemId === item.id,
+                      'preview-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
+                      'preview-page--dragging': dragSourceId === item.id,
+                    }"
+                    draggable="true"
                     @click="onPreviewItemClick(item.id)"
+                    @dragstart="onDragStart($event, item.id)"
+                    @dragover="onDragOver($event, item.id)"
+                    @dragleave="onDragLeave"
+                    @drop="onDrop($event, item.id)"
+                    @dragend="onDragEnd"
                   >
                     <div class="page-header" v-if="current.show_question_info">
                       <span class="page-qno">{{ item.question_no || '?' }}</span>
@@ -490,15 +699,22 @@ async function exportComposition() {
                       </div>
                     </div>
                   </div>
-                  <div v-else class="preview-blank-page" :class="{ 'preview-page--selected': selectedItemId === item.id }" @click="onPreviewItemClick(item.id)">
-                    <span>{{ t('compose.insertBlank') }}</span>
-                  </div>
+                  <!-- Attached blank pages (each is a separate A4 page) -->
                   <div
                     v-for="n in (item.item_type === 'question' ? item.blank_pages : 0)"
                     :key="`blank-${item.id}-${n}`"
-                    class="preview-blank-page"
+                    class="preview-page preview-page--blank"
                   >
-                    <span>{{ t('compose.insertBlank') }}</span>
+                    <span class="blank-label">空白页</span>
+                  </div>
+                  <!-- Independent blank page -->
+                  <div
+                    v-if="item.item_type === 'blank_page'"
+                    class="preview-page preview-page--blank"
+                    :class="{ 'preview-page--selected': selectedItemId === item.id }"
+                    @click="onPreviewItemClick(item.id)"
+                  >
+                    <span class="blank-label">空白页</span>
                   </div>
                 </template>
               </template>
@@ -508,60 +724,67 @@ async function exportComposition() {
 
         <!-- Right: Properties + Stats -->
         <div class="compose-panel compose-panel--props">
-          <div class="panel-header">
-            <span>{{ t('compose.stats') }}</span>
-          </div>
-          <div class="stats-grid">
-            <div class="stat-item">
-              <span class="stat-value">{{ questionItemCount }}</span>
-              <span class="stat-label">{{ t('compose.totalQuestions') }}</span>
+          <!-- Stats card -->
+          <div class="props-card">
+            <div class="props-card-title">{{ t('compose.stats') }}</div>
+            <div class="stats-row">
+              <div class="stat-pill">
+                <span class="stat-num">{{ questionItemCount }}</span>
+                <span class="stat-desc">{{ t('compose.totalQuestions') }}</span>
+              </div>
+              <div class="stat-pill">
+                <span class="stat-num">{{ blankPageCount }}</span>
+                <span class="stat-desc">{{ t('compose.totalBlankPages') }}</span>
+              </div>
+              <div class="stat-pill">
+                <span class="stat-num">~{{ estimatedPages }}</span>
+                <span class="stat-desc">{{ t('compose.estimatedPages') }}</span>
+              </div>
             </div>
-            <div class="stat-item">
-              <span class="stat-value">{{ blankPageCount }}</span>
-              <span class="stat-label">{{ t('compose.totalBlankPages') }}</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-value">{{ estimatedPages }}</span>
-              <span class="stat-label">{{ t('compose.estimatedPages') }}</span>
-            </div>
           </div>
 
-          <div class="panel-header">
-            <span>{{ t('compose.properties') }}</span>
-          </div>
-          <div class="props-section">
-            <label class="prop-label">{{ t('compose.title_label') }}</label>
-            <input
-              class="prop-input"
-              :value="current.title || ''"
-              @input="composeStore.updateComposition({ title: ($event.target as HTMLInputElement).value || null })"
-            />
+          <!-- Display settings card -->
+          <div class="props-card">
+            <div class="props-card-title">{{ t('compose.properties') }}</div>
 
-            <label class="prop-label">{{ t('compose.headerText') }}</label>
-            <input
-              class="prop-input"
-              :value="current.header_text || ''"
-              @input="composeStore.updateComposition({ headerText: ($event.target as HTMLInputElement).value || null })"
-            />
+            <div class="prop-field">
+              <label class="prop-label">{{ t('compose.title_label') }}</label>
+              <input
+                class="prop-input"
+                :value="current.title || ''"
+                @input="composeStore.updateComposition({ title: ($event.target as HTMLInputElement).value || null })"
+              />
+            </div>
 
-            <label class="prop-label">{{ t('compose.footerText') }}</label>
-            <input
-              class="prop-input"
-              :value="current.footer_text || ''"
-              @input="composeStore.updateComposition({ footerText: ($event.target as HTMLInputElement).value || null })"
-            />
+            <div class="prop-field">
+              <label class="prop-label">{{ t('compose.headerText') }}</label>
+              <input
+                class="prop-input"
+                :value="current.header_text || ''"
+                @input="composeStore.updateComposition({ headerText: ($event.target as HTMLInputElement).value || null })"
+              />
+            </div>
 
-            <div class="prop-toggle">
-              <label>
+            <div class="prop-field">
+              <label class="prop-label">{{ t('compose.footerText') }}</label>
+              <input
+                class="prop-input"
+                :value="current.footer_text || ''"
+                @input="composeStore.updateComposition({ footerText: ($event.target as HTMLInputElement).value || null })"
+              />
+            </div>
+
+            <div class="prop-field">
+              <label class="prop-checkbox">
                 <input type="checkbox" :checked="current.include_answers" @change="composeStore.toggleAnswers()" />
-                {{ t('compose.answerToggle') }}
+                <span>{{ t('compose.answerToggle') }}</span>
               </label>
             </div>
 
-            <div v-if="current.include_answers" class="prop-toggle">
+            <div v-if="current.include_answers" class="prop-field">
               <label class="prop-label">{{ t('compose.answerPlacement') }}</label>
               <select
-                class="prop-select"
+                class="prop-input"
                 :value="current.answers_placement"
                 @change="composeStore.setAnswersPlacement(($event.target as HTMLSelectElement).value as any)"
               >
@@ -570,51 +793,54 @@ async function exportComposition() {
               </select>
             </div>
 
-            <div class="prop-toggle">
-              <label>
-                <input type="checkbox" :checked="current.show_question_info" @change="composeStore.updateComposition({ showQuestionInfo: !current.show_question_info })" />
-                {{ t('compose.showQuestionInfo') }}
-              </label>
-            </div>
-            <div class="prop-toggle">
-              <label>
-                <input type="checkbox" :checked="current.show_page_numbers" @change="composeStore.updateComposition({ showPageNumbers: !current.show_page_numbers })" />
-                {{ t('compose.showPageNumbers') }}
-              </label>
-            </div>
-            <div class="prop-toggle">
-              <label>
-                <input type="checkbox" :checked="current.show_section_headers" @change="composeStore.updateComposition({ showSectionHeaders: !current.show_section_headers })" />
-                {{ t('compose.showSectionHeaders') }}
-              </label>
-            </div>
+            <div class="prop-divider"></div>
+
+            <label class="prop-checkbox">
+              <input type="checkbox" :checked="current.show_question_info" @change="composeStore.updateComposition({ showQuestionInfo: !current.show_question_info })" />
+              <span>{{ t('compose.showQuestionInfo') }}</span>
+            </label>
+            <label class="prop-checkbox">
+              <input type="checkbox" :checked="current.show_page_numbers" @change="composeStore.updateComposition({ showPageNumbers: !current.show_page_numbers })" />
+              <span>{{ t('compose.showPageNumbers') }}</span>
+            </label>
+            <label class="prop-checkbox">
+              <input type="checkbox" :checked="current.show_section_headers" @change="composeStore.updateComposition({ showSectionHeaders: !current.show_section_headers })" />
+              <span>{{ t('compose.showSectionHeaders') }}</span>
+            </label>
           </div>
 
-          <!-- Selected item properties -->
-          <template v-if="selectedItemId != null">
-            <div class="panel-header">
-              <span>选中题目</span>
-            </div>
-            <div class="selected-item-props">
-              <template v-if="composeStore.selectedItems?.item_type === 'question'">
-                <div class="prop-row">
-                  <span>题号: {{ composeStore.selectedItems.question_no || '?' }}</span>
+          <!-- Selected item card -->
+          <div v-if="selectedItemId != null" class="props-card">
+            <div class="props-card-title">选中题目</div>
+            <template v-if="composeStore.selectedItems?.item_type === 'question'">
+              <div class="selected-info">
+                <div class="selected-info-row">
+                  <span class="selected-info-label">题号</span>
+                  <span class="selected-info-value">{{ composeStore.selectedItems.question_no || '?' }}</span>
                 </div>
-                <div class="prop-row">
-                  <span>来源: {{ composeStore.selectedItems.paper_exam_code || '-' }}</span>
+                <div class="selected-info-row">
+                  <span class="selected-info-label">来源</span>
+                  <span class="selected-info-value">{{ composeStore.selectedItems.paper_exam_code || '-' }}</span>
                 </div>
+                <div class="selected-info-row" v-if="composeStore.selectedItems.sections?.length">
+                  <span class="selected-info-label">Section</span>
+                  <span class="selected-info-value">{{ composeStore.selectedItems.sections.join(', ') }}</span>
+                </div>
+              </div>
+              <div class="prop-field">
                 <label class="prop-label">{{ t('compose.blankPages') }}</label>
                 <div class="blank-pages-control">
-                  <button @click="composeStore.updateItemBlankPages(selectedItemId, Math.max(0, composeStore.selectedItems.blank_pages - 1))">-</button>
-                  <span>{{ composeStore.selectedItems.blank_pages }}</span>
+                  <button @click="composeStore.updateItemBlankPages(selectedItemId, Math.max(0, composeStore.selectedItems.blank_pages - 1))">−</button>
+                  <span class="blank-pages-num">{{ composeStore.selectedItems.blank_pages }}</span>
                   <button @click="composeStore.updateItemBlankPages(selectedItemId, composeStore.selectedItems.blank_pages + 1)">+</button>
                 </div>
-              </template>
-              <button class="btn-ghost btn-ghost--danger btn-sm" @click="composeStore.removeItem(selectedItemId)">
-                {{ t('compose.removeItem') }}
-              </button>
-            </div>
-          </template>
+              </div>
+            </template>
+            <button class="btn-remove" @click="composeStore.removeItem(selectedItemId)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              {{ t('compose.removeItem') }}
+            </button>
+          </div>
         </div>
       </div>
     </template>
@@ -647,11 +873,24 @@ async function exportComposition() {
                 :class="{ 'comp-list-item--active': comp.id === current?.id }"
                 @click="openComposition(comp.id)"
               >
-                <div class="comp-list-info">
+                <div class="comp-list-info" v-if="renamingId !== comp.id">
                   <span class="comp-list-name">{{ comp.name }}</span>
                   <span class="comp-list-meta">{{ comp.item_count }} {{ t('compose.totalQuestions').toLowerCase() }}</span>
                 </div>
+                <div class="comp-list-info" v-else @click.stop>
+                  <input
+                    v-model="renameInput"
+                    class="rename-input"
+                    @keyup.enter="confirmRename(comp.id)"
+                    @keyup.esc="cancelRename"
+                    @blur="confirmRename(comp.id)"
+                    autofocus
+                  />
+                </div>
                 <div class="comp-list-actions">
+                  <button class="btn-icon" @click.stop="startRename(comp)" title="重命名">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
                   <button class="btn-icon" @click.stop="duplicateComposition(comp.id)" :title="t('compose.duplicate')">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                   </button>
@@ -664,6 +903,32 @@ async function exportComposition() {
                 暂无方案
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Double-click preview modal -->
+    <Teleport to="body">
+      <div v-if="previewQuestion" class="preview-modal-overlay" @click.self="closePreview" @keydown.esc="closePreview">
+        <div class="preview-modal">
+          <div class="preview-modal-header">
+            <span class="preview-modal-qno">{{ previewQuestion.question_no || '?' }}</span>
+            <span class="preview-modal-sections">{{ previewQuestion.sections?.join(', ') || '' }}</span>
+            <span class="preview-modal-source">{{ previewQuestion.paper?.exam_code || '' }}</span>
+            <button class="preview-modal-close" @click="closePreview">×</button>
+          </div>
+          <div class="preview-modal-body">
+            <img
+              v-if="previewQuestion.preview_image_url"
+              :src="previewQuestion.preview_image_url"
+              class="preview-modal-img"
+            />
+          </div>
+          <div class="preview-modal-footer">
+            <button class="btn-secondary btn-sm" @click="toggleQuestion(previewQuestion); closePreview()">
+              {{ isInComposition(previewQuestion.id) ? '移除' : '添加到方案' }}
+            </button>
           </div>
         </div>
       </div>
@@ -794,6 +1059,7 @@ async function exportComposition() {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .compose-panel {
@@ -874,7 +1140,7 @@ async function exportComposition() {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 7px 10px;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
   transition: background 100ms;
@@ -902,30 +1168,118 @@ async function exportComposition() {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 .bank-item-qno {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  flex-shrink: 0;
+  min-width: 28px;
 }
 
 .bank-item-sections {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.bank-item-paper {
   font-size: 11px;
   color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex-shrink: 1;
 }
 
-.bank-item-thumb {
-  width: 48px;
-  height: 32px;
-  object-fit: cover;
-  border-radius: 3px;
-  border: 1px solid var(--border);
-  flex-shrink: 0;
+/* ── Preview modal ── */
+.preview-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.preview-modal {
+  background: white;
+  border: 2px solid #000;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.preview-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #eee;
+  background: #fafafa;
+  font-size: 13px;
+}
+
+.preview-modal-qno {
+  font-weight: 700;
+  color: #333;
+}
+
+.preview-modal-sections {
+  color: #666;
+}
+
+.preview-modal-source {
+  color: #999;
+  margin-left: auto;
+}
+
+.preview-modal-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  color: #666;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-modal-close:hover {
+  background: #eee;
+  color: #333;
+}
+
+.preview-modal-body {
+  overflow: auto;
+  flex: 1;
+}
+
+.preview-modal-img {
+  display: block;
+  max-width: 80vw;
+  max-height: 75vh;
+  object-fit: contain;
+}
+
+.preview-modal-footer {
+  display: flex;
+  justify-content: center;
+  padding: 10px 16px;
+  border-top: 1px solid #eee;
+  background: #fafafa;
 }
 
 .bank-pagination {
@@ -1010,9 +1364,8 @@ async function exportComposition() {
   width: 420px;
   min-height: 560px;
   background: white;
-  border: 1px solid var(--border);
+  border: 2px solid #000;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  border-radius: 4px;
   cursor: pointer;
   transition: box-shadow 150ms, border-color 150ms;
   overflow: hidden;
@@ -1025,6 +1378,17 @@ async function exportComposition() {
 .preview-page--selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.preview-page--drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent);
+  transform: scale(1.01);
+}
+
+.preview-page--dragging {
+  opacity: 0.4;
+  transform: scale(0.98);
 }
 
 .page-header {
@@ -1056,8 +1420,6 @@ async function exportComposition() {
 }
 
 .page-frame {
-  border: 2px solid #000;
-  border-radius: 2px;
   overflow: hidden;
 }
 
@@ -1067,31 +1429,19 @@ async function exportComposition() {
 }
 
 /* ── Blank page ── */
-.preview-blank-page {
-  width: 420px;
-  min-height: 560px;
-  background: #fafafa;
-  border: 2px dashed #ccc;
-  border-radius: 4px;
+.preview-page--blank {
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #fafafa;
+}
+
+.blank-label {
   color: #ccc;
-  font-style: italic;
   font-size: 14px;
-  cursor: pointer;
-  transition: border-color 150ms;
+  font-style: italic;
 }
 
-.preview-blank-page:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.preview-blank-page.preview-page--selected {
-  border-color: var(--accent);
-  border-style: solid;
-}
 
 /* ── Section header ── */
 .section-header {
@@ -1105,140 +1455,192 @@ async function exportComposition() {
   color: #333;
 }
 
-/* ── Stats ── */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  padding: 12px 14px;
+/* ── Props panel ── */
+.props-card {
+  padding: 14px 16px;
   border-bottom: 1px solid var(--border);
-}
-
-.stat-item {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  gap: 10px;
 }
 
-.stat-value {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.stat-label {
-  font-size: 10px;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-}
-
-/* ── Properties ── */
-.props-section {
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.prop-label {
+.props-card-title {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-tertiary);
   text-transform: uppercase;
-  margin-top: 4px;
+  letter-spacing: 0.5px;
+}
+
+/* ── Stats ── */
+.stats-row {
+  display: flex;
+  gap: 8px;
+}
+
+.stat-pill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+}
+
+.stat-num {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.stat-desc {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* ── Properties ── */
+.prop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.prop-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .prop-input {
   width: 100%;
-  padding: 6px 8px;
+  padding: 6px 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
   outline: none;
   box-sizing: border-box;
+  transition: border-color 120ms;
 }
 
 .prop-input:focus {
   border-color: var(--border-accent);
 }
 
-.prop-select {
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-}
-
-.prop-toggle {
+.prop-checkbox {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 13px;
   color: var(--text-primary);
-}
-
-.prop-toggle label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   cursor: pointer;
+  padding: 2px 0;
 }
 
-.prop-toggle input[type="checkbox"] {
+.prop-checkbox input[type="checkbox"] {
   margin: 0;
+  accent-color: var(--accent);
 }
 
-/* ── Selected item props ── */
-.selected-item-props {
-  padding: 12px 14px;
+.prop-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* ── Selected item ── */
+.selected-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
 }
 
-.prop-row {
+.selected-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: 13px;
+}
+
+.selected-info-label {
+  color: var(--text-tertiary);
+}
+
+.selected-info-value {
   color: var(--text-primary);
+  font-weight: 500;
 }
 
 .blank-pages-control {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  width: fit-content;
 }
 
 .blank-pages-control button {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border);
+  width: 32px;
+  height: 32px;
+  border: none;
   background: var(--bg-input);
-  border-radius: var(--radius-xs);
   cursor: pointer;
   font-size: 16px;
   color: var(--text-primary);
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background 100ms;
 }
 
 .blank-pages-control button:hover {
   background: var(--bg-hover);
 }
 
-.blank-pages-control span {
-  font-size: 16px;
+.blank-pages-num {
+  font-size: 15px;
   font-weight: 600;
-  min-width: 24px;
+  min-width: 36px;
   text-align: center;
+  color: var(--text-primary);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-remove {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--danger);
+  background: none;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 100ms;
+  margin-top: 4px;
+}
+
+.btn-remove:hover {
+  background: rgba(239, 68, 68, 0.1);
 }
 
 /* ── Buttons ── */
@@ -1466,6 +1868,18 @@ async function exportComposition() {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+}
+
+.rename-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-xs);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
 }
 
 .comp-list-empty {
