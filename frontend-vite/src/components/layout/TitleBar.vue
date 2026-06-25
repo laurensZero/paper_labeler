@@ -31,6 +31,7 @@ const navItems = computed(() => [
   { key: 'filter', label: t('nav.filter') },
   { key: 'mark', label: t('nav.mark') },
   { key: 'answer', label: t('nav.answer') },
+  { key: 'compose', label: t('nav.compose') },
 ])
 
 onMounted(() => {

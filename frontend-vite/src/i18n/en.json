@@ -9,7 +9,8 @@
     "mark": "Question Marking",
     "answer": "Answer Marking",
     "sections": "Sections",
-    "settings": "Settings"
+    "settings": "Settings",
+    "compose": "Compose"
   },
   "sidebar": {
     "collapse": "Collapse",
@@ -564,5 +565,43 @@
     "upToDate": "Already up to date",
     "checkForUpdates": "Check for Updates",
     "releaseNotes": "Release Notes"
+  },
+  "compose": {
+    "title": "Compose",
+    "newComposition": "New Composition",
+    "compositionName": "Composition name",
+    "save": "Save",
+    "export": "Export PDF",
+    "duplicate": "Duplicate",
+    "delete": "Delete",
+    "loadList": "Open composition",
+    "empty": "No questions added yet. Use the question panel on the left to add questions.",
+    "emptyPanel": "Select or create a composition to start",
+    "questionPanel": "Question Bank",
+    "preview": "Preview",
+    "properties": "Properties",
+    "stats": "Statistics",
+    "totalQuestions": "Questions",
+    "totalBlankPages": "Blank pages",
+    "estimatedPages": "Est. pages",
+    "answerToggle": "Include answers",
+    "answerPlacement": "Answer placement",
+    "placementEnd": "At the end",
+    "placementInterleaved": "Interleaved",
+    "groupBySection": "Group by section",
+    "freeOrder": "Free order",
+    "blankPages": "Blank pages after",
+    "insertBlank": "Insert blank page",
+    "removeItem": "Remove",
+    "sectionHeader": "Section",
+    "confirmDelete": "Delete this composition?",
+    "confirmDeleteTitle": "Delete Composition",
+    "untitled": "Untitled Composition",
+    "title_label": "Exam title",
+    "headerText": "Header text",
+    "footerText": "Footer text",
+    "showQuestionInfo": "Show question info",
+    "showPageNumbers": "Show page numbers",
+    "showSectionHeaders": "Show section headers"
   }
 }

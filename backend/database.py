@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine, Column, Boolean
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine, Column, Boolean, Float
 from sqlalchemy.orm import declarative_base, sessionmaker
 from backend.config import DATA_DIR
 
@@ -120,6 +120,39 @@ class QuestionSection(Base):
     section_name = Column(String, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     __table_args__ = (UniqueConstraint("question_id", "section_name", name="uq_question_section"),)
+
+
+class Composition(Base):
+    __tablename__ = "compositions"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    title = Column(String, nullable=True)
+    header_text = Column(String, nullable=True)
+    footer_text = Column(String, nullable=True)
+    include_answers = Column(Boolean, nullable=False, default=False)
+    answers_placement = Column(String, nullable=False, default="end")
+    group_by_section = Column(Boolean, nullable=False, default=True)
+    show_section_headers = Column(Boolean, nullable=False, default=True)
+    show_question_info = Column(Boolean, nullable=False, default=True)
+    show_page_numbers = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CompositionItem(Base):
+    __tablename__ = "composition_items"
+    id = Column(Integer, primary_key=True, index=True)
+    composition_id = Column(Integer, ForeignKey("compositions.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False, index=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    blank_pages = Column(Integer, nullable=False, default=0)
+    item_type = Column(String, nullable=False, default="question")
+    score = Column(Float, nullable=True)
+    custom_header = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    __table_args__ = (
+        UniqueConstraint("composition_id", "question_id", name="uq_comp_question"),
+    )
 
 
 def init_db():

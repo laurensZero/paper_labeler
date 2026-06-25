@@ -70,7 +70,7 @@ onBeforeUnmount(() => {
         <div class="workspace-content">
           <router-view v-slot="{ Component, route }">
             <Transition name="page-fade" mode="out-in">
-              <keep-alive :include="['MarkView', 'FilterView', 'AnswerView']">
+              <keep-alive :include="['MarkView', 'FilterView', 'AnswerView', 'ComposeView']">
                 <component :is="Component" :key="route.path" />
               </keep-alive>
             </Transition>

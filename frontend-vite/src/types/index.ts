@@ -68,3 +68,16 @@ export type {
   PurgeAllRequest,
   GlobalStats,
 } from './export'
+
+export type {
+  Composition,
+  CompositionDetail,
+  CompositionItem,
+  CompositionItemDetail,
+  CompositionCreateParams,
+  CompositionUpdateParams,
+  CompositionItemAddParams,
+  CompositionItemBatchAddParams,
+  CompositionItemUpdateParams,
+  CompositionReorderParams,
+} from './composition'

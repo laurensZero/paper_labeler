@@ -98,3 +98,55 @@ class ExportQuestionsPDF(BaseModel):
 
 class ExportJobCreated(BaseModel):
     url: str
+
+
+# ── Composition schemas ──────────────────────────────────────────────
+
+class CompositionCreate(BaseModel):
+    name: str
+    title: str | None = None
+    header_text: str | None = None
+    footer_text: str | None = None
+    include_answers: bool = False
+    answers_placement: Literal["end", "interleaved"] = "end"
+    group_by_section: bool = True
+    show_section_headers: bool = True
+    show_question_info: bool = True
+    show_page_numbers: bool = True
+
+
+class CompositionUpdate(BaseModel):
+    name: str | None = None
+    title: str | None = None
+    header_text: str | None = None
+    footer_text: str | None = None
+    include_answers: bool | None = None
+    answers_placement: Literal["end", "interleaved"] | None = None
+    group_by_section: bool | None = None
+    show_section_headers: bool | None = None
+    show_question_info: bool | None = None
+    show_page_numbers: bool | None = None
+
+
+class CompositionItemAdd(BaseModel):
+    question_id: int
+    sort_order: int | None = None
+    blank_pages: int = 0
+    item_type: str = "question"
+    score: float | None = None
+    custom_header: str | None = None
+
+
+class CompositionItemBatchAdd(BaseModel):
+    question_ids: list[int] = Field(min_length=1)
+
+
+class CompositionItemUpdate(BaseModel):
+    sort_order: int | None = None
+    blank_pages: int | None = None
+    custom_header: str | None = None
+    score: float | None = None
+
+
+class CompositionReorder(BaseModel):
+    item_ids: list[int] = Field(min_length=1)

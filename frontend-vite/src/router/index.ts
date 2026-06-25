@@ -10,6 +10,8 @@ const router = createRouter({
     { path: '/answer-admin', name: 'answer-admin', component: () => import('@/views/AnswerAdmin.vue') },
     { path: '/settings', name: 'settings', component: () => import('@/views/SettingsView.vue') },
     { path: '/sections', name: 'sections', component: () => import('@/views/SectionEditor.vue') },
+    { path: '/compose', name: 'compose', component: () => import('@/views/ComposeView.vue') },
+    { path: '/compose/:id', name: 'compose-edit', component: () => import('@/views/ComposeView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/filter' },
   ],
 })

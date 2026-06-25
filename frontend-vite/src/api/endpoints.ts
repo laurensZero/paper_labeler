@@ -41,6 +41,15 @@ import type {
   CieBatchImportResponse,
   PurgeAllRequest,
   GlobalStats,
+  Composition,
+  CompositionDetail,
+  CompositionItemDetail,
+  CompositionCreateParams,
+  CompositionUpdateParams,
+  CompositionItemAddParams,
+  CompositionItemBatchAddParams,
+  CompositionItemUpdateParams,
+  CompositionReorderParams,
 } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -574,5 +583,134 @@ export const adminApi = {
         wipe_sections: params.wipeSections ?? false,
       }),
     })
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Compositions
+// ---------------------------------------------------------------------------
+
+export const compositionsApi = {
+  /** List all compositions */
+  list(): Promise<Composition[]> {
+    return api('/compositions')
+  },
+
+  /** Get composition detail with items */
+  get(compId: number): Promise<CompositionDetail> {
+    return api(`/compositions/${compId}`)
+  },
+
+  /** Create a new composition */
+  create(params: CompositionCreateParams): Promise<Composition> {
+    return api('/compositions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: params.name,
+        title: params.title,
+        header_text: params.headerText,
+        footer_text: params.footerText,
+        include_answers: params.includeAnswers ?? false,
+        answers_placement: params.answersPlacement ?? 'end',
+        group_by_section: params.groupBySection ?? true,
+        show_section_headers: params.showSectionHeaders ?? true,
+        show_question_info: params.showQuestionInfo ?? true,
+        show_page_numbers: params.showPageNumbers ?? true,
+      }),
+    })
+  },
+
+  /** Update composition metadata */
+  update(compId: number, params: CompositionUpdateParams): Promise<Composition> {
+    const body: Record<string, unknown> = {}
+    if (params.name !== undefined) body.name = params.name
+    if (params.title !== undefined) body.title = params.title
+    if (params.headerText !== undefined) body.header_text = params.headerText
+    if (params.footerText !== undefined) body.footer_text = params.footerText
+    if (params.includeAnswers !== undefined) body.include_answers = params.includeAnswers
+    if (params.answersPlacement !== undefined) body.answers_placement = params.answersPlacement
+    if (params.groupBySection !== undefined) body.group_by_section = params.groupBySection
+    if (params.showSectionHeaders !== undefined) body.show_section_headers = params.showSectionHeaders
+    if (params.showQuestionInfo !== undefined) body.show_question_info = params.showQuestionInfo
+    if (params.showPageNumbers !== undefined) body.show_page_numbers = params.showPageNumbers
+    return api(`/compositions/${compId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  },
+
+  /** Delete a composition */
+  delete(compId: number): Promise<{ ok: boolean }> {
+    return api(`/compositions/${compId}`, { method: 'DELETE' })
+  },
+
+  /** Duplicate a composition */
+  duplicate(compId: number): Promise<Composition> {
+    return api(`/compositions/${compId}/duplicate`, { method: 'POST' })
+  },
+
+  /** Add a question to composition */
+  addItem(compId: number, params: CompositionItemAddParams): Promise<CompositionItemDetail> {
+    return api(`/compositions/${compId}/items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question_id: params.questionId,
+        sort_order: params.sortOrder,
+        blank_pages: params.blankPages ?? 0,
+        item_type: params.itemType ?? 'question',
+        score: params.score,
+        custom_header: params.customHeader,
+      }),
+    })
+  },
+
+  /** Batch add questions to composition */
+  addItemsBatch(compId: number, params: CompositionItemBatchAddParams): Promise<{ added: number; skipped: number[] }> {
+    return api(`/compositions/${compId}/items/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question_ids: params.questionIds,
+      }),
+    })
+  },
+
+  /** Remove an item from composition */
+  removeItem(compId: number, itemId: number): Promise<{ ok: boolean }> {
+    return api(`/compositions/${compId}/items/${itemId}`, { method: 'DELETE' })
+  },
+
+  /** Update a composition item */
+  updateItem(compId: number, itemId: number, params: CompositionItemUpdateParams): Promise<CompositionItemDetail> {
+    const body: Record<string, unknown> = {}
+    if (params.sortOrder !== undefined) body.sort_order = params.sortOrder
+    if (params.blankPages !== undefined) body.blank_pages = params.blankPages
+    if (params.customHeader !== undefined) body.custom_header = params.customHeader
+    if (params.score !== undefined) body.score = params.score
+    return api(`/compositions/${compId}/items/${itemId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  },
+
+  /** Reorder items */
+  reorder(compId: number, params: CompositionReorderParams): Promise<{ ok: boolean; reordered: number }> {
+    return api(`/compositions/${compId}/items/reorder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        item_ids: params.itemIds,
+      }),
+    })
+  },
+
+  /** Insert a blank page after an item */
+  insertBlankPage(compId: number, afterItemId?: number): Promise<CompositionItemDetail> {
+    const qs = afterItemId != null ? `?after_item_id=${afterItemId}` : ''
+    return api(`/compositions/${compId}/items/insert_blank${qs}`, { method: 'POST' })
   },
 }

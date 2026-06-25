@@ -9,7 +9,8 @@
     "mark": "题目标注",
     "answer": "答案标注",
     "sections": "模块管理",
-    "settings": "设置"
+    "settings": "设置",
+    "compose": "组卷"
   },
   "sidebar": {
     "collapse": "收起",
@@ -564,5 +565,43 @@
     "upToDate": "已是最新版本",
     "checkForUpdates": "检查更新",
     "releaseNotes": "更新说明"
+  },
+  "compose": {
+    "title": "组卷",
+    "newComposition": "新建方案",
+    "compositionName": "方案名称",
+    "save": "保存",
+    "export": "导出 PDF",
+    "duplicate": "复制",
+    "delete": "删除",
+    "loadList": "打开方案",
+    "empty": "还没有添加题目，请从左侧面板选择题目添加。",
+    "emptyPanel": "请先选择或创建一个组卷方案",
+    "questionPanel": "题库",
+    "preview": "预览",
+    "properties": "属性",
+    "stats": "统计",
+    "totalQuestions": "题目数",
+    "totalBlankPages": "空白页",
+    "estimatedPages": "预估页数",
+    "answerToggle": "包含答案",
+    "answerPlacement": "答案位置",
+    "placementEnd": "全部在末尾",
+    "placementInterleaved": "紧跟题目",
+    "groupBySection": "按 Section 分组",
+    "freeOrder": "自由排序",
+    "blankPages": "后续空白页",
+    "insertBlank": "插入空白页",
+    "removeItem": "移除",
+    "sectionHeader": "模块",
+    "confirmDelete": "确定删除此方案？",
+    "confirmDeleteTitle": "删除方案",
+    "untitled": "未命名方案",
+    "title_label": "试卷标题",
+    "headerText": "页眉文字",
+    "footerText": "页脚文字",
+    "showQuestionInfo": "显示题目信息",
+    "showPageNumbers": "显示页码",
+    "showSectionHeaders": "显示 Section 标题"
   }
 }

@@ -24,7 +24,7 @@ if __package__ is None or __package__ == "":
 
 from backend.database import init_db
 from backend.config import DATA_DIR, UI_DIR
-from backend.routers import admin, papers, questions, sections, stats, export, cie_import
+from backend.routers import admin, papers, questions, sections, stats, export, cie_import, compositions
 
 
 @asynccontextmanager
@@ -276,6 +276,7 @@ app.include_router(stats.router)
 app.include_router(admin.router)
 app.include_router(export.router, prefix="/export")
 app.include_router(cie_import.router)
+app.include_router(compositions.router)
 
 
 def _run_uvicorn() -> None:
