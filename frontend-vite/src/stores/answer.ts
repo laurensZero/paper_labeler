@@ -10,7 +10,8 @@ import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 import { questionsApi } from '@/api/endpoints'
 import type { BoundingBox } from '@/types/common'
-import type { AnswerPaperListItem, Page } from '@/types/paper'
+import type { AnswerPaperListItem, Page, PaperDetail } from '@/types/paper'
+import type { Question, AnswerBox as ApiAnswerBox } from '@/types'
 import {
   alignAnswerBBoxToBoundsX,
 } from '@/utils/alignment'
@@ -25,7 +26,7 @@ function deriveMsCode(codeOrFilename: string): string | null {
   if (/_qp_/i.test(s)) return s.replace(/_qp_/i, '_ms_')
   return null
 }
-function findMatchedMsPaper(paperDetail: any, papers: any[]) {
+function findMatchedMsPaper(paperDetail: PaperDetail, papers: AnswerPaperListItem[]) {
   const list = Array.isArray(papers) ? papers : []
   const pairedId = paperDetail?.paired_paper_id
   if (pairedId) return list.find((p) => p.id === pairedId) || { id: pairedId }
@@ -35,7 +36,7 @@ function findMatchedMsPaper(paperDetail: any, papers: any[]) {
   if (byExam) return byExam
   return list.find((p) => String(p.filename || '').includes(msCode)) || null
 }
-function sortQuestionsByNoAsc(qs: any[]) {
+function sortQuestionsByNoAsc(qs: Question[]) {
   const arr = Array.from(qs || [])
   arr.sort((a, b) => {
     const aNo = a.question_no
@@ -102,7 +103,7 @@ interface AnswerSnapshot {
   selectedIndex: number
 }
 
-interface AnswerDragOp {
+export interface AnswerDragOp {
   kind: 'move' | 'resize'
   box: AnswerBoxState
   corner?: string
@@ -154,7 +155,7 @@ export const useAnswerStore = defineStore('answer', () => {
   const msPaperId = ref<number | null>(null)
   const msPages = ref<Page[]>([])
   const msCanvasByPage = ref(new Map<number, HTMLCanvasElement>())
-  const answerQuestions = ref<any[]>([])
+  const answerQuestions = ref<Question[]>([])
   const answerQIndex = ref(-1)
   const answerExistingBoxes = ref<AnswerBoxState[]>([])
   const answerNewBoxes = ref<AnswerBoxState[]>([])
@@ -264,7 +265,7 @@ export const useAnswerStore = defineStore('answer', () => {
     scrollToAnswerMsTarget({ page: Number(box.page), bbox: box.bbox })
   }
 
-  function recordAnswerScrollProgress(q: any = currentAnswerQuestion.value) {
+  function recordAnswerScrollProgress(q: Question | null = currentAnswerQuestion.value) {
     const papersStore = usePapersStore()
     if (!q || papersStore.currentPaperId == null || msPaperId.value == null) return
     let curMsPage = _getVisibleMsPageNum?.() ?? null
@@ -410,7 +411,7 @@ export const useAnswerStore = defineStore('answer', () => {
     resetAnswerWorkspace({ clearMs: true })
     try {
       const qp = await api(`/papers/${papersStore.currentPaperId}`)
-      let answerPapers: any[] = []
+      let answerPapers: AnswerPaperListItem[] = []
       if (!forcedMsId) {
         try {
           const answerData = await api('/answer_papers')
@@ -489,7 +490,7 @@ export const useAnswerStore = defineStore('answer', () => {
     try {
       const d = await api(`/questions/${q.id}/answer`)
       if (d && d.answer && d.answer.boxes) {
-        answerExistingBoxes.value = d.answer.boxes.map((b: any) => ({ page: b.page, bbox: b.bbox }))
+        answerExistingBoxes.value = d.answer.boxes.map((b: ApiAnswerBox) => ({ page: b.page, bbox: b.bbox }))
         const settingsStore = useSettingsStore()
         if (settingsStore.answerAlignEnabled && answerAlignRef.value) {
           answerExistingBoxes.value = alignAnswerBoxStatesToBoundsX(answerExistingBoxes.value, answerAlignRef.value)
@@ -610,11 +611,11 @@ export const useAnswerStore = defineStore('answer', () => {
       appStore.setStatus(t('answer.loadingMs'))
       const data = await api('/answer_papers')
       const aps = data.papers || []
-      const sortVal = (p: any) => {
+      const sortVal = (p: AnswerPaperListItem) => {
         const v = p.display_no != null ? Number(p.display_no) : Number(p.id)
         return Number.isFinite(v) ? v : 0
       }
-      answerPaperList.value = aps.slice().sort((a: any, b: any) => sortVal(b) - sortVal(a))
+      answerPaperList.value = (aps as AnswerPaperListItem[]).slice().sort((a, b) => sortVal(b) - sortVal(a))
       appStore.setStatus(t('answer.msCount', { count: aps.length }), 'ok')
     } catch (e) {
       appStore.setStatus(String(e), 'err')

@@ -4,12 +4,12 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, type CSSPro
 defineOptions({ name: 'SimpleSelect' })
 
 export interface SelectOption {
-  value: any
+  value: string | number | null
   label: string
 }
 
 const props = withDefaults(defineProps<{
-  modelValue: any
+  modelValue: string | number | null
   options: SelectOption[]
   placeholder?: string
   disabled?: boolean
@@ -19,8 +19,8 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  'update:modelValue': [value: any]
-  'change': [value: any]
+  'update:modelValue': [value: string | number | null]
+  'change': [value: string | number | null]
 }>()
 
 const isOpen = ref(false)

@@ -13,7 +13,8 @@ import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 import type { BoundingBox } from '@/types/common'
-import { clamp01, normalizeBox, pointInBox } from '@/utils/geometry'
+import type { Question, QuestionBox, OcrQuestionDraft, OcrBoxDraft } from '@/types'
+import { clamp01, clampInt, normalizeBox, pointInBox } from '@/utils/geometry'
 import {
   alignBoxesPayloadToBoundsX,
   computeUnionAlignBoundsFromBoxesPayload,
@@ -21,12 +22,6 @@ import {
   getPaperAlignBounds,
 } from '@/utils/alignment'
 import type { AlignBounds } from '@/utils/alignment'
-
-function clampInt(v: unknown, min: number, max: number): number {
-  const n = parseInt(String(v), 10)
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
 
 const MARK_HISTORY_LIMIT = 50
 const MARK_SAVED_HISTORY_LIMIT = 30
@@ -112,10 +107,16 @@ function clonePersistedBoxPayload(boxes: { page: number; bbox: number[] }[]): { 
     .filter((b) => Number.isFinite(b.page) && Array.isArray(b.bbox) && b.bbox.length === 4)
 }
 
-function clonePersistedQuestionPayload(payload: any) {
+interface PersistedQuestionPayload {
+  sections?: unknown[]
+  notes?: string | null
+  boxes?: { page: number; bbox: BoundingBox }[]
+}
+
+function clonePersistedQuestionPayload(payload: PersistedQuestionPayload | null | undefined) {
   if (!payload || typeof payload !== 'object') return { sections: [] as string[], notes: null as string | null, boxes: [] as { page: number; bbox: BoundingBox }[] }
   const sections = Array.isArray(payload.sections)
-    ? payload.sections.filter((s: any) => s != null && String(s).trim()).map((s: any) => String(s))
+    ? payload.sections.filter((s) => s != null && String(s).trim()).map((s) => String(s))
     : []
   const notes = payload.notes == null ? null : String(payload.notes)
   const boxes = clonePersistedBoxPayload(payload.boxes || [])
@@ -256,7 +257,7 @@ export const useMarkStore = defineStore('mark', () => {
     await redoSavedMark()
   }
 
-  async function applySavedQuestionPayload(questionId: number, payload: any) {
+  async function applySavedQuestionPayload(questionId: number, payload: PersistedQuestionPayload | null | undefined) {
     const safeId = Number(questionId)
     if (!Number.isFinite(safeId)) throw new Error('题目 ID 无效')
     const nextPayload = clonePersistedQuestionPayload(payload)
@@ -388,8 +389,8 @@ export const useMarkStore = defineStore('mark', () => {
       const data = await api(`/papers/${paperId}/questions`)
       const list = data?.questions || []
       if (!Array.isArray(list) || !list.length) return
-      let first: any = null
-      for (const q of list) {
+      let first: Question | null = null
+      for (const q of list as Question[]) {
         if (!q || q.id == null) continue
         if (!first || Number(q.id) < Number(first.id)) first = q
       }
@@ -512,7 +513,7 @@ export const useMarkStore = defineStore('mark', () => {
   }
 
   // --- edit question ---
-  function enterEditQuestionMode(questionId: number, original: any = null, isLocal = false) {
+  function enterEditQuestionMode(questionId: number, original: PersistedQuestionPayload | null = null, isLocal = false) {
     editingQuestionId.value = questionId
     editingQuestionOriginal.value = original || null
     isLocalEdit.value = !!isLocal
@@ -526,7 +527,7 @@ export const useMarkStore = defineStore('mark', () => {
     answerReplaceQuestionId.value = null
   }
 
-  async function editQuestion(q: any) {
+  async function editQuestion(q: Question) {
     const appStore = useAppStore()
     if (hasOcrDraftMode.value) {
       appStore.setStatus('OCR 草稿模式下无法修改', 'err')
@@ -541,7 +542,7 @@ export const useMarkStore = defineStore('mark', () => {
         appStore.setStatus('题目没有框', 'err')
         return
       }
-      newBoxes.value = boxes.map((b: any) => ({ page: b.page, bbox: b.bbox }))
+      newBoxes.value = boxes.map((b: QuestionBox) => ({ page: b.page, bbox: b.bbox }))
       selectedNewBox.value = newBoxes.value[0] || null
       qSectionSelectValue.value = (full?.section ?? null) || ''
       qNotes.value = (full?.notes ?? null) || ''
@@ -560,7 +561,7 @@ export const useMarkStore = defineStore('mark', () => {
     }
   }
 
-  async function deleteQuestion(q: any) {
+  async function deleteQuestion(q: Question) {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
     const t = i18n.global.t
@@ -581,74 +582,66 @@ export const useMarkStore = defineStore('mark', () => {
     }
   }
 
-  // --- save question ---
-  async function saveQuestion() {
-    const appStore = useAppStore()
+  // --- shared post-save refresh ---
+  async function postSaveRefresh() {
     const papersStore = usePapersStore()
     const sectionsStore = useSectionsStore()
-    if (editingQuestionId.value == null && hasOcrDraftMode.value) {
-      await saveOcrDraftQuestionsBatch()
-      return
-    }
-    if (!newBoxes.value.length) return
-    let section = qSectionSelectValue.value || null
-    let notes = qNotes.value || null
-    let boxesPayload = alignBoxesForSave(newBoxes.value.map((b) => ({ page: b.page, bbox: b.bbox })))
+    useFilterStore().markQuestionDatasetChanged()
+    await loadPageQuestions({ force: true })
+    void sectionsStore.refreshSectionDefs()
+    void papersStore.refreshPapers({ silent: true })
+  }
 
-    if (editingQuestionId.value != null) {
-      const qid = editingQuestionId.value
-      const original = editingQuestionOriginal.value || {}
-      const beforePayload = clonePersistedQuestionPayload({
-        sections: Array.isArray(original.sections) ? original.sections : (original.section ? [original.section] : []),
-        notes: original.notes ?? null,
-        boxes: Array.isArray(original.boxes) ? original.boxes : [],
-      })
-      let sectionsToSave = selectedSectionsForNewQuestion.value.length > 0
-        ? selectedSectionsForNewQuestion.value
-        : (section ? [section] : [])
-      if (sectionsToSave.length === 0 && editingQuestionOriginal.value) {
-        const origSections = editingQuestionOriginal.value.sections || (editingQuestionOriginal.value.section ? [editingQuestionOriginal.value.section] : [])
-        sectionsToSave = origSections
-      }
-      if (editingQuestionOriginal.value && notes == null) {
-        notes = editingQuestionOriginal.value.notes ?? null
-      }
-      appStore.setStatus(`保存题目 #${qid} 中...`)
-      await api(`/questions/${qid}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sections: sectionsToSave, notes }),
-      })
-      await api(`/questions/${qid}/boxes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ boxes: boxesPayload }),
-      })
-      pushSavedMarkUndo({
-        type: 'update',
-        paperId: papersStore.currentPaperId!,
-        questionId: Number(qid),
-        before: beforePayload,
-        after: clonePersistedQuestionPayload({ sections: sectionsToSave, notes, boxes: boxesPayload }),
-      })
-      newBoxes.value = []
-      resetMarkHistory()
-      const filterStore = useFilterStore()
-      filterStore.markQuestionDatasetChanged()
-      await loadPageQuestions({ force: true })
-      void sectionsStore.refreshSectionDefs()
-      void papersStore.refreshPapers({ silent: true })
-      exitEditQuestionMode()
-      appStore.setStatus('已保存', 'ok')
-      if (filterStore.filterReturnQid != null) {
-        await filterStore.returnToFilterFromNavStack()
-      }
-      return
+  /** Update an existing question (PATCH metadata + POST boxes). */
+  async function updateExistingQuestion(
+    qid: number,
+    sectionsToSave: string[],
+    notes: string | null,
+    boxesPayload: { page: number; bbox: BoundingBox }[],
+    beforePayload: PersistedQuestionPayload,
+  ) {
+    const appStore = useAppStore()
+    const papersStore = usePapersStore()
+    appStore.setStatus(`保存题目 #${qid} 中...`)
+    await api(`/questions/${qid}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sections: sectionsToSave, notes }),
+    })
+    await api(`/questions/${qid}/boxes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ boxes: boxesPayload }),
+    })
+    pushSavedMarkUndo({
+      type: 'update',
+      paperId: papersStore.currentPaperId!,
+      questionId: Number(qid),
+      before: beforePayload,
+      after: clonePersistedQuestionPayload({ sections: sectionsToSave, notes, boxes: boxesPayload }),
+    })
+    newBoxes.value = []
+    resetMarkHistory()
+    await postSaveRefresh()
+    exitEditQuestionMode()
+    appStore.setStatus('已保存', 'ok')
+    const filterStore = useFilterStore()
+    if (filterStore.filterReturnQid != null) {
+      await filterStore.returnToFilterFromNavStack()
     }
+  }
 
+  /** Create a new question (POST to /papers/:id/questions). */
+  async function createNewQuestion(
+    sectionsToSave: string[],
+    notes: string | null,
+    boxesPayload: { page: number; bbox: BoundingBox }[],
+  ) {
+    const appStore = useAppStore()
+    const papersStore = usePapersStore()
     const payload = {
-      sections: selectedSectionsForNewQuestion.value.length > 0 ? selectedSectionsForNewQuestion.value : (section ? [section] : []),
-      status: 'confirmed',
+      sections: sectionsToSave,
+      status: 'confirmed' as const,
       notes,
       boxes: boxesPayload,
     }
@@ -674,12 +667,49 @@ export const useMarkStore = defineStore('mark', () => {
     qSectionSelectValue.value = ''
     selectedSectionsForNewQuestion.value = []
     resetMarkHistory()
-    useFilterStore().markQuestionDatasetChanged()
-    await loadPageQuestions({ force: true })
-    void sectionsStore.refreshSectionDefs()
-    void papersStore.refreshPapers({ silent: true })
+    await postSaveRefresh()
     void papersStore.refreshSuggestedNextNo()
     appStore.setStatus('已保存', 'ok')
+  }
+
+  // --- save question ---
+  async function saveQuestion() {
+    const appStore = useAppStore()
+    if (editingQuestionId.value == null && hasOcrDraftMode.value) {
+      await saveOcrDraftQuestionsBatch()
+      return
+    }
+    if (!newBoxes.value.length) return
+    let section = qSectionSelectValue.value || null
+    let notes = qNotes.value || null
+    const boxesPayload = alignBoxesForSave(newBoxes.value.map((b) => ({ page: b.page, bbox: b.bbox })))
+
+    if (editingQuestionId.value != null) {
+      const qid = editingQuestionId.value
+      const original = editingQuestionOriginal.value || {}
+      const beforePayload = clonePersistedQuestionPayload({
+        sections: Array.isArray(original.sections) ? original.sections : (original.section ? [original.section] : []),
+        notes: original.notes ?? null,
+        boxes: Array.isArray(original.boxes) ? original.boxes : [],
+      })
+      let sectionsToSave = selectedSectionsForNewQuestion.value.length > 0
+        ? selectedSectionsForNewQuestion.value
+        : (section ? [section] : [])
+      if (sectionsToSave.length === 0 && editingQuestionOriginal.value) {
+        const origSections = editingQuestionOriginal.value.sections || (editingQuestionOriginal.value.section ? [editingQuestionOriginal.value.section] : [])
+        sectionsToSave = origSections
+      }
+      if (editingQuestionOriginal.value && notes == null) {
+        notes = editingQuestionOriginal.value.notes ?? null
+      }
+      await updateExistingQuestion(qid, sectionsToSave, notes, boxesPayload, beforePayload)
+      return
+    }
+
+    const sectionsToSave = selectedSectionsForNewQuestion.value.length > 0
+      ? selectedSectionsForNewQuestion.value
+      : (section ? [section] : [])
+    await createNewQuestion(sectionsToSave, notes, boxesPayload)
   }
 
   async function saveOcrDraftQuestionsBatch() {
@@ -807,14 +837,14 @@ export const useMarkStore = defineStore('mark', () => {
       const warn = data?.ocr_warning
 
       if (Array.isArray(drafts) && drafts.length) {
-        ocrDraftQuestions.value = drafts
-          .map((q: any) => ({ label: String(q?.label ?? '?').trim() || '?', sections: [] }))
-          .filter((q: any) => q && q.label)
+        ocrDraftQuestions.value = (drafts as OcrQuestionDraft[])
+          .map((q) => ({ label: String(q?.label ?? '?').trim() || '?', sections: [] }))
+          .filter((q) => q && q.label)
 
         const flat: NewBox[] = []
         ocrDraftQuestions.value.forEach((q, draftIdx) => {
           if (!q || !drafts[draftIdx]) return
-          const boxes = (drafts[draftIdx]?.boxes || []).map((b: any) => ({
+          const boxes = ((drafts[draftIdx]?.boxes || []) as OcrBoxDraft[]).map((b) => ({
             page: Number(b?.page),
             bbox: Array.from(b?.bbox || []) as BoundingBox,
             source: 'ocr',
@@ -829,9 +859,9 @@ export const useMarkStore = defineStore('mark', () => {
       } else {
         const flatBoxes = data?.ocr_boxes || []
         if (Array.isArray(flatBoxes) && flatBoxes.length) {
-          newBoxes.value = flatBoxes
-            .map((b: any) => ({ page: Number(b.page), bbox: Array.from(b.bbox || []) as BoundingBox, source: 'ocr', label: b?.label ?? null }))
-            .filter((b: any) => Number.isFinite(b.page) && Array.isArray(b.bbox) && b.bbox.length === 4)
+          newBoxes.value = (flatBoxes as OcrBoxDraft[])
+            .map((b) => ({ page: Number(b.page), bbox: Array.from(b.bbox || []) as BoundingBox, source: 'ocr', label: b?.label ?? null }))
+            .filter((b) => Number.isFinite(b.page) && Array.isArray(b.bbox) && b.bbox.length === 4)
         }
       }
 

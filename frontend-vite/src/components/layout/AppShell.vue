@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Sidebar from '@/components/Sidebar.vue'
 import TitleBar from './TitleBar.vue'
+import KeyboardHelp from '@/components/ui/KeyboardHelp.vue'
 import { usePapersStore } from '@/stores/papers'
 import { useSectionsStore } from '@/stores/sections'
 import { useSettingsStore } from '@/stores/settings'
@@ -77,5 +78,6 @@ onBeforeUnmount(() => {
         </div>
       </main>
     </div>
+    <KeyboardHelp />
   </div>
 </template>

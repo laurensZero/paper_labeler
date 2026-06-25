@@ -1,8 +1,9 @@
 import { computed, nextTick, ref } from 'vue'
 import type { CSSProperties, Ref } from 'vue'
+import type { FilterQuestion } from '@/types'
 
 interface UseFilterVirtualListOptions {
-  results: Ref<any[]>
+  results: Ref<FilterQuestion[]>
   threshold: Ref<number>
   overscanPx: Ref<number>
   getScrollContainer: () => HTMLElement | null

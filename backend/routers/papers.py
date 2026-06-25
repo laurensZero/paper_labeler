@@ -53,18 +53,18 @@ def list_paper_filenames(db: Session = Depends(get_db)):
         "filenames": [p.filename for p in papers if p.filename]
     }
 
-@router.post("/upload_pdf")
-def upload_pdf(
-    file: UploadFile = File(...),
-    ocr_auto: bool = Form(False),
-    ocr_min_height_px: int = Form(70),
-    ocr_y_padding_px: int = Form(12),
-    db: Session = Depends(get_db)
-):
+def _process_single_upload(
+    file: UploadFile,
+    db: Session,
+    *,
+    ocr_auto: bool = False,
+    ocr_min_height_px: int = 70,
+    ocr_y_padding_px: int = 12,
+) -> dict:
+    """处理单个 PDF 上传的公共逻辑，供 upload_pdf / upload_pdfs 共用。"""
     if not (file.filename or "").lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+        raise HTTPException(status_code=400, detail=f"Only PDF files are allowed: {file.filename}")
 
-    # 检查是否已导入过相同文件
     existing = db.query(Paper).filter(Paper.filename == file.filename).first()
     if existing:
         raise HTTPException(
@@ -72,25 +72,24 @@ def upload_pdf(
             detail=f"文件 '{file.filename}' 已导入过 (Paper ID: {existing.id})，请勿重复导入"
         )
 
-    # 1️⃣ 创建试卷记录
+    # 创建试卷记录
     exam_code = stem_no_ext(str(file.filename))
     paper = Paper(
         filename=file.filename,
         exam_code=exam_code,
-        is_answer=is_answer_filename(str(file.filename))
+        is_answer=is_answer_filename(str(file.filename)),
     )
     _set_paper_tokens(paper)
     db.add(paper)
     db.commit()
     db.refresh(paper)
 
-    # 2️⃣ 保存 PDF
+    # 保存 PDF
     pdf_path = PDF_DIR / f"paper_{paper.id}.pdf"
     save_upload_with_limit(file, pdf_path, MAX_UPLOAD_BYTES)
 
-    # 3️⃣ 渲染页面
-    pdf_name = f"paper_{paper.id}"
-    page_output_dir = PAGE_DIR / pdf_name
+    # 渲染页面
+    page_output_dir = PAGE_DIR / f"paper_{paper.id}"
     rendered_pages = render_pdf_to_images(pdf_path, page_output_dir)
 
     # 回写元信息
@@ -109,6 +108,7 @@ def upload_pdf(
 
     try_pair_papers(db, paper)
 
+    # OCR auto-suggest
     ocr_questions: list[dict] = []
     ocr_boxes: list[dict] = []
     ocr_warn: Optional[str] = None
@@ -123,7 +123,6 @@ def upload_pdf(
                 min_height_px=int(ocr_min_height_px or 0),
                 y_padding_px=int(ocr_y_padding_px or 0),
             )
-        # Flatten for backward compatibility
         try:
             for q in ocr_questions:
                 label = q.get("label")
@@ -147,13 +146,29 @@ def upload_pdf(
     }
 
 
+@router.post("/upload_pdf")
+def upload_pdf(
+    file: UploadFile = File(...),
+    ocr_auto: bool = Form(False),
+    ocr_min_height_px: int = Form(70),
+    ocr_y_padding_px: int = Form(12),
+    db: Session = Depends(get_db),
+):
+    return _process_single_upload(
+        file, db,
+        ocr_auto=ocr_auto,
+        ocr_min_height_px=ocr_min_height_px,
+        ocr_y_padding_px=ocr_y_padding_px,
+    )
+
+
 @router.post("/upload_pdfs")
 def upload_pdfs(
     files: List[UploadFile] = File(...),
     ocr_auto: bool = Form(False),
     ocr_min_height_px: int = Form(70),
     ocr_y_padding_px: int = Form(12),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """批量上传 PDF（UI 用）。"""
     if not files:
@@ -161,106 +176,28 @@ def upload_pdfs(
 
     results: list[dict] = []
     for file in files:
-        if not (file.filename or "").lower().endswith(".pdf"):
-            raise HTTPException(status_code=400, detail=f"Only PDF files are allowed: {file.filename}")
-
-        # 检查是否已导入过相同文件
-        existing = db.query(Paper).filter(Paper.filename == file.filename).first()
-        if existing:
-            raise HTTPException(
-                status_code=409,
-                detail=f"文件 '{file.filename}' 已导入过 (Paper ID: {existing.id})，请勿重复导入"
-            )
-
-        exam_code = stem_no_ext(str(file.filename))
-        paper = Paper(
-            filename=file.filename,
-            exam_code=exam_code,
-            is_answer=is_answer_filename(str(file.filename))
-        )
-        _set_paper_tokens(paper)
-        db.add(paper)
-        db.commit()
-        db.refresh(paper)
-
-        pdf_path = PDF_DIR / f"paper_{paper.id}.pdf"
-        save_upload_with_limit(file, pdf_path, MAX_UPLOAD_BYTES)
-
-        page_output_dir = PAGE_DIR / f"paper_{paper.id}"
-        rendered_pages = render_pdf_to_images(pdf_path, page_output_dir)
-
-        paper.pdf_path = str(pdf_path)
-        paper.pages_dir = str(page_output_dir)
-        paper.page_count = int(rendered_pages)
-
-        detected = detect_is_answer_by_pdf_text(pdf_path)
-        if detected is not None and bool(paper.is_answer) != bool(detected):
-            paper.is_answer = bool(detected)
-            paper.exam_code = normalize_exam_code_for_type(paper.exam_code, bool(detected))
-            _set_paper_tokens(paper)
-        db.add(paper)
-        db.commit()
-
-        try_pair_papers(db, paper)
-
-        ocr_questions: list[dict] = []
-        ocr_boxes: list[dict] = []
-        ocr_warn: Optional[str] = None
-        if ocr_auto and (not bool(paper.is_answer)):
-            allowed, reason = auto_suggest_allowed_by_filename(str(file.filename or ""))
-            if not allowed:
-                ocr_warn = reason
-            else:
-                ocr_questions, ocr_warn = suggest_question_boxes_from_pdf(
-                    Path(pdf_path),
-                    int(paper.page_count or 0),
-                    min_height_px=int(ocr_min_height_px or 0),
-                    y_padding_px=int(ocr_y_padding_px or 0),
-                )
-            try:
-                for q in ocr_questions:
-                    label = q.get("label")
-                    for b in q.get("boxes") or []:
-                        d = {"page": b.get("page"), "bbox": b.get("bbox")}
-                        if label is not None:
-                            d["label"] = label
-                        ocr_boxes.append(d)
-            except Exception:
-                pass
-
-        results.append(
-            {
-                "paper_id": int(paper.id),
-                "filename": str(file.filename),
-                "pages_dir": str(page_output_dir),
-                "page_count": int(paper.page_count or 0),
-                "paired_paper_id": paper.paired_paper_id,
-                "ocr_questions": ocr_questions,
-                "ocr_boxes": ocr_boxes,
-                "ocr_warning": ocr_warn,
-            }
-        )
+        results.append(_process_single_upload(
+            file, db,
+            ocr_auto=ocr_auto,
+            ocr_min_height_px=ocr_min_height_px,
+            ocr_y_padding_px=ocr_y_padding_px,
+        ))
     return {"papers": results}
 
 
 @router.get("/papers")
 def list_papers(db: Session = Depends(get_db)):
+    # 一次查询拿到所有 QP，Python 侧完成排序
     qp_all = (
         db.query(Paper)
         .filter((Paper.is_answer == False) | (Paper.is_answer.is_(None)))
-        .order_by(Paper.id.asc())
         .all()
     )
-    # Stable numbering independent of "done" sorting
-    display_map = {p.id: i + 1 for i, p in enumerate(qp_all)}
+    # Stable numbering by id asc
+    display_map = {p.id: i + 1 for i, p in enumerate(sorted(qp_all, key=lambda p: int(p.id or 0)))}
 
     # 未完成的排前面，完成的放最后
-    papers = (
-        db.query(Paper)
-        .filter((Paper.is_answer == False) | (Paper.is_answer.is_(None)))
-        .order_by(Paper.done.asc(), Paper.id.desc())
-        .all()
-    )
+    papers = sorted(qp_all, key=lambda p: (bool(p.done), -int(p.id or 0)))
 
     qp_ids = [p.id for p in papers]
     q_count_map: dict[int, int] = {}

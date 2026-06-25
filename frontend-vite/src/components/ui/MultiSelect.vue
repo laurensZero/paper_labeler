@@ -4,12 +4,12 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 defineOptions({ name: 'MultiSelect' })
 
 export interface MultiSelectOption {
-  value: any
+  value: string | number
   label: string
 }
 
 const props = withDefaults(defineProps<{
-  modelValue: any[]
+  modelValue: (string | number)[]
   options: MultiSelectOption[]
   placeholder?: string
   disabled?: boolean
@@ -27,7 +27,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  'update:modelValue': [value: any[]]
+  'update:modelValue': [value: (string | number)[]]
 }>()
 
 const isOpen = ref(false)

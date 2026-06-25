@@ -6,8 +6,6 @@ from io import BytesIO
 from pathlib import Path
 from threading import Lock
 
-from PIL import Image
-
 from backend.database import QuestionBox
 
 MAX_PREVIEW_WIDTH = 1200
@@ -62,6 +60,8 @@ def _cache_set(key: str, value: bytes) -> None:
 
 
 def build_question_preview_png(question_id: int, boxes: list[QuestionBox], width: int = MAX_PREVIEW_WIDTH) -> tuple[bytes, str]:
+    from PIL import Image
+
     safe_width = max(240, min(1200, int(width or MAX_PREVIEW_WIDTH)))
     version = question_preview_version(boxes)
     cache_key = f"q:{int(question_id)}:{safe_width}:{version}"

@@ -20,7 +20,7 @@ const drawQueue: Array<() => Promise<void>> = []
 let activeDrawTask = false
 
 function scheduleIdleTask(fn: () => void) {
-  const ric = (window as any).requestIdleCallback
+  const ric = (window as unknown as { requestIdleCallback?: (fn: () => void, opts?: { timeout?: number }) => void }).requestIdleCallback
   if (typeof ric === 'function') {
     ric(fn, { timeout: 700 })
     return

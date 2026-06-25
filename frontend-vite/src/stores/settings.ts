@@ -6,12 +6,7 @@ import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 import type { QuestionsIntegrityReport, QuestionsRepairReport } from '@/types/question'
 import type { AlignBounds, PaperAlignRef } from '@/utils/alignment'
-
-function clampInt(v: unknown, min: number, max: number): number {
-  const n = parseInt(String(v), 10)
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
+import { clampInt } from '@/utils/geometry'
 
 // localStorage keys match the old frontend/modules/settings.js exactly
 export const useSettingsStore = defineStore('settings', () => {

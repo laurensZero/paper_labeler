@@ -17,6 +17,7 @@ export const useAppStore = defineStore('app', () => {
   const statsText = ref('')
   const cornerHint = ref('')
   const navStack = ref<NavStackEntry[]>([])
+  const keyboardHelpTrigger = ref(0)
 
   // --- actions ---
   function setView(v: ViewName) {
@@ -42,6 +43,10 @@ export const useAppStore = defineStore('app', () => {
     return navStack.value.pop()
   }
 
+  function toggleKeyboardHelp() {
+    keyboardHelpTrigger.value++
+  }
+
   return {
     // state
     view,
@@ -50,11 +55,13 @@ export const useAppStore = defineStore('app', () => {
     statsText,
     cornerHint,
     navStack,
+    keyboardHelpTrigger,
     // actions
     setView,
     setStatus,
     goBack,
     pushNav,
     popNav,
+    toggleKeyboardHelp,
   }
 })

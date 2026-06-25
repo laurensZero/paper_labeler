@@ -4,7 +4,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 defineOptions({ name: 'VirtualScroller' })
 
 const props = withDefaults(defineProps<{
-  items: any[]
+  items: unknown[]
   itemHeight: number
   overscan?: number
 }>(), {

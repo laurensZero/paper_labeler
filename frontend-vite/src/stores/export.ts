@@ -9,12 +9,8 @@ import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 import type { SectionStat } from '@/types/question'
 import { extractYearFromPaperName } from '@/utils/paper'
-
-function clampInt(v: unknown, min: number, max: number): number {
-  const n = parseInt(String(v), 10)
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
+import type { ExportJobStatus } from '@/types'
+import { clampInt } from '@/utils/geometry'
 
 function normalizeUniqueValues(values: unknown[]): string[] {
   const out: string[] = []
@@ -497,7 +493,7 @@ export const useExportStore = defineStore('export', () => {
     if (!exportBusy.value) clearExportPolling()
   }
 
-  function updateExportJobProgress(statusData: any) {
+  function updateExportJobProgress(statusData: ExportJobStatus) {
     const p = statusData.progress || {}
     exportJobStatus.value = String(statusData.status || '')
     exportJobPhase.value = String(statusData.phase || '')

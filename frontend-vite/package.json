@@ -19,10 +19,13 @@
     "e2e:api": "node tests/api-e2e.mjs",
     "electron:dev": "vite build && electron .",
     "electron:watch": "node electron/watch.cjs",
-    "electron:build": "vue-tsc -b && vite build && electron-builder --win portable --publish never"
+    "electron:build": "vue-tsc -b && vite build && electron-builder --win portable --publish never",
+    "electron:release": "vue-tsc -b && vite build && electron-builder --win portable --publish always",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "build": {
-    "publish": null,
+    "publish": [{ "provider": "github", "owner": "laurens1995s", "repo": "paper_labeler" }],
     "appId": "com.paper-labeler.app",
     "productName": "Paper Labeler",
     "icon": "build/icon.png",
@@ -63,6 +66,7 @@
     "@playwright/test": "^1.60.0",
     "@types/node": "^24.12.3",
     "@vitejs/plugin-vue": "^6.0.6",
+    "@vue/test-utils": "^2.4.11",
     "@vue/tsconfig": "^0.9.0",
     "concurrently": "^10.0.3",
     "electron": "^35.7.5",
@@ -71,6 +75,7 @@
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
     "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^4.1.9",
     "vue-tsc": "^3.2.8"
   }
 }

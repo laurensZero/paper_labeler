@@ -6,7 +6,15 @@ import re
 from typing import Iterable
 import unicodedata
 
-import fitz
+# fitz (PyMuPDF) is heavy — lazy-imported once on first use
+_fitz = None
+
+def _get_fitz():
+    global _fitz
+    if _fitz is None:
+        import fitz as _f
+        _fitz = _f
+    return _fitz
 
 
 BOX_X0 = 0.113
@@ -364,6 +372,8 @@ def _assess_pdf_text_quality(pdf_path: Path, *, sample_pages: int = 4, max_chars
     Heuristic goal: approximate "正文可复制且复制出来不是乱码".
     """
 
+    fitz = _get_fitz()
+
     try:
         doc = fitz.open(str(pdf_path))
     except Exception as e:
@@ -639,6 +649,8 @@ def suggest_question_boxes_from_pdf(
         for page_num in range(2, int(page_count or 0) + 1):
             fallback_g.append({"label": None, "boxes": [{"page": int(page_num), "bbox": [float(BOX_X0), 0.16, float(BOX_X1), 0.98]}]})
         return fallback_g, quality_warn
+
+    fitz = _get_fitz()
 
     try:
         doc = fitz.open(str(pdf_path))

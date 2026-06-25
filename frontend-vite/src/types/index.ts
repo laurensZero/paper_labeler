@@ -30,6 +30,7 @@ export type {
   QuestionsIntegrityReport,
   QuestionsRepairReport,
   QuestionsRepairResponse,
+  FilterQuestion,
 } from './question'
 
 export type {

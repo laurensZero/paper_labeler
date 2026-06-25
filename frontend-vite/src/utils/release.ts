@@ -61,7 +61,7 @@ export async function getLatestRelease(owner: string, repo: string): Promise<Rel
     tag_name: String(data.tag_name || ''),
     body: String(data.body || ''),
     html_url: String(data.html_url || ''),
-    assets: (data.assets || []).map((a: any) => ({
+    assets: ((data.assets || []) as Array<{ name?: string; browser_download_url?: string; size?: number }>).map((a) => ({
       name: String(a.name || ''),
       browser_download_url: String(a.browser_download_url || ''),
       size: Number(a.size || 0),
@@ -78,7 +78,7 @@ export async function getLatestReleaseFromGitee(owner: string, repo: string): Pr
     tag_name: String(data.tag_name || data.tag || ''),
     body: String(data.body || data.description || ''),
     html_url: String(data.html_url || `https://gitee.com/${owner}/${repo}/releases`),
-    assets: (data.assets || []).map((a: any) => ({
+    assets: ((data.assets || []) as Array<{ name?: string; file_name?: string; browser_download_url?: string; download_url?: string; size?: number }>).map((a) => ({
       name: String(a.name || a.file_name || ''),
       browser_download_url: String(a.browser_download_url || a.download_url || ''),
       size: Number(a.size || 0),

@@ -13,21 +13,41 @@ export interface TagOptionGroup {
   options: TagOption[]
 }
 
+export interface TagGroupOption {
+  value: string | number | null
+  label: string
+}
+
 const props = withDefaults(defineProps<{
   modelValue: string[]
   options?: TagOption[]
   optionGroups?: TagOptionGroup[]
   placeholder?: string
   disabled?: boolean
+  creatable?: boolean
+  createLabel?: string
+  createCancelLabel?: string
+  groupOptions?: TagGroupOption[]
+  groupLabel?: string
+  noMatchLabel?: string
+  allSelectedLabel?: string
 }>(), {
   options: () => [],
   optionGroups: () => [],
   placeholder: '添加标签...',
   disabled: false,
+  creatable: false,
+  createLabel: '新建',
+  createCancelLabel: '取消',
+  groupOptions: () => [],
+  groupLabel: '',
+  noMatchLabel: '无匹配项',
+  allSelectedLabel: '所有选项已添加',
 })
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
+  'create': [name: string, groupId: string | number | null]
 }>()
 
 const isOpen = ref(false)
@@ -35,6 +55,41 @@ const searchQuery = ref('')
 const highlightedIndex = ref(-1)
 const rootEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLInputElement | null>(null)
+const groupWrapEl = ref<HTMLElement | null>(null)
+const groupPopupEl = ref<HTMLElement | null>(null)
+
+// Inline create form state
+const createMode = ref(false)
+const createGroupId = ref<any>(null)
+const createGroupOpen = ref(false)
+
+const groupPopupStyle = ref<Record<string, string>>({})
+
+function toggleGroupPopup() {
+  if (createGroupOpen.value) {
+    createGroupOpen.value = false
+    return
+  }
+  // Position the popup relative to the button
+  const wrap = groupWrapEl.value
+  if (wrap) {
+    const rect = wrap.getBoundingClientRect()
+    groupPopupStyle.value = {
+      position: 'fixed',
+      left: `${rect.left}px`,
+      top: `${rect.bottom + 4}px`,
+      width: `${rect.width}px`,
+      zIndex: '5000',
+    }
+  }
+  createGroupOpen.value = true
+}
+
+const selectedGroupLabel = computed(() => {
+  if (createGroupId.value == null) return '—'
+  const g = props.groupOptions.find(o => o.value === createGroupId.value)
+  return g?.label ?? '—'
+})
 
 // Flatten all options from both sources
 const allOptions = computed(() => {
@@ -94,6 +149,25 @@ const flatList = computed<FlatItem[]>(() => {
 // Only option items (for keyboard navigation)
 const optionItems = computed(() => flatList.value.filter(i => i.type === 'option'))
 
+// Show "create" option when search query doesn't match any existing option
+const createOption = computed(() => {
+  if (!props.creatable) return null
+  const q = searchQuery.value.trim()
+  if (!q) return null
+  // Don't show if already selected
+  if (props.modelValue.includes(q)) return null
+  // Don't show if an exact match exists
+  const hasExact = allOptions.value.some(o => o.value === q || o.label === q)
+  if (hasExact) return null
+  return q
+})
+
+// Total navigable items (options + create option)
+const navigableCount = computed(() => {
+  const base = optionItems.value.length
+  return createOption.value ? base + 1 : base
+})
+
 function getLabel(value: string): string {
   const opt = allOptions.value.find(o => o.value === value)
   return opt?.label ?? value
@@ -127,6 +201,9 @@ function close() {
   isOpen.value = false
   searchQuery.value = ''
   highlightedIndex.value = -1
+  createMode.value = false
+  createGroupId.value = null
+  createGroupOpen.value = false
 }
 
 function onInputFocus() {
@@ -144,10 +221,22 @@ function scrollToHighlighted() {
 function onInputKeydown(e: KeyboardEvent) {
   if (props.disabled) return
 
+  // In create mode: Enter confirms, Escape cancels
+  if (createMode.value) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleCreateConfirm()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      handleCreateCancel()
+    }
+    return
+  }
+
   switch (e.key) {
     case 'ArrowDown':
       e.preventDefault()
-      highlightedIndex.value = Math.min(highlightedIndex.value + 1, optionItems.value.length - 1)
+      highlightedIndex.value = Math.min(highlightedIndex.value + 1, navigableCount.value - 1)
       nextTick(scrollToHighlighted)
       break
     case 'ArrowUp':
@@ -160,6 +249,8 @@ function onInputKeydown(e: KeyboardEvent) {
       if (highlightedIndex.value >= 0 && highlightedIndex.value < optionItems.value.length) {
         const item = optionItems.value[highlightedIndex.value]
         if (item.value) addTag(item.value)
+      } else if (createOption.value && highlightedIndex.value === optionItems.value.length) {
+        enterCreateMode()
       }
       break
     case 'Escape':
@@ -178,6 +269,29 @@ function isOptionHighlighted(item: FlatItem): boolean {
   return idx === highlightedIndex.value
 }
 
+function enterCreateMode() {
+  createMode.value = true
+  createGroupId.value = null
+}
+
+function handleCreateConfirm() {
+  const name = searchQuery.value.trim()
+  if (!name) return
+  emit('create', name, createGroupId.value)
+  searchQuery.value = ''
+  createMode.value = false
+  createGroupId.value = null
+  createGroupOpen.value = false
+  highlightedIndex.value = 0
+}
+
+function handleCreateCancel() {
+  createMode.value = false
+  createGroupId.value = null
+  createGroupOpen.value = false
+  nextTick(() => inputEl.value?.focus())
+}
+
 function onOptionMouseEnter(item: FlatItem) {
   if (item.type !== 'option' || !item.value) return
   const idx = optionItems.value.findIndex(o => o.value === item.value)
@@ -185,6 +299,12 @@ function onOptionMouseEnter(item: FlatItem) {
 }
 
 function onClickOutside(e: MouseEvent) {
+  // Close group popup if open and clicking outside it
+  if (createGroupOpen.value && groupPopupEl.value && !groupPopupEl.value.contains(e.target as Node)) {
+    createGroupOpen.value = false
+  }
+  // Don't close while in create form
+  if (createMode.value) return
   if (rootEl.value && !rootEl.value.contains(e.target as Node)) {
     close()
   }
@@ -269,8 +389,67 @@ watch(() => optionItems.value.length, (len) => {
               </span>
             </div>
           </template>
-          <div v-if="optionItems.length === 0" class="ste-empty">
-            {{ searchQuery ? '无匹配项' : '所有选项已添加' }}
+          <!-- Create new option: click to enter create form -->
+          <div
+            v-if="createOption && !createMode"
+            class="ste-option ste-option--create"
+            :class="{ 'ste-option--highlighted': highlightedIndex === optionItems.length }"
+            @mouseenter="highlightedIndex = optionItems.length"
+            @mousedown.prevent.stop="enterCreateMode"
+          >
+            <span class="ste-option-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px; margin-right: 6px">
+                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              {{ createLabel }}「{{ createOption }}」
+            </span>
+          </div>
+
+          <!-- Inline create form -->
+          <div v-if="createMode" class="ste-create-form" @mousedown.stop>
+            <div class="ste-create-title">{{ createLabel }}「{{ searchQuery.trim() }}」</div>
+            <div v-if="groupOptions.length > 0" class="ste-create-row">
+              <span class="ste-create-label">{{ groupLabel }}</span>
+              <div ref="groupWrapEl" class="ste-create-select-wrap" @mousedown.prevent>
+                <button
+                  class="ste-create-select-btn"
+                  @click="toggleGroupPopup"
+                >
+                  {{ selectedGroupLabel }}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <Teleport to="body">
+                  <Transition name="ste-dropdown">
+                    <div v-if="createGroupOpen" ref="groupPopupEl" class="ste-create-group-popup" :style="groupPopupStyle" @mousedown.prevent.stop>
+                      <div
+                        class="ste-create-group-option"
+                        :class="{ active: createGroupId == null }"
+                        @mousedown.prevent.stop="createGroupId = null; createGroupOpen = false"
+                      >—</div>
+                      <div
+                        v-for="g in groupOptions"
+                        :key="g.value"
+                        class="ste-create-group-option"
+                        :class="{ active: createGroupId === g.value }"
+                        @mousedown.prevent.stop="createGroupId = g.value; createGroupOpen = false"
+                      >{{ g.label }}</div>
+                    </div>
+                  </Transition>
+                </Teleport>
+              </div>
+            </div>
+            <div class="ste-create-actions">
+              <button class="ste-create-btn ste-create-btn--confirm" @mousedown.prevent.stop="handleCreateConfirm">
+                {{ createLabel }}
+              </button>
+              <button class="ste-create-btn ste-create-btn--cancel" @mousedown.prevent.stop="handleCreateCancel">
+                {{ createCancelLabel }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="optionItems.length === 0 && !createOption && !createMode" class="ste-empty">
+            {{ searchQuery ? noMatchLabel : allSelectedLabel }}
           </div>
         </div>
       </div>
@@ -451,6 +630,135 @@ watch(() => optionItems.value.length, (len) => {
 .ste-option--highlighted .ste-option-add {
   opacity: 1;
   color: var(--accent);
+}
+
+.ste-option--create {
+  color: var(--accent);
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 10px;
+}
+
+.ste-option--create .ste-option-label {
+  font-weight: 500;
+}
+
+/* Create form */
+.ste-create-form {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ste-create-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.ste-create-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ste-create-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.ste-create-select-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.ste-create-select-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+}
+
+.ste-create-select-btn:hover {
+  border-color: var(--border-strong);
+}
+
+.ste-create-group-popup {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.ste-create-group-option {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.ste-create-group-option:hover {
+  background: var(--bg-hover);
+}
+
+.ste-create-group-option.active {
+  background: var(--accent-soft);
+  color: var(--text-accent);
+  font-weight: 500;
+}
+
+.ste-create-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.ste-create-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all 100ms ease;
+}
+
+.ste-create-btn--confirm {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.ste-create-btn--confirm:hover {
+  opacity: 0.9;
+}
+
+.ste-create-btn--cancel {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+.ste-create-btn--cancel:hover {
+  background: var(--bg-hover);
 }
 
 .ste-empty {

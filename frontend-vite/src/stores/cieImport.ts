@@ -6,12 +6,8 @@ import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 import { pendingOcrBoxesByPaperId, pendingOcrDraftByPaperId, pendingOcrWarningByPaperId } from './papers'
-
-function clampInt(v: unknown, min: number, max: number): number {
-  const n = parseInt(String(v), 10)
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
+import { clampInt } from '@/utils/geometry'
+import type { PaperListItem, AnswerPaperListItem } from '@/types'
 
 function removeAdText(text: string): string {
   if (!text) return text
@@ -142,12 +138,12 @@ export const useCieImportStore = defineStore('cieImport', () => {
   async function buildCiePaperGroups() {
     const papersStore = usePapersStore()
     const localFilenames = new Set(papersStore.allPaperFilenames || [])
-    const localPapersByFilename = new Map<string, any>()
+    const localPapersByFilename = new Map<string, PaperListItem | AnswerPaperListItem>()
     papersStore.papers.forEach((p) => { if (p.filename) localPapersByFilename.set(p.filename, p) })
     try {
       const ansData = await api('/answer_papers')
       if (ansData?.papers) {
-        ansData.papers.forEach((p: any) => { if (p.filename) localPapersByFilename.set(p.filename, p) })
+        (ansData.papers as AnswerPaperListItem[]).forEach((p) => { if (p.filename) localPapersByFilename.set(p.filename, p) })
       }
     } catch {}
 
@@ -155,7 +151,7 @@ export const useCieImportStore = defineStore('cieImport', () => {
     const unpaired: CiePaperItem[] = []
     const paperByFilename = new Map<string, CiePaperItem>()
 
-    ciePaperListData.value.forEach((paper: any, idx: number) => {
+    ciePaperListData.value.forEach((paper, idx: number) => {
       paper.originalIdx = idx
       paper.existsLocally = localFilenames.has(paper.filename)
       paper.exists = paper.existsLocally
@@ -251,7 +247,7 @@ export const useCieImportStore = defineStore('cieImport', () => {
       cieImportStatus.value = `导入中 ${i + 1}/${selected.length}: ${paper.filename}`
       try {
         const payload = {
-          url: (paper as any).url,
+          url: paper.url,
           ocr_auto: settingsStore.ocrAutoEnabled,
           ocr_min_height_px: clampInt(settingsStore.ocrMinHeightPx, 0, 2000),
           ocr_y_padding_px: clampInt(settingsStore.ocrYPaddingPx, 0, 500),

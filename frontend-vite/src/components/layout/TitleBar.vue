@@ -34,9 +34,9 @@ const navItems = computed(() => [
 ])
 
 onMounted(() => {
-  isElectron.value = !!(window as any).electronAPI
+  isElectron.value = !!window.electronAPI
   if (isElectron.value) {
-    const api = (window as any).electronAPI
+    const api = window.electronAPI!
     api.isMaximized().then((v: boolean) => { isMaximized.value = v })
     api.onMaximizeChange((v: boolean) => { isMaximized.value = v })
   }
@@ -50,9 +50,9 @@ function navigate(key: string) {
   router.push({ name: key })
 }
 
-function minimize() { (window as any).electronAPI?.minimize() }
-function maximize() { (window as any).electronAPI?.maximize() }
-function close() { (window as any).electronAPI?.close() }
+function minimize() { window.electronAPI?.minimize() }
+function maximize() { window.electronAPI?.maximize() }
+function close() { window.electronAPI?.close() }
 </script>
 
 <template>

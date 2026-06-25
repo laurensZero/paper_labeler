@@ -67,6 +67,7 @@ class QuestionSearchRequest(BaseModel):
     paper_id: int | None = None
     paper_ids: list[int] | None = None
     question_no: str | None = None
+    notes_keyword: str | None = None
     year: str | None = None
     years: list[str] | None = None
     season: str | None = None

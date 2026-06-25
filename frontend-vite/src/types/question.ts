@@ -69,6 +69,7 @@ export interface QuestionSearchParams {
   paperId?: number
   paperIds?: number[]
   questionNo?: string
+  notesKeyword?: string
   year?: string
   years?: string[]
   season?: string
@@ -148,4 +149,18 @@ export interface QuestionsRepairReport {
 export interface QuestionsRepairResponse {
   ok: boolean
   report: QuestionsRepairReport
+}
+
+/** Filter result item — a Question augmented with UI state for the filter view */
+export interface FilterQuestion extends Question {
+  __editOpen: boolean
+  __ansOpen: boolean
+  __ansLoaded: boolean
+  __ansBoxes: { image_url: string; bbox: BoundingBox }[]
+  __ansMeta: string
+  __ansLoadingPromise?: Promise<void> | null
+  __editSections: string[]
+  __editNotes: string
+  __notesOpen: boolean
+  __previewFailed?: boolean
 }

@@ -1,9 +1,10 @@
 import type { Ref } from 'vue'
 import { questionsApi } from '@/api/endpoints'
 import { runLimited } from '@/utils/concurrency'
+import type { FilterQuestion, Answer } from '@/types'
 
 interface UseFilterAnswerPanelsOptions {
-  results: Ref<any[]>
+  results: Ref<FilterQuestion[]>
   onHeightMayChange?: () => void
   concurrency?: number
 }
@@ -11,13 +12,13 @@ interface UseFilterAnswerPanelsOptions {
 export function useFilterAnswerPanels(options: UseFilterAnswerPanelsOptions) {
   const answerLoadConcurrency = options.concurrency ?? 6
 
-  async function ensureFilterAnswerLoaded(q: any) {
+  async function ensureFilterAnswerLoaded(q: FilterQuestion) {
     if (q.__ansLoaded) return
     if (q.__ansLoadingPromise) return q.__ansLoadingPromise
     q.__ansMeta = 'Loading...'
     q.__ansLoadingPromise = (async () => {
-      const d = await questionsApi.getAnswer(q.id)
-      const a = (d as any).answer
+      const d = await questionsApi.getAnswer(q.id) as { answer?: Answer } | null
+      const a = d?.answer
       if (!a) {
         q.__ansMeta = 'No answer'
         q.__ansBoxes = []
@@ -26,7 +27,7 @@ export function useFilterAnswerPanels(options: UseFilterAnswerPanelsOptions) {
       }
       const ab = a.boxes || []
       q.__ansMeta = `Boxes: ${ab.length} · MS#${a.ms_paper_id}`
-      q.__ansBoxes = ab.map((b: any) => ({ image_url: b.image_url, bbox: b.bbox }))
+      q.__ansBoxes = ab.map((b) => ({ image_url: b.image_url, bbox: b.bbox }))
       q.__ansLoaded = true
     })()
     try {
@@ -39,7 +40,7 @@ export function useFilterAnswerPanels(options: UseFilterAnswerPanelsOptions) {
     }
   }
 
-  async function toggleFilterAnswer(q: any) {
+  async function toggleFilterAnswer(q: FilterQuestion) {
     if (q.__ansOpen) {
       q.__ansOpen = false
       options.onHeightMayChange?.()
@@ -51,7 +52,7 @@ export function useFilterAnswerPanels(options: UseFilterAnswerPanelsOptions) {
   }
 
   async function onShowAllAnswers() {
-    const rows = options.results.value.filter((q: any) => !q.__ansOpen || !q.__ansLoaded)
+    const rows = options.results.value.filter((q) => !q.__ansOpen || !q.__ansLoaded)
     for (const q of rows) q.__ansOpen = true
     options.onHeightMayChange?.()
     await runLimited(rows, answerLoadConcurrency, ensureFilterAnswerLoaded)

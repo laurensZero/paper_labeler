@@ -1,11 +1,11 @@
 const API_BASE = ''
 
 /** Convert camelCase keys to snake_case */
-export function convertKeysToSnake(obj: any): any {
+export function convertKeysToSnake(obj: unknown): unknown {
   if (obj == null || typeof obj !== 'object') return obj
   if (Array.isArray(obj)) return obj.map(convertKeysToSnake)
-  const result: Record<string, any> = {}
-  for (const key of Object.keys(obj)) {
+  const result: Record<string, unknown> = {}
+  for (const key of Object.keys(obj as Record<string, unknown>)) {
     const snakeKey = key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
     result[snakeKey] = convertKeysToSnake(obj[key])
   }

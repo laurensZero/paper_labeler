@@ -12,6 +12,8 @@ interface UseMarkKeyboardOptions {
   undo: () => void
   redo: () => void
   deleteSelectedBox: () => void
+  /** Toggle a section by its 1-based index (1-9). */
+  toggleSectionByIndex?: (index: number) => void
 }
 
 export function useMarkKeyboard(options: UseMarkKeyboardOptions) {
@@ -59,6 +61,9 @@ export function useMarkKeyboard(options: UseMarkKeyboardOptions) {
         evt.preventDefault()
         options.deleteSelectedBox()
       }
+    } else if (key >= '1' && key <= '9' && options.toggleSectionByIndex) {
+      evt.preventDefault()
+      options.toggleSectionByIndex(parseInt(key, 10))
     }
   }
 

@@ -44,7 +44,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
 
   async function init() {
     try {
-      const res = await fetch('/data/version')
+      const res = await fetch('/version')
       if (res.ok) {
         const data = await res.json()
         currentVersion.value = data.version || '0.0.0'
@@ -164,7 +164,9 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
       if (window.electronAPI?.restartApp) {
         window.electronAPI.restartApp()
       } else {
-        window.location.reload()
+        setTimeout(() => {
+          try { window.location.reload() } catch { window.location.href = '/' }
+        }, 200)
       }
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : t('update.downloadFailed')

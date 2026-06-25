@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Tuple, Union, Optional
 from datetime import datetime, timezone
 
-import fitz
-from PIL import Image
 from fastapi import UploadFile, HTTPException
 
 from backend.config import MAX_UPLOAD_BYTES
@@ -95,6 +93,9 @@ def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
 
     Returns the rendered page count.
     """
+    import fitz
+    from PIL import Image
+
     try:
         if output_dir.exists() and output_dir.is_dir():
             shutil.rmtree(output_dir, ignore_errors=True)
@@ -171,6 +172,8 @@ def detect_is_answer_by_pdf_text(pdf_path: Path) -> Optional[bool]:
       - False => likely Question Paper
       - None  => unsure / mixed / unreadable
     """
+    import fitz
+
     try:
         doc = fitz.open(str(pdf_path))
     except Exception:

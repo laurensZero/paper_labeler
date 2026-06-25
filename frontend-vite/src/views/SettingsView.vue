@@ -131,7 +131,7 @@ function onToggleOcrAuto() {
 const currentLocale = computed(() => i18n.global.locale.value)
 
 function onLocaleChange(locale: string) {
-  ;(i18n.global.locale as any).value = locale
+  ;(i18n.global.locale as { value: string }).value = locale
   localStorage.setItem('setting:locale', locale)
 }
 
@@ -338,41 +338,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 列表性能 -->
-    <div class="card">
-      <div class="card-title">{{ t('settings.performance.title') }}</div>
-      <div style="display: flex; flex-direction: column; gap: 0">
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0; gap: 20px">
-          <div>
-            <div style="font-weight: 500; font-size: 14px">{{ t('settings.performance.virtualize') }}</div>
-            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.performance.virtualizeDesc') }}</div>
-          </div>
-          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end">
-            <label style="font-size: 12px; color: var(--text-tertiary)">{{ t('settings.performance.threshold') }}</label>
-            <input
-              v-model.number="filterVirtualThreshold"
-              type="number"
-              min="1"
-              max="200"
-              step="1"
-              class="settings-number-input"
-              @change="onFilterVirtualThresholdChange"
-            />
-            <label style="font-size: 12px; color: var(--text-tertiary)">Overscan</label>
-            <input
-              v-model.number="filterVirtualOverscanPx"
-              type="number"
-              min="0"
-              max="5000"
-              step="50"
-              class="settings-number-input settings-number-input--wide"
-              @change="onFilterVirtualOverscanChange"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 导出设置 -->
     <div class="card">
       <div class="card-title">{{ t('settings.export.title') }}</div>
@@ -397,26 +362,6 @@ onMounted(() => {
 
         <div class="divider" style="margin: 0"></div>
 
-        <!-- 导出缓存 -->
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 0; gap: 20px">
-          <div>
-            <div style="font-weight: 500; font-size: 14px">{{ t('settings.exportCache.title') }}</div>
-            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.exportCache.desc') }}</div>
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.6">
-              {{ t('settings.exportCache.current') }} {{ exportCacheOverview.entryCount || 0 }} {{ t('settings.exportCache.groups') }}
-              {{ t('settings.exportCache.latest') }} {{ formatAgeText(exportCacheOverview.newestAgeMs) }}；
-              {{ t('settings.exportCache.oldest') }} {{ formatAgeText(exportCacheOverview.oldestAgeMs) }}；
-              {{ t('settings.exportCache.hitRate') }} {{ exportCacheHitRateText }}
-            </div>
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px; line-height: 1.6">
-              {{ t('settings.exportCache.expired') }} {{ exportCacheStats.expired || 0 }}{{ t('settings.exportCache.times') }} {{ exportCacheStats.write || 0 }}{{ t('settings.exportCache.validity') }} {{ Math.round((exportCacheOverview.ttlMs || 0) / 3600000) || 0 }}{{ t('settings.exportCache.hours') }}
-            </div>
-          </div>
-          <button class="btn" style="font-size: 12px; padding: 5px 12px; flex-shrink: 0" @click="clearExportCache">{{ t('settings.exportCache.clear') }}</button>
-        </div>
-
-        <div class="divider" style="margin: 0"></div>
-
         <!-- 并发裁剪 -->
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0">
           <div>
@@ -437,62 +382,6 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="divider" style="margin: 0"></div>
-
-        <!-- 文件名模板 -->
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 0; gap: 20px">
-          <div style="flex-shrink: 0">
-            <div style="font-weight: 500; font-size: 14px">{{ t('settings.export.nameTemplate') }}</div>
-            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5">{{ t('settings.export.nameTemplateDesc') }}</div>
-            <div style="font-size: 12px; margin-top: 8px; line-height: 1.6" :style="{ color: exportNameTemplateError ? 'var(--danger)' : 'var(--text-tertiary)' }">
-              {{ exportNameTemplateError || t('settings.export.nameTemplateValid') }}
-            </div>
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px; line-height: 1.5; word-break: break-all">
-              {{ t('settings.nameTemplate.preview') }}{{ exportNamePreview }}
-            </div>
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px; line-height: 1.5">
-              {{ t('settings.nameTemplate.placeholders') }}{mode} {section} {paper} {year} {season} {fav} {exclude} {count} {custom} {ts} {date} {time} {seq}
-            </div>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 8px; min-width: 260px; flex: 1">
-            <input
-              v-model.trim="exportNameTemplate"
-              type="text"
-              placeholder="{mode}_{section}_{paper}_{year}_{season}_{count}"
-              style="padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; color: var(--text-primary); font-family: inherit; outline: none"
-              @blur="onNameTemplateBlur"
-              @keydown.enter.prevent="onNameTemplateBlur"
-            />
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
-              <label style="font-size: 12px; color: var(--text-tertiary); min-width: 58px">{custom}</label>
-              <input
-                v-model.trim="exportNameCustom"
-                type="text"
-                :placeholder="t('settings.nameTemplate.customPlaceholder')"
-                class="settings-text-input"
-                @blur="onExportNameOptionChange"
-                @keydown.enter.prevent="onExportNameOptionChange"
-              />
-              <label style="font-size: 12px; color: var(--text-tertiary)">{{ t('settings.nameTemplate.moduleValue') }}</label>
-              <select
-                v-model="exportNameSectionStyle"
-                class="settings-select"
-                @change="onExportNameOptionChange"
-              >
-                <option value="display">{{ t('settings.nameTemplate.displayName') }}</option>
-                <option value="raw">{{ t('settings.nameTemplate.rawName') }}</option>
-              </select>
-              <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap">
-                <AppCheckbox
-                  v-model="exportNameAutoTimestamp"
-                  @update:model-value="onExportNameOptionChange"
-                />
-                {{ t('settings.nameTemplate.autoTimestamp') }}
-              </div>
-            </div>
-            <button class="btn" style="font-size: 12px; padding: 5px 12px; align-self: flex-end" @click="resetNameTemplate">{{ t('settings.export.resetDefault') }}</button>
-          </div>
-        </div>
       </div>
     </div>
 

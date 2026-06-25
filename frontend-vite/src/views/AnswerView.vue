@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, onActivated
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
-import { useAnswerStore } from '@/stores/answer'
+import { useAnswerStore, type AnswerDragOp } from '@/stores/answer'
 import { usePapersStore } from '@/stores/papers'
 import { api } from '@/api/client'
 import CropPreview from '@/components/ui/CropPreview.vue'
@@ -11,6 +11,7 @@ import { useAnswerMsPageWindow } from '@/composables/useAnswerMsPageWindow'
 import { clamp01, normalizeBox, pointInBox, clampInt } from '@/utils/geometry'
 import { alignAnswerBBoxToBoundsX } from '@/utils/alignment'
 import type { BoundingBox } from '@/types/common'
+import type { Question, QuestionBox, PaperDetail } from '@/types'
 
 defineOptions({ name: 'AnswerView' })
 
@@ -81,7 +82,7 @@ const msPageInfoText = computed(() => {
 
 // Question list with active state
 const questionList = computed(() => {
-  return answerQuestions.value.map((q: any, idx: number) => ({
+  return answerQuestions.value.map((q, idx: number) => ({
     q,
     idx,
     active: idx === answerQIndex.value,
@@ -90,11 +91,11 @@ const questionList = computed(() => {
 })
 
 const currentAnswerQuestionBoxes = computed(() => {
-  const q = currentAnswerQuestion.value as any
-  const boxes = Array.isArray(q?.boxes) ? q.boxes : []
+  const q = currentAnswerQuestion.value
+  const boxes: QuestionBox[] = Array.isArray(q?.boxes) ? q.boxes : []
   return boxes
-    .filter((b: any) => b && Array.isArray(b.bbox) && b.bbox.length === 4)
-    .map((b: any, idx: number) => ({
+    .filter((b) => b && Array.isArray(b.bbox) && b.bbox.length === 4)
+    .map((b, idx: number) => ({
       key: b.id ?? `${b.page ?? 'p'}-${idx}`,
       imageUrl: b.image_url || (q?.paper_id && b.page ? `/data/pages/paper_${q.paper_id}/page_${b.page}.png` : ''),
       bbox: b.bbox as number[],
@@ -334,7 +335,7 @@ function onAnswerPointerDown(pageNum: number, evt: PointerEvent) {
       answerPendingSnapshot.value = answerStore.captureAnswerSnapshot()
     }
     selectedAnswerNew.value = hit.box
-    dragAnswerOp.value = hit as any
+    dragAnswerOp.value = hit as AnswerDragOp
     drawAnswerOverlayForPage(pageNum)
     return
   }
@@ -355,7 +356,7 @@ function onAnswerPointerMove(pageNum: number, evt: PointerEvent) {
   const [x, y] = canvasPointToNorm(evt, canvas)
 
   // handle drag (move/resize)
-  const op = dragAnswerOp.value as any
+  const op = dragAnswerOp.value
   if (op && op.box) {
     const b = op.box
     const [x0, y0, x1, y1] = b.bbox
@@ -406,7 +407,7 @@ function onAnswerPointerUp(pageNum: number, evt: PointerEvent) {
   evt.preventDefault()
 
   const pendingSnapshot = answerPendingSnapshot.value
-  const dragOp = dragAnswerOp.value as any
+  const dragOp = dragAnswerOp.value
 
   if (answerDrawing.value && answerDrawing.value.page === pageNum) {
     const [x, y] = canvasPointToNorm(evt, canvas)
@@ -704,7 +705,7 @@ async function refreshMsPaperInfo() {
     return
   }
   try {
-    const msDetail = await api(`/papers/${msPaperId.value}`) as any
+    const msDetail = await api(`/papers/${msPaperId.value}`) as PaperDetail
     msPaperName.value = papersStore.formatPaperName(msDetail)
   } catch {
     msPaperName.value = ''

@@ -8,7 +8,7 @@ import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 import type { BoundingBox } from '@/types/common'
-import type { PaperListItem, Page } from '@/types/paper'
+import type { PaperListItem, PaperDetail, Page, OcrQuestionDraft, OcrBoxDraft, UploadPdfResult } from '@/types'
 
 // Helpers matching old frontend/app/helpers.js
 function stripPdfSuffix(name: string): string {
@@ -54,11 +54,7 @@ function setLastMarkedPageNum(paperId: number, token: string | null, pageNum: nu
   try { localStorage.setItem(key, String(pageNum)) } catch {}
 }
 
-function clampInt(v: unknown, min: number, max: number): number {
-  const n = parseInt(String(v), 10)
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
+import { clampInt } from '@/utils/geometry'
 
 function toBoundingBox(value: unknown): BoundingBox | null {
   const arr = Array.isArray(value) ? value.map((v) => Number(v)) : []
@@ -72,7 +68,7 @@ export const pendingOcrDraftByPaperId = new Map<number, unknown[]>()
 export const pendingOcrWarningByPaperId = new Map<number, string>()
 export const pendingOcrDraftSelectedIdxByPaperId = new Map<number, number>()
 
-function stashPendingOcrUploadResult(item: any): string | null {
+function stashPendingOcrUploadResult(item: UploadPdfResult & { ocr_warn?: string; warning?: string }): string | null {
   const paperId = Number(item?.id ?? item?.paper_id)
   if (!Number.isFinite(paperId)) return null
 
@@ -205,7 +201,112 @@ export const usePapersStore = defineStore('papers', () => {
     showDonePapers.value = !showDonePapers.value
   }
 
+  /** Apply any pending OCR drafts/boxes for the given paper. Returns true if a pending message was shown. */
+  function applyPendingOcr(paperId: number, markStore: ReturnType<typeof useMarkStore>, appStore: ReturnType<typeof useAppStore>): boolean {
+    let openedWithPendingMessage = false
+
+    if (pendingOcrDraftByPaperId.has(paperId)) {
+      const drafts = pendingOcrDraftByPaperId.get(paperId) || []
+      if (Array.isArray(drafts) && drafts.length) {
+        const validDrafts = drafts.filter((d) => d != null) as OcrQuestionDraft[]
+        markStore.ocrDraftQuestions = validDrafts
+          .map((q) => ({
+            label: String(q?.label ?? '?').trim() || '?',
+            sections: Array.isArray(q?.sections) ? q.sections : (q?.section ? [q.section] : []),
+            source: q?.source,
+          }))
+          .filter((q) => q && q.label)
+
+        if (pendingOcrDraftSelectedIdxByPaperId.has(paperId)) {
+          markStore.selectedOcrDraftIdx = clampInt(
+            pendingOcrDraftSelectedIdxByPaperId.get(paperId),
+            0,
+            Math.max(0, markStore.ocrDraftQuestions.length - 1),
+          )
+        }
+
+        const flat: { page: number; bbox: BoundingBox; source: string; label: string | null; draftIdx: number }[] = []
+        markStore.ocrDraftQuestions.forEach((q, draftIdx) => {
+          if (!q || !validDrafts[draftIdx]) return
+          const boxes = (validDrafts[draftIdx]?.boxes || [])
+          for (const item of boxes) {
+            const page = Number(item?.page)
+            const bbox = toBoundingBox(item?.bbox)
+            if (Number.isFinite(page) && bbox) {
+              flat.push({ page, bbox, source: 'ocr', label: q.label, draftIdx })
+            }
+          }
+        })
+
+        markStore.newBoxes = flat
+        markStore.selectedNewBox = markStore.newBoxes[0] || null
+        const preferred = markStore.newBoxes.find(
+          (b) => b && b.source === 'ocr' && Number(b.draftIdx) === Number(markStore.selectedOcrDraftIdx),
+        )
+        if (preferred) markStore.selectedNewBox = preferred
+
+        const firstPage = markStore.selectedNewBox ? markStore.selectedNewBox.page : null
+        if (firstPage != null && pages.value.length) {
+          const idx = pages.value.findIndex((p) => p.page === firstPage)
+          if (idx >= 0) currentPageIndex.value = idx
+        }
+        appStore.setStatus(
+          `已自动识别 ${markStore.ocrDraftQuestions.length} 题 / ${markStore.newBoxes.length} 框（未保存，请检查后再保存）`,
+          'ok',
+        )
+        openedWithPendingMessage = true
+      }
+    } else if (pendingOcrBoxesByPaperId.has(paperId)) {
+      const ocrBoxes = pendingOcrBoxesByPaperId.get(paperId) || []
+      pendingOcrBoxesByPaperId.delete(paperId)
+      if (Array.isArray(ocrBoxes) && ocrBoxes.length) {
+        markStore.newBoxes = (ocrBoxes as OcrBoxDraft[])
+          .map((b) => {
+            const page = Number(b?.page)
+            const bbox = toBoundingBox(b?.bbox)
+            return Number.isFinite(page) && bbox
+              ? { page, bbox, source: 'ocr', label: b?.label ?? null }
+              : null
+          })
+          .filter((b): b is NonNullable<typeof b> => b != null)
+        markStore.selectedNewBox = markStore.newBoxes[0] || null
+        const firstPage = markStore.selectedNewBox ? markStore.selectedNewBox.page : null
+        if (firstPage != null && pages.value.length) {
+          const idx = pages.value.findIndex((p) => p.page === firstPage)
+          if (idx >= 0) currentPageIndex.value = idx
+        }
+        appStore.setStatus(`已生成 ${markStore.newBoxes.length} 个建议框（未保存，请检查后再保存）`, 'ok')
+        openedWithPendingMessage = true
+      }
+    }
+
+    if (pendingOcrWarningByPaperId.has(paperId)) {
+      const warning = pendingOcrWarningByPaperId.get(paperId)
+      pendingOcrWarningByPaperId.delete(paperId)
+      if (warning) {
+        appStore.setStatus(String(warning), 'err')
+        openedWithPendingMessage = true
+      }
+    }
+
+    return openedWithPendingMessage
+  }
+
+  /** Restore the last-marked page for the given paper. */
+  function restoreLastPage(paperId: number) {
+    const lastPageNum = getLastMarkedPageNum(paperId, currentPaperCacheToken.value)
+    if (pages.value.length && lastPageNum != null) {
+      const idx = pages.value.findIndex((p) => p.page === lastPageNum)
+      currentPageIndex.value = idx >= 0 ? idx : 0
+    } else {
+      currentPageIndex.value = pages.value.length ? 0 : -1
+    }
+  }
+
   async function openPaper(paperId: number) {
+    // 重复点击同一张试卷不重复加载
+    if (currentPaperId.value === paperId) return
+
     const appStore = useAppStore()
     const sectionsStore = useSectionsStore()
     const markStore = useMarkStore()
@@ -242,8 +343,8 @@ export const usePapersStore = defineStore('papers', () => {
       ? sectionsStore.refreshSectionDefs()
       : Promise.resolve()
 
-    let paper: any
-    let pagesData: any
+    let paper: PaperDetail
+    let pagesData: { pages: Page[] }
     try {
       const result = await Promise.all([
         api(`/papers/${paperId}`),
@@ -267,99 +368,9 @@ export const usePapersStore = defineStore('papers', () => {
     currentPaperCacheToken.value = extractCacheBustToken(paper?.pdf_url)
     currentQpPaperName.value = formatPaperName(paper)
     pages.value = pagesData.pages || []
-    let openedWithPendingMessage = false
 
-    if (pendingOcrDraftByPaperId.has(paperId)) {
-      const drafts = pendingOcrDraftByPaperId.get(paperId) || []
-      if (Array.isArray(drafts) && drafts.length) {
-        const validDrafts = drafts.filter((d) => d != null) as any[]
-        markStore.ocrDraftQuestions = validDrafts
-          .map((q: any) => ({
-            label: String(q?.label ?? '?').trim() || '?',
-            sections: Array.isArray(q?.sections) ? q.sections : (q?.section ? [q.section] : []),
-            source: q?.source,
-          }))
-          .filter((q: any) => q && q.label)
-
-        if (pendingOcrDraftSelectedIdxByPaperId.has(paperId)) {
-          markStore.selectedOcrDraftIdx = clampInt(
-            pendingOcrDraftSelectedIdxByPaperId.get(paperId),
-            0,
-            Math.max(0, markStore.ocrDraftQuestions.length - 1),
-          )
-        }
-
-        const flat: any[] = []
-        markStore.ocrDraftQuestions.forEach((q, draftIdx) => {
-          if (!q || !validDrafts[draftIdx]) return
-          const boxes = (validDrafts[draftIdx]?.boxes || [])
-          for (const item of boxes) {
-            const page = Number(item?.page)
-            const bbox = toBoundingBox(item?.bbox)
-            if (Number.isFinite(page) && bbox) {
-              flat.push({ page, bbox, source: 'ocr', label: q.label, draftIdx })
-            }
-          }
-        })
-
-        markStore.newBoxes = flat
-        markStore.selectedNewBox = markStore.newBoxes[0] || null
-        const preferred = markStore.newBoxes.find(
-          (b) => b && b.source === 'ocr' && Number(b.draftIdx) === Number(markStore.selectedOcrDraftIdx),
-        )
-        if (preferred) markStore.selectedNewBox = preferred
-
-        const firstPage = markStore.selectedNewBox ? markStore.selectedNewBox.page : null
-        if (firstPage != null && pages.value.length) {
-          const idx = pages.value.findIndex((p) => p.page === firstPage)
-          if (idx >= 0) currentPageIndex.value = idx
-        }
-        appStore.setStatus(
-          `已自动识别 ${markStore.ocrDraftQuestions.length} 题 / ${markStore.newBoxes.length} 框（未保存，请检查后再保存）`,
-          'ok',
-        )
-        openedWithPendingMessage = true
-      }
-    } else if (pendingOcrBoxesByPaperId.has(paperId)) {
-      const ocrBoxes = pendingOcrBoxesByPaperId.get(paperId) || []
-      pendingOcrBoxesByPaperId.delete(paperId)
-      if (Array.isArray(ocrBoxes) && ocrBoxes.length) {
-        markStore.newBoxes = ocrBoxes
-          .map((b: any) => {
-            const page = Number(b?.page)
-            const bbox = toBoundingBox(b?.bbox)
-            return Number.isFinite(page) && bbox
-              ? { page, bbox, source: 'ocr', label: b?.label ?? null }
-              : null
-          })
-          .filter((b): b is NonNullable<typeof b> => b != null)
-        markStore.selectedNewBox = markStore.newBoxes[0] || null
-        const firstPage = markStore.selectedNewBox ? markStore.selectedNewBox.page : null
-        if (firstPage != null && pages.value.length) {
-          const idx = pages.value.findIndex((p) => p.page === firstPage)
-          if (idx >= 0) currentPageIndex.value = idx
-        }
-        appStore.setStatus(`已生成 ${markStore.newBoxes.length} 个建议框（未保存，请检查后再保存）`, 'ok')
-        openedWithPendingMessage = true
-      }
-    }
-
-    if (pendingOcrWarningByPaperId.has(paperId)) {
-      const warning = pendingOcrWarningByPaperId.get(paperId)
-      pendingOcrWarningByPaperId.delete(paperId)
-      if (warning) {
-        appStore.setStatus(String(warning), 'err')
-        openedWithPendingMessage = true
-      }
-    }
-
-    const lastPageNum = getLastMarkedPageNum(paperId, currentPaperCacheToken.value)
-    if (pages.value.length && lastPageNum != null) {
-      const idx = pages.value.findIndex((p) => p.page === lastPageNum)
-      currentPageIndex.value = idx >= 0 ? idx : 0
-    } else {
-      currentPageIndex.value = pages.value.length ? 0 : -1
-    }
+    const openedWithPendingMessage = applyPendingOcr(paperId, markStore, appStore)
+    restoreLastPage(paperId)
     paperOpening.value = false
 
     let postOpenLoadFailed = false
@@ -485,7 +496,7 @@ export const usePapersStore = defineStore('papers', () => {
       await refreshPapers()
       if (data?.papers?.length) {
         const ocrWarnings = data.papers
-          .map((item: any) => stashPendingOcrUploadResult(item))
+          .map((item: UploadPdfResult & { ocr_warn?: string; warning?: string }) => stashPendingOcrUploadResult(item))
           .filter((msg: string | null): msg is string => !!msg)
         if (ocrWarnings.length && !warnings.length) {
           appStore.setStatus(String(ocrWarnings[0]), 'err')

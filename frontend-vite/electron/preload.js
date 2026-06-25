@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMaximizeChange: (cb) => ipcRenderer.on('maximize-change', (_, val) => cb(val)),
   restartApp: () => ipcRenderer.send('app-restart'),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  setTheme: (theme) => ipcRenderer.send('set-theme', theme),
 })

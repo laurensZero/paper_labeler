@@ -270,6 +270,33 @@ def batch_update_questions(payload: QuestionsBatchUpdate, db: Session = Depends(
     db.commit()
     return {"ok": True, "updated": len(rows)}
 
+@router.post("/questions/batch_delete")
+def batch_delete_questions(payload: dict, db: Session = Depends(get_db)):
+    ids = [int(x) for x in (payload.get("ids") or []) if int(x) > 0]
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids required")
+
+    rows = db.query(Question).filter(Question.id.in_(ids)).all()
+    found_ids = {int(q.id) for q in rows}
+    missing = [x for x in ids if x not in found_ids]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"questions not found: {missing[:5]}")
+
+    deleted = 0
+    for q in rows:
+        a = db.query(Answer).filter(Answer.question_id == q.id).one_or_none()
+        if a is not None:
+            db.query(AnswerBox).filter(AnswerBox.answer_id == a.id).delete(synchronize_session=False)
+            db.delete(a)
+        db.query(QuestionSection).filter(QuestionSection.question_id == q.id).delete(synchronize_session=False)
+        db.query(QuestionBox).filter(QuestionBox.question_id == q.id).delete(synchronize_session=False)
+        db.delete(q)
+        deleted += 1
+
+    db.commit()
+    return {"ok": True, "deleted": deleted}
+
+
 @router.get("/questions/{question_id}")
 def get_question(question_id: int, db: Session = Depends(get_db)):
     q = db.query(Question).filter(Question.id == question_id).one_or_none()
@@ -436,6 +463,7 @@ def _search_questions_core(
     paper_id: int | None = None,
     paper_ids: list[int] | None = None,
     question_no: str | None = None,
+    notes_keyword: str | None = None,
     year: str | None = None,
     years: list[str] | None = None,
     season: str | None = None,
@@ -467,6 +495,11 @@ def _search_questions_core(
         if qno:
             q = q.filter(Question.question_no == qno)
 
+    if notes_keyword is not None:
+        kw = str(notes_keyword).strip()
+        if kw:
+            q = q.filter(Question.notes.ilike(f"%{kw}%"))
+
     if section is not None and section != "":
         section_qids = [
             x[0]
@@ -491,6 +524,7 @@ def _search_questions_core(
     if favorite is True:
         q = q.filter(Question.is_favorite == True)
 
+    # 年份/季节过滤：优先用 Paper 上的 token，回退到 exam_code/filename 解析
     year_values: set[str] = set()
     if year:
         norm = _normalize_year_token(year)
@@ -511,32 +545,63 @@ def _search_questions_core(
         if sv:
             season_values.add(sv)
 
-    rows = q.order_by(Question.id.desc()).all()
-    entries = []
-    for qq, pp in rows:
-        if year_values or season_values:
-            y = getattr(pp, "year_token", None)
-            s = getattr(pp, "season_token", None)
-            if not y or not s:
-                source = (pp.exam_code or "") + " " + (pp.filename or "")
-                py, ps = _extract_year_season(source)
-                y = y or py
-                s = s or ps
-            if year_values and y not in year_values:
-                continue
-            if season_values and s not in season_values:
-                continue
-
-        if exclude_multi_section is True:
-            section_count = (
-                db.query(QuestionSection)
-                .filter(QuestionSection.question_id == qq.id)
-                .count()
+    need_fallback_filter = False
+    if year_values:
+        # SQL: Paper.year_token IN (...) OR (year_token IS NULL AND 需要回退)
+        q = q.filter(
+            or_(
+                Paper.year_token.in_(year_values),
+                Paper.year_token.is_(None),
             )
-            if section_count > 1:
+        )
+        need_fallback_filter = True
+    if season_values:
+        q = q.filter(
+            or_(
+                Paper.season_token.in_(season_values),
+                Paper.season_token.is_(None),
+            )
+        )
+        need_fallback_filter = True
+
+    rows = q.order_by(Question.id.desc()).all()
+
+    # Python 侧过滤：token 为 NULL 的行需要回退解析，以及 exclude_multi_section
+    entries = []
+    if need_fallback_filter or exclude_multi_section is True:
+        # 批量预加载 section counts（避免 N+1 查询）
+        multi_section_qids: set[int] = set()
+        if exclude_multi_section is True:
+            from sqlalchemy import func as _func
+            section_count_rows = (
+                db.query(QuestionSection.question_id, _func.count(QuestionSection.id))
+                .group_by(QuestionSection.question_id)
+                .having(_func.count(QuestionSection.id) > 1)
+                .all()
+            )
+            multi_section_qids = {int(r[0]) for r in section_count_rows}
+
+        for qq, pp in rows:
+            # 年份/季节回退过滤
+            if year_values or season_values:
+                y = getattr(pp, "year_token", None)
+                s = getattr(pp, "season_token", None)
+                if not y or not s:
+                    source = (pp.exam_code or "") + " " + (pp.filename or "")
+                    py, ps = _extract_year_season(source)
+                    y = y or py
+                    s = s or ps
+                if year_values and y not in year_values:
+                    continue
+                if season_values and s not in season_values:
+                    continue
+
+            if exclude_multi_section is True and int(qq.id) in multi_section_qids:
                 continue
 
-        entries.append((qq, pp))
+            entries.append((qq, pp))
+    else:
+        entries = list(rows)
 
     def sort_key(pair: tuple[Question, Paper]):
         qrow = pair[0]
@@ -610,6 +675,7 @@ def search_questions(
     paper_id: int | None = None,
     paper_ids: str | None = None,
     question_no: str | None = None,
+    notes_keyword: str | None = None,
     year: str | None = None,
     years: str | None = None,
     season: str | None = None,
@@ -629,6 +695,7 @@ def search_questions(
         paper_id=paper_id,
         paper_ids=[int(v) for v in _parse_csv_values(paper_ids) if str(v).isdigit()],
         question_no=question_no,
+        notes_keyword=notes_keyword,
         year=year,
         years=_parse_csv_values(years),
         season=season,
@@ -651,6 +718,7 @@ def search_questions_post(payload: QuestionSearchRequest, db: Session = Depends(
         paper_id=payload.paper_id,
         paper_ids=payload.paper_ids or [],
         question_no=payload.question_no,
+        notes_keyword=payload.notes_keyword,
         year=payload.year,
         years=payload.years or [],
         season=payload.season,

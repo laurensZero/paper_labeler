@@ -6,6 +6,7 @@ import { storeToRefs } from 'pinia'
 import { useFilterStore } from '@/stores/filter'
 import { useSectionsStore } from '@/stores/sections'
 import { usePapersStore } from '@/stores/papers'
+import { useAppStore } from '@/stores/app'
 import { useExportStore } from '@/stores/export'
 import { useDialogStore } from '@/stores/dialog'
 import { questionsApi } from '@/api/endpoints'
@@ -18,6 +19,9 @@ import FilmStrip from '@/components/ui/FilmStrip.vue'
 import Inspector from '@/components/ui/Inspector.vue'
 import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 import { useDeferredQuestionPreview } from '@/composables/useDeferredQuestionPreview'
+import { useFullscreen } from '@/composables/useFullscreen'
+import { useFilterAnswer } from '@/composables/useFilterAnswer'
+import type { FilterQuestion, Question, QuestionBox, Answer } from '@/types'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -28,6 +32,7 @@ const sectionsStore = useSectionsStore()
 const papersStore = usePapersStore()
 const exportStore = useExportStore()
 const dialogStore = useDialogStore()
+const appStore = useAppStore()
 
 const {
   filterSection,
@@ -39,11 +44,13 @@ const {
   filterLoading,
   filterMultiSelect,
   selectedQuestionIds,
+  filterSearchKeyword,
 } = storeToRefs(filterStore)
 
 /* ── Local state ── */
-const selectedQuestion = ref<any>(null)
+const selectedQuestion = ref<FilterQuestion | null>(null)
 const inspectorCollapsed = ref(false)
+const searchInputRef = ref<HTMLInputElement | null>(null)
 let skipNextActivatedRefresh = true
 
 /* ── Filter options ── */
@@ -97,17 +104,18 @@ const seasonOptions = computed(() => [
 const seasonShortLabels: Record<string, string> = { m: 'm', s: 's', w: 'w' }
 
 /* ── Film strip data (all questions, independent of pagination) ── */
-const allFilmStripItems = ref<any[]>([])
-const questionCache = new Map<number, any>()
+interface FilmStripItem { id: number; question_no: string | null; is_favorite: boolean; section: string | null; sections: string[] }
+const allFilmStripItems = ref<FilmStripItem[]>([])
+const questionCache = new Map<number, Question>()
 
 async function loadAllFilmStripItems() {
   try {
-    const allQuestions: any[] = []
+    const allQuestions: FilmStripItem[] = []
     let page = 1
     let totalPages = 1
     do {
       const data = await filterStore.requestFilterSearch({ page, pageSize: 500, idsOnly: false })
-      const qs = Array.isArray(data?.questions) ? data.questions : []
+      const qs = Array.isArray(data?.questions) ? data.questions as Question[] : []
       for (const q of qs) {
         allQuestions.push({
           id: q.id,
@@ -116,7 +124,6 @@ async function loadAllFilmStripItems() {
           section: q.section,
           sections: q.sections,
         })
-        // Cache full question data
         questionCache.set(q.id, q)
       }
       totalPages = Number(data?.total_pages || 1)
@@ -124,8 +131,7 @@ async function loadAllFilmStripItems() {
     } while (page <= totalPages)
     allFilmStripItems.value = allQuestions
   } catch {
-    // fallback to current page
-    allFilmStripItems.value = (filterResults.value || []).map((q: any) => ({
+    allFilmStripItems.value = (filterResults.value || []).map((q) => ({
       id: q.id,
       question_no: q.question_no,
       is_favorite: q.is_favorite,
@@ -149,62 +155,20 @@ const {
   onHeightMayChange: () => {},
 })
 
-function getQuestionPreviewUrl(q: any): string {
+function getQuestionPreviewUrl(q: FilterQuestion): string {
   if (q?.__previewFailed) return ''
   return String(q?.preview_image_url || '')
 }
 
-function getQuestionBoxes(q: any): any[] {
+function getQuestionBoxes(q: FilterQuestion): QuestionBox[] {
   return Array.isArray(q?.boxes) ? q.boxes : []
 }
 
-/* ── Answer state (local, not on question objects) ── */
-const ansOpen = ref(false)
-const ansLoaded = ref(false)
-const ansLoading = ref(false)
-const ansBoxes = ref<any[]>([])
-const ansMeta = ref('')
-const ansSectionRef = ref<HTMLElement | null>(null)
-
-function scrollToAnswer() {
-  // Wait for v-if element to be fully rendered
-  requestAnimationFrame(() => {
-    nextTick(() => {
-      ansSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
-  })
-}
-
-async function loadAnswer(questionId: number) {
-  ansLoading.value = true
-  ansMeta.value = '加载中...'
-  try {
-    const d = await questionsApi.getAnswer(questionId)
-    const a = (d as any).answer
-    if (!a) {
-      ansMeta.value = '未标注'
-      ansBoxes.value = []
-    } else {
-      const ab = a.boxes || []
-      ansMeta.value = `MS #${a.ms_paper_id} · ${ab.length} 框`
-      ansBoxes.value = ab.map((b: any) => ({ image_url: b.image_url, bbox: b.bbox }))
-    }
-    ansLoaded.value = true
-  } catch {
-    ansMeta.value = '加载失败'
-    ansBoxes.value = []
-  } finally {
-    ansLoading.value = false
-  }
-}
-
-function resetAnswerState() {
-  ansOpen.value = false
-  ansLoaded.value = false
-  ansLoading.value = false
-  ansBoxes.value = []
-  ansMeta.value = ''
-}
+/* ── Answer state ── */
+const {
+  ansOpen, ansLoaded, ansLoading, ansBoxes, ansMeta, ansSectionRef,
+  resetAnswerState, onToggleAnswer,
+} = useFilterAnswer()
 
 /* ── Quick edit state ── */
 const editMode = ref(false)
@@ -224,13 +188,23 @@ function cancelEdit() {
   editMode.value = false
 }
 
+async function onCreateSection(name: string, groupId: number | null) {
+  if (!name) return
+  const gid = groupId != null ? Number(groupId) : null
+  await sectionsStore.createSectionDef(name, '', gid)
+  // Add the new section to current edit
+  if (!editSections.value.includes(name)) {
+    editSections.value = [...editSections.value, name]
+  }
+}
+
 async function saveEdit() {
   if (!selectedQuestion.value) return
   try {
     await questionsApi.update(selectedQuestion.value.id, {
       sections: editSections.value,
       notes: editNotes.value,
-    } as any)
+    })
     // Update local state
     selectedQuestion.value.sections = [...editSections.value]
     selectedQuestion.value.notes = editNotes.value
@@ -280,8 +254,19 @@ function onBatchFavorite() {
   filterStore.batchUpdateSelected(undefined, true)
 }
 
+async function onBatchDelete() {
+  await filterStore.batchDeleteSelected()
+}
+
+async function onBatchChangeSection() {
+  const section = filterStore.filterBatchSection
+  if (!section) return
+  await filterStore.batchUpdateSelected([section])
+  filterStore.filterBatchSection = ''
+}
+
 /* ── Question selection ── */
-function selectQuestion(q: any) {
+function selectQuestion(q: FilterQuestion | null) {
   if (selectedQuestion.value?.id === q?.id) return
   selectedQuestion.value = q
   resetAnswerState()
@@ -290,7 +275,7 @@ function selectQuestion(q: any) {
 
 function selectQuestionById(id: number) {
   // First check current page
-  const q = filterResults.value.find((r: any) => r.id === id)
+  const q = filterResults.value.find((r) => r.id === id)
   if (q) {
     selectQuestion(q)
     preloadAdjacent(id)
@@ -315,7 +300,7 @@ const _preloaded = new Set<number>()
 
 function preloadAdjacent(currentId: number) {
   const items = allFilmStripItems.value
-  const idx = items.findIndex((item: any) => item.id === currentId)
+  const idx = items.findIndex((item) => item.id === currentId)
   if (idx < 0) return
   const range = 3
   for (let i = idx - range; i <= idx + range; i++) {
@@ -365,7 +350,7 @@ async function onDelete() {
   })) return
   try {
     await questionsApi.delete(selectedQuestion.value.id)
-    const idx = filterResults.value.findIndex((r: any) => r.id === selectedQuestion.value.id)
+    const idx = filterResults.value.findIndex((r) => r.id === selectedQuestion.value!.id)
     selectedQuestion.value = null
     filterStore.markQuestionDatasetChanged()
     await filterStore.runFilter()
@@ -379,17 +364,9 @@ async function onDelete() {
   }
 }
 
-async function onToggleAnswer() {
+async function handleToggleAnswer() {
   if (!selectedQuestion.value) return
-  if (ansOpen.value) {
-    ansOpen.value = false
-    return
-  }
-  ansOpen.value = true
-  if (!ansLoaded.value) {
-    await loadAnswer(selectedQuestion.value.id)
-  }
-  scrollToAnswer()
+  await onToggleAnswer(selectedQuestion.value.id)
 }
 
 /* ── Keyboard navigation ── */
@@ -404,6 +381,12 @@ function onKeyDown(e: KeyboardEvent) {
     return
   }
 
+  if (e.key === '/') {
+    e.preventDefault()
+    searchInputRef.value?.focus()
+    return
+  }
+
   if (e.key === 'j' || e.key === 'ArrowDown') {
     e.preventDefault()
     navigateQuestion(1)
@@ -413,6 +396,15 @@ function onKeyDown(e: KeyboardEvent) {
   } else if (e.key === 'f') {
     e.preventDefault()
     onToggleFavorite()
+  } else if (e.key === 'e') {
+    e.preventDefault()
+    onEdit()
+  } else if (e.key === 'd') {
+    e.preventDefault()
+    onDelete()
+  } else if (e.key === 'a') {
+    e.preventDefault()
+    handleToggleAnswer()
   }
 }
 
@@ -423,7 +415,7 @@ function navigateQuestion(delta: number) {
     selectQuestionById(items[0].id)
     return
   }
-  const idx = items.findIndex((item: any) => item.id === selectedQuestion.value.id)
+  const idx = items.findIndex((item) => item.id === selectedQuestion.value!.id)
   const nextIdx = Math.max(0, Math.min(items.length - 1, idx + delta))
   selectQuestionById(items[nextIdx].id)
 }
@@ -487,59 +479,11 @@ watch(filterResults, (results) => {
 let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
 
 /* ── Fullscreen mode ── */
-const fullscreen = ref(false)
-const fsZoom = ref(1)
-
-const fsExiting = ref(false)
-const fsBarX = ref(-1) // -1 = use CSS default
-const fsBarY = ref(-1)
-let fsDragging = false
-let fsDragOffX = 0
-let fsDragOffY = 0
-
-function onFsBarPointerDown(e: PointerEvent) {
-  // Only drag from the bar background, not from buttons
-  if ((e.target as HTMLElement).closest('button')) return
-  const el = e.currentTarget as HTMLElement
-  fsDragging = true
-  fsDragOffX = e.clientX - el.offsetLeft
-  fsDragOffY = e.clientY - el.offsetTop
-  el.setPointerCapture(e.pointerId)
-}
-
-function onFsBarPointerMove(e: PointerEvent) {
-  if (!fsDragging) return
-  fsBarX.value = e.clientX - fsDragOffX
-  fsBarY.value = e.clientY - fsDragOffY
-}
-
-function onFsBarPointerUp() {
-  fsDragging = false
-}
-
-function toggleFullscreen() {
-  if (fullscreen.value) {
-    // exit: play animation, then remove fullscreen
-    fsExiting.value = true
-    setTimeout(() => {
-      fullscreen.value = false
-      fsExiting.value = false
-      fsZoom.value = 1
-    }, 280)
-  } else {
-    fullscreen.value = true
-  }
-}
-
-function fsZoomIn() { fsZoom.value = Math.min(5, +(fsZoom.value + 0.25).toFixed(2)) }
-function fsZoomOut() { fsZoom.value = Math.max(0.25, +(fsZoom.value - 0.25).toFixed(2)) }
-function fsZoomReset() { fsZoom.value = 1 }
-
-function onFsWheel(e: WheelEvent) {
-  if (!fullscreen.value || !e.ctrlKey) return
-  e.preventDefault()
-  if (e.deltaY < 0) fsZoomIn(); else fsZoomOut()
-}
+const {
+  fullscreen, fsZoom, fsExiting, fsBarX, fsBarY,
+  onFsBarPointerDown, onFsBarPointerMove, onFsBarPointerUp,
+  toggleFullscreen, fsZoomIn, fsZoomOut, fsZoomReset, onFsWheel,
+} = useFullscreen()
 
 </script>
 
@@ -590,6 +534,17 @@ function onFsWheel(e: WheelEvent) {
           />
           <span>{{ t('filter.favOnly') }}</span>
         </div>
+        <div class="ws-toolbar-search">
+          <svg class="ws-toolbar-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input
+            ref="searchInputRef"
+            v-model="filterSearchKeyword"
+            class="ws-toolbar-search-input"
+            type="text"
+            :placeholder="t('filter.searchPlaceholder')"
+            @input="filterStore.onSearchKeywordChange()"
+          />
+        </div>
       </div>
       <div class="ws-toolbar-right">
         <button class="ws-toolbar-btn" :class="{ active: fullscreen }" @click="toggleFullscreen" :title="fullscreen ? t('filter.exitFullscreenHint') : t('filter.fullscreen')">
@@ -604,6 +559,13 @@ function onFsWheel(e: WheelEvent) {
         <button v-if="filterMultiSelect && selectedQuestionIds.size" class="ws-toolbar-btn" @click="onBatchFavorite">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
           <span>{{ t('filter.batchFavorite') }}</span>
+        </button>
+        <button v-if="filterMultiSelect && selectedQuestionIds.size" class="ws-toolbar-btn" @click="onBatchDelete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          <span>{{ t('filter.batchDelete') }}</span>
+        </button>
+        <button class="ws-toolbar-btn ws-toolbar-btn--icon" :title="t('filter.keyboardHelp') + ' (?)'" @click="appStore.toggleKeyboardHelp()">
+          <span style="font-size:14px;font-weight:600;line-height:1">?</span>
         </button>
         <button class="ws-toolbar-btn" @click="exportStore.exportFilterPdf()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -685,18 +647,21 @@ function onFsWheel(e: WheelEvent) {
         :edit-sections="editSections"
         :edit-notes="editNotes"
         :section-options="sectionCascadeOptions"
+        :group-options="sectionsStore.sectionGroups.map(g => ({ value: g.id, label: g.name }))"
+        group-label="分类"
         @toggle-collapse="inspectorCollapsed = !inspectorCollapsed"
         @toggle-favorite="onToggleFavorite"
         @edit="onEdit"
         @edit-answer="onEditAnswer"
         @locate="onLocate"
         @delete="onDelete"
-        @toggle-answer="onToggleAnswer"
+        @toggle-answer="handleToggleAnswer"
         @cancel-edit="cancelEdit"
         @save-edit="saveEdit"
         @go-to-mark="goToMarkView"
         @update:editSections="editSections = $event"
         @update:editNotes="editNotes = $event"
+        @create-section="onCreateSection"
       />
       </div>
     </div>
@@ -729,7 +694,7 @@ function onFsWheel(e: WheelEvent) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
         </button>
       </div>
-      <button class="ws-fs-btn" @click="onToggleAnswer">
+      <button class="ws-fs-btn" @click="handleToggleAnswer">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
         <span>{{ ansOpen ? t('filter.answerHide') : t('filter.answerShow') }}</span>
       </button>
@@ -853,6 +818,42 @@ function onFsWheel(e: WheelEvent) {
   flex-shrink: 0;
 }
 
+.ws-toolbar-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  flex-shrink: 0;
+  transition: all 100ms ease;
+}
+
+.ws-toolbar-search:focus-within {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.ws-toolbar-search-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.ws-toolbar-search-input {
+  width: 120px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.ws-toolbar-search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
 .ws-toolbar-right {
   display: flex;
   align-items: center;
@@ -885,6 +886,12 @@ function onFsWheel(e: WheelEvent) {
   background: var(--accent-soft);
   border-color: var(--border-accent);
   color: var(--text-accent);
+}
+
+.ws-toolbar-btn--icon {
+  min-width: 30px;
+  padding: 5px 6px;
+  justify-content: center;
 }
 
 /* ══════════════════════════════════════

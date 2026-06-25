@@ -1,21 +1,22 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const net = require('net')
 const http = require('http')
+const fs = require('fs')
 
 let backendProcess = null
 let backendPort = 0
+let mainWindow = null
 
 // ROOT: where backend/ lives (for Python import).
-// 打包后：exeDir 有热更新的 backend/ 就用它，否则用 resourcesPath。
 function getRoot() {
   if (app.isPackaged) {
     const portableDir = process.env.PORTABLE_EXECUTABLE_DIR
-    const exeDir = (portableDir && require('fs').existsSync(portableDir))
+    const exeDir = (portableDir && fs.existsSync(portableDir))
       ? portableDir
       : path.dirname(app.getPath('exe'))
-    if (require('fs').existsSync(path.join(exeDir, 'backend', 'main.py'))) {
+    if (fs.existsSync(path.join(exeDir, 'backend', 'main.py'))) {
       return exeDir
     }
     return process.resourcesPath
@@ -24,20 +25,13 @@ function getRoot() {
 }
 
 // DATA_ROOT: where data/ lives.
-// 优先用 marker file，其次 EXE 所在目录，没有就创建 data/。
 function getDataRoot() {
-  const fs = require('fs')
-
-  // 1) marker file（记住上次的路径）
   const markerPath = path.join(app.getPath('userData'), 'data-root.txt')
   if (fs.existsSync(markerPath)) {
     const stored = fs.readFileSync(markerPath, 'utf-8').trim()
     if (stored && fs.existsSync(path.join(stored, 'data'))) return stored
   }
 
-  // 2) EXE 所在目录
-  //    portable EXE 会解压到临时目录，process.argv[0] 和 app.getPath('exe') 都指向临时目录。
-  //    electron-builder 设置 PORTABLE_EXECUTABLE_DIR 指向原始 EXE 目录。
   let exeDir
   if (app.isPackaged) {
     const portableDir = process.env.PORTABLE_EXECUTABLE_DIR
@@ -55,7 +49,6 @@ function getDataRoot() {
     fs.mkdirSync(dataDir, { recursive: true })
   }
 
-  // 记住这个路径
   try {
     fs.mkdirSync(app.getPath('userData'), { recursive: true })
     fs.writeFileSync(markerPath, exeDir, 'utf-8')
@@ -76,12 +69,35 @@ function getFreePort() {
   })
 }
 
+// Cache file for Python path
+function getPythonCachePath() {
+  return path.join(app.getPath('userData'), 'python-cache.txt')
+}
+
 function findPython() {
+  const cachePath = getPythonCachePath()
+  try {
+    if (fs.existsSync(cachePath)) {
+      const cached = fs.readFileSync(cachePath, 'utf-8').trim()
+      if (cached) {
+        const { execSync } = require('child_process')
+        try {
+          execSync(`"${cached}" --version`, { stdio: 'ignore', timeout: 3000 })
+          return cached
+        } catch {}
+      }
+    }
+  } catch {}
+
   const candidates = ['python', 'python3', 'py']
+  const { execSync } = require('child_process')
   for (const cmd of candidates) {
     try {
-      const { execSync } = require('child_process')
-      execSync(`${cmd} --version`, { stdio: 'ignore' })
+      execSync(`${cmd} --version`, { stdio: 'ignore', timeout: 3000 })
+      try {
+        fs.mkdirSync(path.dirname(cachePath), { recursive: true })
+        fs.writeFileSync(cachePath, cmd, 'utf-8')
+      } catch {}
       return cmd
     } catch {}
   }
@@ -97,8 +113,8 @@ async function startBackend() {
   }
 
   backendPort = await getFreePort()
-  const root = getRoot()          // CWD for Python (resources/)
-  const dataRoot = getDataRoot()  // data/ directory (exe dir)
+  const root = getRoot()
+  const dataRoot = getDataRoot()
   console.log(`Starting backend: ${python} on port ${backendPort}, cwd: ${root}, dataRoot: ${dataRoot}`)
 
   backendProcess = spawn(python, [
@@ -133,7 +149,7 @@ async function startBackend() {
   })
 }
 
-function waitForBackend(retries = 60) {
+function waitForBackend(retries = 80) {
   return new Promise((resolve, reject) => {
     let attempt = 0
     const check = () => {
@@ -145,7 +161,7 @@ function waitForBackend(retries = 60) {
         }
       })
       req.on('error', retry)
-      req.setTimeout(500)
+      req.setTimeout(300)
     }
     const retry = () => {
       attempt++
@@ -153,13 +169,103 @@ function waitForBackend(retries = 60) {
         reject(new Error('Backend did not start in time'))
         return
       }
-      setTimeout(check, 500)
+      setTimeout(check, 200)
     }
     check()
   })
 }
 
+// --- Theme persistence (saved by frontend, read for splash) ---
+function getThemeCachePath() {
+  return path.join(app.getPath('userData'), 'theme-cache.txt')
+}
+
+function readSavedTheme() {
+  try {
+    const f = getThemeCachePath()
+    if (fs.existsSync(f)) {
+      const v = fs.readFileSync(f, 'utf-8').trim()
+      if (v === 'dark' || v === 'light') return v
+    }
+  } catch {}
+  // Fall back to system preference
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+}
+
+function saveTheme(theme) {
+  try {
+    fs.mkdirSync(path.dirname(getThemeCachePath()), { recursive: true })
+    fs.writeFileSync(getThemeCachePath(), theme, 'utf-8')
+  } catch {}
+}
+
+// Generate splash HTML for given theme
+function makeSplashHtml(isDark) {
+  const bg = isDark ? '#18181b' : '#ffffff'
+  const text = isDark ? '#e4e4e7' : '#18181b'
+  const sub = isDark ? '#a1a1aa' : '#71717a'
+  const spinnerTrack = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'
+  const spinnerAccent = isDark ? '#a78bfa' : '#7c3aed'
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: ${bg};
+    color: ${text};
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+  .container { text-align: center; }
+  h1 { font-size: 28px; font-weight: 600; margin-bottom: 8px; }
+  .sub { color: ${sub}; font-size: 14px; margin-bottom: 32px; }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid ${spinnerTrack};
+    border-top-color: ${spinnerAccent};
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Paper Labeler</h1>
+  <p class="sub">正在启动后端服务…</p>
+  <div class="spinner"></div>
+</div>
+</body>
+</html>`
+}
+
+function makeErrorHtml(isDark) {
+  const bg = isDark ? '#18181b' : '#ffffff'
+  const text = isDark ? '#ef4444' : '#dc2626'
+  const sub = isDark ? '#a1a1aa' : '#71717a'
+  const btnBg = isDark ? '#27272a' : '#f4f4f5'
+  const btnText = isDark ? '#e4e4e7' : '#18181b'
+  const btnHover = isDark ? '#3f3f46' : '#e4e4e7'
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  body{font-family:sans-serif;background:${bg};color:${text};display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column}
+  h1{font-size:20px;margin-bottom:12px} p{color:${sub};font-size:14px}
+  button{margin-top:20px;padding:8px 24px;background:${btnBg};color:${btnText};border:none;border-radius:6px;cursor:pointer;font-size:14px}
+  button:hover{background:${btnHover}}
+  </style></head><body><h1>后端启动失败</h1><p>请确认已安装 Python 3.8+ 并添加到 PATH</p>
+  <button onclick="window.electronAPI.restartApp()">重试</button></body></html>`
+}
+
 function createWindow() {
+  const isDark = readSavedTheme() === 'dark'
+
   const win = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -168,6 +274,8 @@ function createWindow() {
     title: 'Paper Labeler',
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
     frame: false,
+    backgroundColor: isDark ? '#18181b' : '#ffffff',
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -175,13 +283,11 @@ function createWindow() {
     },
   })
 
-  // In dev mode, load from Vite dev server; in production, load from built files
-  const devUrl = process.env.ELECTRON_DEV_URL
-  if (devUrl) {
-    win.loadURL(devUrl)
-  } else {
-    win.loadURL(`http://127.0.0.1:${backendPort}/ui/`)
-  }
+  // Show splash immediately
+  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(makeSplashHtml(isDark))}`)
+  win.once('ready-to-show', () => win.show())
+
+  mainWindow = win
 
   // IPC: window controls
   ipcMain.on('window-minimize', () => win.minimize())
@@ -207,6 +313,23 @@ function createWindow() {
   ipcMain.handle('window-is-maximized', () => win.isMaximized())
   win.on('maximize', () => win.webContents.send('maximize-change', true))
   win.on('unmaximize', () => win.webContents.send('maximize-change', false))
+
+  // IPC: theme sync — frontend calls this when theme changes
+  ipcMain.on('set-theme', (_, theme) => {
+    saveTheme(theme)
+  })
+
+  return win
+}
+
+function navigateToApp() {
+  if (!mainWindow) return
+  const devUrl = process.env.ELECTRON_DEV_URL
+  if (devUrl) {
+    mainWindow.loadURL(devUrl)
+  } else {
+    mainWindow.loadURL(`http://127.0.0.1:${backendPort}/ui/`)
+  }
 }
 
 function killBackend() {
@@ -222,13 +345,18 @@ function killBackend() {
 }
 
 app.whenReady().then(async () => {
-  await startBackend()
+  createWindow()
+  startBackend()
+
   try {
     await waitForBackend()
-    createWindow()
+    navigateToApp()
   } catch (err) {
     console.error(err)
-    app.quit()
+    if (mainWindow) {
+      const isDark = readSavedTheme() === 'dark'
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(makeErrorHtml(isDark))}`)
+    }
   }
 
   app.on('activate', () => {

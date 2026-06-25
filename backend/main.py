@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,6 +69,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Rate limiter (in-memory sliding window, no external deps) ──────────
+_RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "120"))  # requests per window
+_RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
+_rate_hits: dict[str, list[float]] = defaultdict(list)
+
+
+@app.middleware("http")
+async def _rate_limit(request: Request, call_next):
+    # Skip static assets and health checks
+    path = request.url.path
+    if path.startswith("/data/") or path.startswith("/ui/") or path == "/health":
+        return await call_next(request)
+
+    client = request.client
+    ip = client.host if client else "unknown"
+    now = time.monotonic()
+    hits = _rate_hits[ip]
+
+    # Prune expired entries
+    cutoff = now - _RATE_LIMIT_WINDOW
+    while hits and hits[0] < cutoff:
+        hits.pop(0)
+
+    if len(hits) >= _RATE_LIMIT_MAX:
+        return JSONResponse(
+            {"detail": "Too many requests, please slow down."},
+            status_code=429,
+        )
+
+    hits.append(now)
+    return await call_next(request)
+
+
 app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
 
 
@@ -125,7 +160,7 @@ def debug_paths():
     }
 
 
-@app.get("/data/version")
+@app.get("/version")
 def get_version():
     import json
     from backend.config import DATA_DIR

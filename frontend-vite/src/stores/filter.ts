@@ -6,14 +6,10 @@ import { usePapersStore } from './papers'
 import { useMarkStore } from './mark'
 import { useAnswerStore } from './answer'
 import { useExportStore } from './export'
+import { useDialogStore } from './dialog'
 import { api, convertKeysToSnake } from '@/api/client'
-import type { Question, QuestionSearchParams } from '@/types/question'
-
-function clampInt(v: unknown, min: number, max: number): number {
-  const n = parseInt(String(v), 10)
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
+import type { Question, QuestionSearchParams, QuestionSearchResponse, QuestionIdsSearchResponse, QuestionsBatchUpdateParams, FilterQuestion } from '@/types'
+import { clampInt } from '@/utils/geometry'
 
 function extractPaperYear(text: string): string {
   const m = String(text || '').match(/_(m|s|w)(\d{2})_/i)
@@ -32,16 +28,7 @@ export interface FilterPreset {
   filterExcludeMultiSection: boolean
 }
 
-export interface FilterResultItem extends Question {
-  __editOpen: boolean
-  __ansOpen: boolean
-  __ansLoaded: boolean
-  __ansBoxes: { image_url: string; bbox: number[] }[]
-  __ansMeta: string
-  __editSections: string[]
-  __editNotes: string
-  __notesOpen: boolean
-}
+export type FilterResultItem = FilterQuestion
 
 export const useFilterStore = defineStore('filter', () => {
   // --- state ---
@@ -69,6 +56,7 @@ export const useFilterStore = defineStore('filter', () => {
   const filterBatchSection = ref('')
   const filterQuestionNoInput = ref('')
   const filterJumpPageInput = ref('')
+  const filterSearchKeyword = ref('')
 
   // internal debounce state
   let _filterRunDebounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -219,6 +207,11 @@ export const useFilterStore = defineStore('filter', () => {
     scheduleRunFilter(220)
   }
 
+  function onSearchKeywordChange() {
+    filterPage.value = 1
+    scheduleRunFilter(350)
+  }
+
   function onFilterPageSizeChange() {
     const next = clampInt(filterPageSize.value, 1, 200)
     filterPageSize.value = next
@@ -258,6 +251,8 @@ export const useFilterStore = defineStore('filter', () => {
     if (useSeasonFilter) params.set('seasons', seasons.join(','))
     if (filterFavOnly.value) params.set('favorite', 'true')
     if (filterExcludeMultiSection.value) params.set('exclude_multi_section', 'true')
+    const kw = String(filterSearchKeyword.value || '').trim()
+    if (kw) params.set('notes_keyword', kw)
     params.set('page', String(page || 1))
     params.set('page_size', String(pageSize || 10))
     return params
@@ -285,6 +280,7 @@ export const useFilterStore = defineStore('filter', () => {
     if (paperIds.length >= allPaperIds.length) paperIds = []
     if (years.length >= allYears.length) years = []
     if (seasons.length >= allSeasons.length) seasons = []
+    const kw = String(filterSearchKeyword.value || '').trim()
     return {
       section: filterSection.value === '__UNSET__' ? undefined : (filterSection.value || undefined),
       unsectioned: filterSection.value === '__UNSET__' ? true : undefined,
@@ -293,6 +289,7 @@ export const useFilterStore = defineStore('filter', () => {
       seasons,
       favorite: filterFavOnly.value ? true : undefined,
       excludeMultiSection: filterExcludeMultiSection.value ? true : undefined,
+      notesKeyword: kw || undefined,
       page: Number(page || 1),
       pageSize: Number(pageSize || 10),
       idsOnly: !!idsOnly,
@@ -308,8 +305,8 @@ export const useFilterStore = defineStore('filter', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(convertKeysToSnake(buildFilterSearchPayload({ page, pageSize, idsOnly }))),
+      ...(signal ? { signal } : {}),
     }
-    if (signal) (req as any).signal = signal
     return api('/questions/search', req)
   }
 
@@ -329,16 +326,16 @@ export const useFilterStore = defineStore('filter', () => {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
     _filterAbortController = controller
     appStore.setStatus('筛选中...')
-    let data: any
+    let data: QuestionSearchResponse
     try {
       data = await requestFilterSearch({
         page: filterPage.value,
         pageSize: filterPageSize.value,
         idsOnly: false,
         signal: controller?.signal ?? null,
-      })
-    } catch (e: any) {
-      if (e?.name === 'AbortError') return
+      }) as QuestionSearchResponse
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'AbortError') return
       throw e
     } finally {
       if (_filterAbortController === controller) _filterAbortController = null
@@ -354,7 +351,7 @@ export const useFilterStore = defineStore('filter', () => {
     filterTotal.value = total
     filterTotalPages.value = totalPages
 
-    filterResults.value = (qs || []).map((q: any) => ({
+    filterResults.value = (qs || []).map((q: Question) => ({
       ...q,
       __editOpen: false,
       __ansOpen: false,
@@ -390,7 +387,7 @@ export const useFilterStore = defineStore('filter', () => {
     selectedQuestionIds.value = next
   }
 
-  async function toggleFavorite(q: any) {
+  async function toggleFavorite(q: Question) {
     const appStore = useAppStore()
     try {
       const next = !q.is_favorite
@@ -408,7 +405,7 @@ export const useFilterStore = defineStore('filter', () => {
     }
   }
 
-  async function saveFilterQuestionMeta(q: any, sections: string[], notes: string) {
+  async function saveFilterQuestionMeta(q: Question, sections: string[], notes: string) {
     const appStore = useAppStore()
     try {
       appStore.setStatus(`保存题目 #${q.id} 中...`)
@@ -436,7 +433,7 @@ export const useFilterStore = defineStore('filter', () => {
     }
     try {
       appStore.setStatus(`批量更新中（${ids.length} 题）...`)
-      const payload: any = { ids }
+      const payload: QuestionsBatchUpdateParams & { is_favorite?: boolean } = { ids }
       if (sections) payload.sections = sections
       if (isFavorite !== undefined) payload.is_favorite = isFavorite
       await api('/questions/batch_update', {
@@ -449,6 +446,39 @@ export const useFilterStore = defineStore('filter', () => {
       await runFilter()
     } catch (e) {
       appStore.setStatus(String(e), 'err')
+    }
+  }
+
+  async function batchDeleteSelected(): Promise<boolean> {
+    const appStore = useAppStore()
+    const dialogStore = useDialogStore()
+    const t = i18n.global.t
+    const ids = Array.from(selectedQuestionIds.value)
+    if (!ids.length) {
+      appStore.setStatus('未选择题目', 'err')
+      return false
+    }
+    if (!await dialogStore.confirm(t('filter.batchDeleteConfirm', { count: ids.length }), {
+      title: t('filter.batchDeleteTitle'),
+      confirmText: t('dialog.delete'),
+      danger: true,
+    })) return false
+    try {
+      appStore.setStatus(`批量删除中（${ids.length} 题）...`)
+      await api('/questions/batch_delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
+      selectedQuestionIds.value = new Set()
+      markQuestionDatasetChanged()
+      appStore.setStatus('批量删除完成', 'ok')
+      await usePapersStore().refreshPapers({ silent: true })
+      await runFilter()
+      return true
+    } catch (e) {
+      appStore.setStatus(String(e), 'err')
+      return false
     }
   }
 
@@ -536,8 +566,8 @@ export const useFilterStore = defineStore('filter', () => {
       const data = await requestFilterSearch({ page, pageSize: 1000, idsOnly: true })
       const pageIds = Array.isArray(data?.question_ids)
         ? data.question_ids
-        : (Array.isArray(data?.questions) ? data.questions.map((q: any) => q.id) : [])
-      ids.push(...pageIds.map((x: any) => Number(x)).filter((x: number) => Number.isFinite(x)))
+        : (Array.isArray(data?.questions) ? (data.questions as Question[]).map((q) => q.id) : [])
+      ids.push(...pageIds.map((x) => Number(x)).filter((x) => Number.isFinite(x)))
       totalPages = Number(data.total_pages || 1)
       page += 1
     } while (page <= totalPages)
@@ -559,6 +589,7 @@ export const useFilterStore = defineStore('filter', () => {
       page: filterPage.value,
       pageSize: filterPageSize.value,
       questionNoInput: filterQuestionNoInput.value,
+      searchKeyword: filterSearchKeyword.value,
       scrollTop: container ? Number((container as HTMLElement).scrollTop || 0) : 0,
     }
   }
@@ -578,12 +609,13 @@ export const useFilterStore = defineStore('filter', () => {
     filterPage.value = state.page || 1
     filterPageSize.value = state.pageSize || filterPageSize.value
     filterQuestionNoInput.value = state.questionNoInput || ''
+    filterSearchKeyword.value = state.searchKeyword || ''
     await runFilter()
     await nextTick()
     scrollFilterContainerTo(Number(state.scrollTop || 0))
   }
 
-  async function jumpToQuestionFromFilter(q: any) {
+  async function jumpToQuestionFromFilter(q: Question) {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
     if (!q?.paper_id) return
@@ -599,14 +631,14 @@ export const useFilterStore = defineStore('filter', () => {
     if (idx >= 0) await papersStore.goToPage(idx)
   }
 
-  async function editQuestionBoxesFromFilter(q: any) {
+  async function editQuestionBoxesFromFilter(q: Question) {
     const markStore = useMarkStore()
     filterReturnQid.value = q?.id ?? null
     await jumpToQuestionFromFilter(q)
     await markStore.editQuestion(q)
   }
 
-  async function editAnswerBoxesFromFilter(q: any) {
+  async function editAnswerBoxesFromFilter(q: Question) {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
     const answerStore = useAnswerStore()
@@ -645,7 +677,7 @@ export const useFilterStore = defineStore('filter', () => {
         setTimeout(() => scrollToFilterQuestion(qid), 0)
       }
     } else {
-      scrollFilterContainerTo(Number((last.state as any)?.scrollTop || 0))
+      scrollFilterContainerTo(Number((last.state as Record<string, unknown>)?.scrollTop || 0))
     }
     return true
   }
@@ -685,6 +717,7 @@ export const useFilterStore = defineStore('filter', () => {
     filterBatchSection,
     filterQuestionNoInput,
     filterJumpPageInput,
+    filterSearchKeyword,
     // actions
     loadFilterSettings,
     loadFilterPresets,
@@ -694,6 +727,7 @@ export const useFilterStore = defineStore('filter', () => {
     deleteFilterPreset,
     scheduleRunFilter,
     onFilterChange,
+    onSearchKeywordChange,
     onFilterPageSizeChange,
     buildFilterSearchParams,
     buildFilterSearchPayload,
@@ -705,6 +739,7 @@ export const useFilterStore = defineStore('filter', () => {
     toggleFavorite,
     saveFilterQuestionMeta,
     batchUpdateSelected,
+    batchDeleteSelected,
     filterPrevPage,
     filterNextPage,
     setFilterPage,

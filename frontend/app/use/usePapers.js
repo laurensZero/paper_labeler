@@ -110,8 +110,11 @@ export const paperMethods = {
     if (this.resetMarkHistory) this.resetMarkHistory();
   },
   async openPaper(paperId) {
+    // 重复点击同一张试卷不重复加载
+    if (this.currentPaperId === paperId) return;
+
     this.showMarkView();
-  
+
     if (this.currentPaperId != null && this.currentPaperId !== paperId) {
       this.stashCurrentOcrDraftStateForPaper(this.currentPaperId);
       await this.refreshPapers();

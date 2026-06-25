@@ -3,7 +3,6 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from PIL import Image
 from sqlalchemy.orm import Session
 import backend.database as _db_mod
 from backend.database import Paper, Question, QuestionBox, Answer, AnswerBox, SectionDef
@@ -40,6 +39,7 @@ def _reset_convert_state():
 
 def _run_convert(quality: int):
     """Background worker: convert PNGs to WebP one by one, updating progress."""
+    from PIL import Image
     db = _db_mod.SessionLocal()
     try:
         pngs = sorted(PAGE_DIR.rglob("page_*.png"))

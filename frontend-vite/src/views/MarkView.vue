@@ -11,9 +11,11 @@ import { useAnswerStore } from '@/stores/answer'
 import { useFilterStore } from '@/stores/filter'
 import SectionTagEditor from '@/components/ui/SectionTagEditor.vue'
 import { useMarkKeyboard } from '@/composables/useMarkKeyboard'
+import { useMarkCanvas } from '@/composables/useMarkCanvas'
 import type { TagOptionGroup } from '@/components/ui/SectionTagEditor.vue'
 import type { BoundingBox } from '@/types/common'
-import { clamp01, normalizeBox, pointInBox } from '@/utils/geometry'
+import type { Question } from '@/types'
+import { clamp01 } from '@/utils/geometry'
 
 defineOptions({ name: 'MarkView' })
 
@@ -64,16 +66,30 @@ const {
 const {
   sectionOptionGroupsVisible,
   sectionLabelMap,
+  sectionGroups,
 } = storeToRefs(sectionsStore)
 
-// --- refs ---
-const pageImg = ref<HTMLImageElement | null>(null)
-const overlayCanvas = ref<HTMLCanvasElement | null>(null)
-const canvasArea = ref<HTMLElement | null>(null)
-let pageImgResizeObserver: ResizeObserver | null = null
-let overlayRefreshFrame = 0
-let overlayDrawFrame = 0
-let markCanvasInteractionActive = false
+// --- computed (must be before useMarkCanvas) ---
+const pageImgUrl = computed(() => {
+  const p = pages.value[currentPageIndex.value]
+  return p?.image_url ?? ''
+})
+
+// --- canvas composable ---
+const {
+  pageImg, overlayCanvas, canvasArea, pageImageLoaded,
+  setCanvasSize, refreshOverlaySize, queueOverlayDraw, clearOverlayCanvas,
+  drawOverlay, highlightQuestion, onPageImgLoad,
+  onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onWindowResize,
+} = useMarkCanvas({
+  newBoxes, selectedNewBox, drawing, startPt, dragNewBoxOp, markPendingSnapshot,
+  pageQuestions, hasOcrDraftMode, selectedOcrDraftIdx, ocrDraftQuestions,
+  editingQuestionId, pages, currentPageIndex, pageImgUrl,
+  captureMarkSnapshot: () => markStore.captureMarkSnapshot(),
+  commitMarkHistory: (snap) => markStore.commitMarkHistory(snap),
+  getMarkAlignBoundsForBox: (box, isDrawing) => markStore.getMarkAlignBoundsForBox(box, isDrawing),
+  alignMarkBBoxToBoundsX: (bbox, bounds) => markStore.alignMarkBBoxToBoundsX(bbox, bounds),
+})
 
 // Adjacent page preload cache — loads prev/next images into browser HTTP cache
 function preloadAdjacentPages() {
@@ -88,11 +104,6 @@ function preloadAdjacentPages() {
 const jumpPageInput = ref('')
 
 // --- computed ---
-const pageImgUrl = computed(() => {
-  const p = pages.value[currentPageIndex.value]
-  return p?.image_url ?? ''
-})
-const pageImageLoaded = ref(false)
 const pagePlaceholderText = computed(() => {
   if (paperOpening.value || pageImgUrl.value) return '正在加载页面...'
   return '暂无页面图片'
@@ -141,6 +152,10 @@ const sectionTagGroups = computed<TagOptionGroup[]>(() => {
   }))
 })
 
+const sectionGroupOptions = computed(() =>
+  sectionGroups.value.map(g => ({ value: g.id, label: g.name }))
+)
+
 // --- page navigation actions ---
 function prevPage() {
   papersStore.prevPage()
@@ -167,6 +182,22 @@ async function nextOcrDraft() {
   return true
 }
 
+function toggleSectionByIndex(index: number) {
+  const groups = sectionOptionGroupsVisible.value || []
+  const flat: string[] = []
+  for (const g of groups) {
+    for (const name of g.options) flat.push(name)
+  }
+  const target = flat[index - 1]
+  if (!target) return
+  const current = selectedSectionsForNewQuestion.value
+  if (current.includes(target)) {
+    selectedSectionsForNewQuestion.value = current.filter((s) => s !== target)
+  } else {
+    selectedSectionsForNewQuestion.value = [...current, target]
+  }
+}
+
 useMarkKeyboard({
   isActive: () => route.name === 'mark',
   hasOcrDraftMode,
@@ -178,6 +209,7 @@ useMarkKeyboard({
   undo: () => markStore.undoMark(),
   redo: () => markStore.redoMark(),
   deleteSelectedBox: () => markStore.deleteSelectedUnsavedBox(),
+  toggleSectionByIndex,
 })
 
 function jumpToPage() {
@@ -192,361 +224,6 @@ function jumpToPage() {
 function jumpToBoxPage(pageNum: number) {
   const idx = pages.value.findIndex((p) => p.page === pageNum)
   if (idx >= 0) papersStore.goToPage(idx)
-}
-
-// --- canvas drawing ---
-function setCanvasSize() {
-  const img = pageImg.value
-  const canvas = overlayCanvas.value
-  if (!img || !canvas) return
-  const w = img.clientWidth
-  const h = img.clientHeight
-  if (w === 0 || h === 0) return
-  canvas.width = w
-  canvas.height = h
-  canvas.style.width = `${w}px`
-  canvas.style.height = `${h}px`
-}
-
-function refreshOverlaySize() {
-  if (overlayRefreshFrame) cancelAnimationFrame(overlayRefreshFrame)
-  overlayRefreshFrame = requestAnimationFrame(() => {
-    overlayRefreshFrame = 0
-    setCanvasSize()
-    drawOverlay()
-  })
-}
-
-function queueOverlayDraw() {
-  if (overlayDrawFrame) return
-  overlayDrawFrame = requestAnimationFrame(() => {
-    overlayDrawFrame = 0
-    drawOverlay()
-  })
-}
-
-function finishMarkCanvasInteractionSoon() {
-  requestAnimationFrame(() => {
-    markCanvasInteractionActive = false
-  })
-}
-
-function observePageImageSize() {
-  pageImgResizeObserver?.disconnect()
-  const img = pageImg.value
-  if (!img || typeof ResizeObserver === 'undefined') return
-  pageImgResizeObserver = new ResizeObserver(() => refreshOverlaySize())
-  pageImgResizeObserver.observe(img)
-}
-
-function clearOverlayCanvas() {
-  if (overlayRefreshFrame) {
-    cancelAnimationFrame(overlayRefreshFrame)
-    overlayRefreshFrame = 0
-  }
-  const canvas = overlayCanvas.value
-  if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-}
-
-function canvasPointToNorm(evt: PointerEvent | MouseEvent): [number, number] {
-  const canvas = overlayCanvas.value
-  if (!canvas) return [0, 0]
-  const rect = canvas.getBoundingClientRect()
-  const x = (evt.clientX - rect.left) / rect.width
-  const y = (evt.clientY - rect.top) / rect.height
-  return [clamp01(x), clamp01(y)]
-}
-
-function hitTestNewBoxes(normX: number, normY: number) {
-  const bxs = newBoxes.value || []
-  const pageNum = pages.value[currentPageIndex.value]?.page
-  for (let i = bxs.length - 1; i >= 0; i--) {
-    const b = bxs[i]
-    if (!b || b.page !== pageNum) continue
-    if (!Array.isArray(b.bbox) || b.bbox.length !== 4) continue
-    const [x0, y0, x1, y1] = b.bbox
-    const pad = 0.012
-    // corner handles
-    const corners: { kind: 'resize'; corner: string; x: number; y: number }[] = [
-      { kind: 'resize', corner: 'tl', x: x0, y: y0 },
-      { kind: 'resize', corner: 'tr', x: x1, y: y0 },
-      { kind: 'resize', corner: 'bl', x: x0, y: y1 },
-      { kind: 'resize', corner: 'br', x: x1, y: y1 },
-    ]
-    const mids: { kind: 'resize'; corner: string; x: number; y: number }[] = [
-      { kind: 'resize', corner: 'tm', x: (x0 + x1) / 2, y: y0 },
-      { kind: 'resize', corner: 'bm', x: (x0 + x1) / 2, y: y1 },
-      { kind: 'resize', corner: 'ml', x: x0, y: (y0 + y1) / 2 },
-      { kind: 'resize', corner: 'mr', x: x1, y: (y0 + y1) / 2 },
-    ]
-    for (const c of corners) {
-      if (Math.abs(normX - c.x) <= pad && Math.abs(normY - c.y) <= pad) {
-        return { kind: 'resize' as const, box: b, corner: c.corner }
-      }
-    }
-    for (const c of mids) {
-      if (Math.abs(normX - c.x) <= pad && Math.abs(normY - c.y) <= pad) {
-        return { kind: 'resize' as const, box: b, corner: c.corner }
-      }
-    }
-    if (pointInBox(normX, normY, b.bbox)) {
-      return { kind: 'move' as const, box: b, offX: normX - x0, offY: normY - y0, w: x1 - x0, h: y1 - y0 }
-    }
-  }
-  return null
-}
-
-function drawOverlay(tempBox: BoundingBox | null = null) {
-  const canvas = overlayCanvas.value
-  if (!canvas) return
-  if (pageImgUrl.value && !pageImageLoaded.value) {
-    clearOverlayCanvas()
-    return
-  }
-  const img = pageImg.value
-  if (img && (canvas.width !== img.clientWidth || canvas.height !== img.clientHeight)) {
-    setCanvasSize()
-  }
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.lineWidth = 2
-
-  const pageNum = pages.value[currentPageIndex.value]?.page
-  if (pageNum == null) return
-
-  // draw existing confirmed questions (non-OCR, non-edit mode)
-  if (!hasOcrDraftMode.value && editingQuestionId.value == null) {
-    for (const q of pageQuestions.value) {
-      for (const b of q.boxes || []) {
-        if (b.page !== pageNum) continue
-        const [x0, y0, x1, y1] = b.bbox
-        ctx.strokeStyle = q.status === 'confirmed' ? '#34c759' : '#ff9f0a'
-        ctx.lineWidth = 1.5
-        ctx.strokeRect(
-          x0 * canvas.width,
-          y0 * canvas.height,
-          (x1 - x0) * canvas.width,
-          (y1 - y0) * canvas.height,
-        )
-      }
-    }
-  }
-
-  // draw new boxes
-  ctx.lineWidth = 2
-  for (const nb of newBoxes.value) {
-    if (nb.page !== pageNum) continue
-    if (hasOcrDraftMode.value && nb.source !== 'ocr') continue
-    if (hasOcrDraftMode.value && Number(nb.draftIdx) !== Number(selectedOcrDraftIdx.value)) {
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)'
-    } else {
-      ctx.strokeStyle = '#ef4444'
-    }
-    const [x0, y0, x1, y1] = nb.bbox
-    ctx.strokeRect(
-      x0 * canvas.width,
-      y0 * canvas.height,
-      (x1 - x0) * canvas.width,
-      (y1 - y0) * canvas.height,
-    )
-    // draw label if present
-    if (nb.label != null && String(nb.label).trim()) {
-      const text = String(nb.label).trim()
-      ctx.save()
-      ctx.font = '12px Inter, ui-sans-serif, system-ui, -apple-system, sans-serif'
-      const pad = 4
-      const tx = x0 * canvas.width + 2
-      const ty = y1 * canvas.height - 2
-      const m = ctx.measureText(text)
-      const tw = Math.ceil(m.width)
-      const th = 16
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.9)'
-      ctx.beginPath()
-      ctx.roundRect(tx, ty - th, tw + pad * 2, th, 3)
-      ctx.fill()
-      ctx.fillStyle = '#ffffff'
-      ctx.fillText(text, tx + pad, ty - 4)
-      ctx.restore()
-    }
-    // draw handles on selected box
-    if (selectedNewBox.value === nb) {
-      ctx.fillStyle = '#0071e3'
-      const hs = 5
-      const pts: [number, number][] = [
-        [x0, y0], [x1, y0], [x0, y1], [x1, y1],
-        [(x0 + x1) / 2, y0], [(x0 + x1) / 2, y1],
-        [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2],
-      ]
-      for (const [px, py] of pts) {
-        ctx.fillRect(px * canvas.width - hs, py * canvas.height - hs, hs * 2, hs * 2)
-      }
-    }
-  }
-
-  // draw temp box while drawing
-  if (tempBox) {
-    ctx.setLineDash([6, 4])
-    ctx.strokeStyle = '#ef4444'
-    ctx.lineWidth = 2
-    const [x0, y0, x1, y1] = tempBox
-    ctx.strokeRect(
-      x0 * canvas.width,
-      y0 * canvas.height,
-      (x1 - x0) * canvas.width,
-      (y1 - y0) * canvas.height,
-    )
-    ctx.setLineDash([])
-  }
-}
-
-function onPageImgLoad(evt: Event) {
-  const img = evt.target as HTMLImageElement | null
-  if (img && img.getAttribute('src') !== pageImgUrl.value) return
-  pageImageLoaded.value = true
-  nextTick(() => {
-    observePageImageSize()
-    if (canvasArea.value) {
-      canvasArea.value.scrollTop = 0
-      canvasArea.value.scrollLeft = 0
-    }
-    setCanvasSize()
-    drawOverlay()
-  })
-}
-
-// --- pointer event handlers ---
-function onPointerDown(evt: PointerEvent) {
-  if (currentPageIndex.value < 0) return
-  evt.preventDefault()
-  markCanvasInteractionActive = true
-  const canvas = overlayCanvas.value
-  if (canvas) canvas.setPointerCapture?.(evt.pointerId)
-
-  const [x, y] = canvasPointToNorm(evt)
-  const hit = hitTestNewBoxes(x, y)
-
-  if (hit) {
-    if (!markPendingSnapshot.value) {
-      markPendingSnapshot.value = markStore.captureMarkSnapshot()
-    }
-    selectedNewBox.value = hit.box
-    dragNewBoxOp.value = hit as any
-    drawOverlay()
-    return
-  }
-
-  // start drawing new box
-  selectedNewBox.value = null
-  dragNewBoxOp.value = null
-  if (!markPendingSnapshot.value) {
-    markPendingSnapshot.value = markStore.captureMarkSnapshot()
-  }
-  drawing.value = true
-  startPt.value = [x, y]
-}
-
-function onPointerMove(evt: PointerEvent) {
-  evt.preventDefault()
-  const [x, y] = canvasPointToNorm(evt)
-
-  // handle drag (move/resize)
-  const op = dragNewBoxOp.value as any
-  if (op && op.box) {
-    const b = op.box
-    const [x0, y0, x1, y1] = b.bbox
-    if (op.kind === 'move') {
-      const nx0 = clamp01(x - op.offX)
-      const ny0 = clamp01(y - op.offY)
-      const fx0 = clamp01(Math.min(nx0, 1 - op.w))
-      const fy0 = clamp01(Math.min(ny0, 1 - op.h))
-      b.bbox = normalizeBox([fx0, fy0, fx0 + op.w, fy0 + op.h])
-    } else if (op.kind === 'resize') {
-      let nx0 = x0, ny0 = y0, nx1 = x1, ny1 = y1
-      if (op.corner === 'tl') { nx0 = x; ny0 = y }
-      else if (op.corner === 'tr') { nx1 = x; ny0 = y }
-      else if (op.corner === 'bl') { nx0 = x; ny1 = y }
-      else if (op.corner === 'br') { nx1 = x; ny1 = y }
-      else if (op.corner === 'tm') { ny0 = y }
-      else if (op.corner === 'bm') { ny1 = y }
-      else if (op.corner === 'ml') { nx0 = x }
-      else if (op.corner === 'mr') { nx1 = x }
-      b.bbox = normalizeBox([nx0, ny0, nx1, ny1])
-    }
-    const bounds = markStore.getMarkAlignBoundsForBox(b, false)
-    if (bounds && op.kind !== 'resize') {
-      b.bbox = markStore.alignMarkBBoxToBoundsX(b.bbox, bounds) as BoundingBox
-    }
-    drawOverlay()
-    return
-  }
-
-  // handle drawing
-  if (drawing.value && startPt.value) {
-    const [sx, sy] = startPt.value
-    let temp = normalizeBox([sx, sy, x, y])
-    const bounds = markStore.getMarkAlignBoundsForBox(null, true)
-    if (bounds) temp = markStore.alignMarkBBoxToBoundsX(temp, bounds) as BoundingBox
-    drawOverlay(temp)
-  }
-}
-
-function onPointerUp(evt: PointerEvent) {
-  evt.preventDefault()
-  const pendingSnapshot = markPendingSnapshot.value
-
-  if (drawing.value && startPt.value) {
-    const [x, y] = canvasPointToNorm(evt)
-    const [sx, sy] = startPt.value
-    let finalBox = normalizeBox([sx, sy, x, y])
-    const bounds = markStore.getMarkAlignBoundsForBox(null, true)
-    if (bounds) finalBox = markStore.alignMarkBBoxToBoundsX(finalBox, bounds) as BoundingBox
-    const minW = 0.005
-    const minH = 0.0015
-    if (Math.abs(finalBox[2] - finalBox[0]) > minW && Math.abs(finalBox[3] - finalBox[1]) > minH) {
-      const pageNum = pages.value[currentPageIndex.value]?.page
-      const payload: any = { page: pageNum, bbox: finalBox }
-      if (hasOcrDraftMode.value) {
-        const maxIdx = Math.max(0, ocrDraftQuestions.value.length - 1)
-        const di = Math.max(0, Math.min(maxIdx, selectedOcrDraftIdx.value))
-        const label = ocrDraftQuestions.value?.[di]?.label ?? null
-        payload.source = 'ocr'
-        payload.draftIdx = di
-        payload.label = label
-      }
-      newBoxes.value.push(payload)
-    }
-    selectedNewBox.value = newBoxes.value[newBoxes.value.length - 1] || null
-  }
-
-  drawing.value = false
-  startPt.value = null
-  dragNewBoxOp.value = null
-  markPendingSnapshot.value = null
-  if (pendingSnapshot) markStore.commitMarkHistory(pendingSnapshot)
-  drawOverlay()
-  finishMarkCanvasInteractionSoon()
-}
-
-function onPointerCancel() {
-  if (drawing.value) {
-    drawing.value = false
-    startPt.value = null
-    drawOverlay()
-  }
-  if (dragNewBoxOp.value) {
-    dragNewBoxOp.value = null
-    drawOverlay()
-  }
-  markPendingSnapshot.value = null
-  finishMarkCanvasInteractionSoon()
-}
-
-function onWindowResize() {
-  refreshOverlaySize()
 }
 
 // --- watch page changes to reload data ---
@@ -569,8 +246,6 @@ watch([currentPaperId, currentPageIndex, pageImgUrl], ([newPaperId, newIdx], [ol
     pageSlideDir.value = null
   }
   pageImageLoaded.value = false
-  pageImgResizeObserver?.disconnect()
-  pageImgResizeObserver = null
   clearOverlayCanvas()
   // Restart slide animation after DOM updates
   if (isPageNavWithinPaper.value && pageSlideDir.value) {
@@ -586,7 +261,6 @@ watch([currentPaperId, currentPageIndex, pageImgUrl], ([newPaperId, newIdx], [ol
 }, { flush: 'sync' })
 
 watch(newBoxes, () => {
-  if (markCanvasInteractionActive) return
   queueOverlayDraw()
 }, { deep: true })
 
@@ -595,7 +269,6 @@ watch(pageQuestions, () => {
 }, { deep: true })
 
 watch(selectedNewBox, () => {
-  if (markCanvasInteractionActive) return
   queueOverlayDraw()
 })
 
@@ -609,7 +282,7 @@ function formatBbox(bbox: number[]): string {
   return bbox.map((v) => Number(v).toFixed(3)).join(', ')
 }
 
-function getQuestionSectionList(q: any): string[] {
+function getQuestionSectionList(q: Question): string[] {
   if (Array.isArray(q.sections)) return q.sections
   if (q.section) return [q.section]
   return []
@@ -621,8 +294,8 @@ async function handleSave() {
     await markStore.saveQuestion()
     await nextTick()
     drawOverlay()
-  } catch (e: any) {
-    appStore.setStatus(String(e?.message || e), 'err')
+  } catch (e: unknown) {
+    appStore.setStatus(String(e instanceof Error ? e.message : e), 'err')
   }
 }
 
@@ -633,8 +306,8 @@ async function openAnswerMode() {
     if (answerStore.msPaperId) {
       router.push({ name: 'answer', params: { paperId: String(currentPaperId.value) } })
     }
-  } catch (e: any) {
-    appStore.setStatus(String(e?.message || e), 'err')
+  } catch (e: unknown) {
+    appStore.setStatus(String(e instanceof Error ? e.message : e), 'err')
   }
 }
 
@@ -645,8 +318,8 @@ async function returnToFilter() {
 async function handleAutoRecognize() {
   try {
     await markStore.autoRecognize()
-  } catch (e: any) {
-    appStore.setStatus(String(e?.message || e), 'err')
+  } catch (e: unknown) {
+    appStore.setStatus(String(e instanceof Error ? e.message : e), 'err')
   }
 }
 
@@ -656,13 +329,32 @@ async function cancelEditQuestion() {
   appStore.setStatus('已取消修改', 'ok')
 }
 
+async function onCreateSection(name: string, groupId: number | null) {
+  if (!name) return
+  const gid = groupId != null ? Number(groupId) : null
+  await sectionsStore.createSectionDef(name, '', gid)
+  if (!selectedSectionsForNewQuestion.value.includes(name)) {
+    selectedSectionsForNewQuestion.value = [...selectedSectionsForNewQuestion.value, name]
+  }
+}
+
+async function onCreateSectionForOcr(q: { sections: string[] }, name: string, groupId: number | null) {
+  if (!name) return
+  const gid = groupId != null ? Number(groupId) : null
+  await sectionsStore.createSectionDef(name, '', gid)
+  const cur = Array.isArray(q.sections) ? q.sections : []
+  if (!cur.includes(name)) {
+    q.sections = [...cur, name]
+  }
+}
+
 async function manualRefreshPageQuestions() {
   if (currentPaperId.value == null || currentPageIndex.value < 0) return
   await markStore.loadPageQuestions({ force: true })
   queueOverlayDraw()
 }
 
-function deleteBoxItem(box: any) {
+function deleteBoxItem(box: { page: number; bbox: BoundingBox }) {
   selectedNewBox.value = box
   nextTick(() => {
     markStore.deleteSelectedUnsavedBox()
@@ -673,35 +365,6 @@ async function selectOcrDraft(idx: number) {
   await markStore.selectOcrDraft(idx)
   await nextTick()
   drawOverlay()
-}
-
-function highlightQuestion(q: any) {
-  const canvas = overlayCanvas.value
-  const img = pageImg.value
-  if (!canvas) return
-  const pageNum = pages.value[currentPageIndex.value]?.page
-  if (!pageNum || !q || !Array.isArray(q.boxes)) return
-  if (img && (canvas.width !== img.clientWidth || canvas.height !== img.clientHeight)) {
-    setCanvasSize()
-    drawOverlay()
-  }
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  ctx.save()
-  ctx.lineWidth = 3
-  ctx.strokeStyle = 'rgba(0, 113, 227, 0.8)'
-  ctx.setLineDash([6, 4])
-  for (const b of q.boxes) {
-    if (!b || b.page !== pageNum || !Array.isArray(b.bbox) || b.bbox.length !== 4) continue
-    const [x0, y0, x1, y1] = b.bbox
-    ctx.strokeRect(
-      x0 * canvas.width,
-      y0 * canvas.height,
-      (x1 - x0) * canvas.width,
-      (y1 - y0) * canvas.height,
-    )
-  }
-  ctx.restore()
 }
 
 // --- lifecycle ---
@@ -725,9 +388,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onWindowResize)
-  pageImgResizeObserver?.disconnect()
-  if (overlayRefreshFrame) cancelAnimationFrame(overlayRefreshFrame)
-  if (overlayDrawFrame) cancelAnimationFrame(overlayDrawFrame)
 })
 </script>
 
@@ -800,6 +460,9 @@ onBeforeUnmount(() => {
 
               <div class="toolbar-divider"></div>
 
+              <!-- Keyboard help -->
+              <button class="btn btn-ghost btn-icon" title="快捷键帮助 (?)" @click="appStore.toggleKeyboardHelp()" style="font-size:14px;font-weight:600">?</button>
+
               <!-- Undo/Redo -->
               <button class="btn btn-ghost btn-icon" :disabled="!canUndo" title="撤销 (Ctrl+Z)" @click="markStore.undoMark()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
@@ -865,12 +528,20 @@ onBeforeUnmount(() => {
 
           <!-- Section selector -->
           <div v-if="!hasOcrDraftMode" class="prop-section">
-            <label class="form-label">模块</label>
+            <label class="form-label">模块 <span class="form-label-hint">(1-{{ Math.min(9, sectionTagGroups.reduce((n, g) => n + g.options.length, 0)) }} 快捷切换)</span></label>
             <SectionTagEditor
               :model-value="selectedSectionsForNewQuestion"
               :option-groups="sectionTagGroups"
               placeholder="选择模块..."
+              creatable
+              :create-label="t('sectionEditor.addSection')"
+              :create-cancel-label="t('dialog.cancel')"
+              :group-options="sectionGroupOptions"
+              :group-label="t('sectionEditor.groupSelectLabel')"
+              :no-match-label="t('sectionEditor.noMatch')"
+              :all-selected-label="t('sectionEditor.allSelected')"
               @update:model-value="(val: string[]) => { selectedSectionsForNewQuestion = val }"
+              @create="onCreateSection"
             />
           </div>
 
@@ -928,7 +599,15 @@ onBeforeUnmount(() => {
                     :model-value="Array.isArray(q.sections) ? q.sections : []"
                     :option-groups="sectionTagGroups"
                     placeholder="模块..."
+                    creatable
+                    :create-label="t('sectionEditor.addSection')"
+                    :create-cancel-label="t('dialog.cancel')"
+                    :group-options="sectionGroupOptions"
+                    :group-label="t('sectionEditor.groupSelectLabel')"
+                    :no-match-label="t('sectionEditor.noMatch')"
+                    :all-selected-label="t('sectionEditor.allSelected')"
                     @update:model-value="(val: string[]) => { q.sections = val }"
+                    @create="(name: string, groupId: number | null) => onCreateSectionForOcr(q, name, groupId)"
                   />
                 </div>
               </div>
@@ -1227,6 +906,12 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.form-label-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-tertiary);
 }
 
 .prop-input {

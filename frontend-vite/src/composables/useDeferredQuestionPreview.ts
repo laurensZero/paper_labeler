@@ -1,8 +1,9 @@
-import { ref } from 'vue'
+import { ref, onScopeDispose } from 'vue'
 import type { Ref } from 'vue'
+import type { Question } from '@/types'
 
 interface UseDeferredQuestionPreviewOptions {
-  results: Ref<any[]>
+  results: Ref<Question[]>
   getScrollContainer: () => HTMLElement | null
   onHeightMayChange?: () => void
   renderMarginPx?: number
@@ -42,7 +43,7 @@ export function useDeferredQuestionPreview(options: UseDeferredQuestionPreviewOp
     }
   }
 
-  function isQuestionPreviewReady(q: any): boolean {
+  function isQuestionPreviewReady(q: Question): boolean {
     if (typeof IntersectionObserver === 'undefined') return true
     const id = Number(q?.id)
     return Number.isFinite(id) && previewVisibleQuestionIds.value.has(id)
@@ -121,7 +122,7 @@ export function useDeferredQuestionPreview(options: UseDeferredQuestionPreviewOp
   }
 
   function prunePreviewStateForResults() {
-    const ids = new Set((options.results.value || []).map((q: any) => Number(q?.id)).filter(Number.isFinite))
+    const ids = new Set((options.results.value || []).map((q) => Number(q?.id)).filter(Number.isFinite))
     const nextVisible = new Set<number>()
     for (const id of previewVisibleQuestionIds.value) {
       if (ids.has(id)) nextVisible.add(id)
@@ -134,7 +135,7 @@ export function useDeferredQuestionPreview(options: UseDeferredQuestionPreviewOp
     }
   }
 
-  function onQuestionPreviewError(q: any) {
+  function onQuestionPreviewError(q: Question & { __previewFailed?: boolean }) {
     q.__previewFailed = true
     options.onHeightMayChange?.()
   }
@@ -153,6 +154,11 @@ export function useDeferredQuestionPreview(options: UseDeferredQuestionPreviewOp
     pauseDeferredQuestionPreview()
     previewTargets.clear()
   }
+
+  // Auto-cleanup when the owning component/effect scope is disposed
+  onScopeDispose(() => {
+    disposeDeferredQuestionPreview()
+  })
 
   return {
     isQuestionPreviewReady,

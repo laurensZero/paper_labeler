@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
@@ -38,12 +40,62 @@ class ExportRequest(BaseModel):
 class PickSaveDirRequest(BaseModel):
     initial_dir: Optional[str] = None
 
-# In-memory job store (simple for now)
+# In-memory job store, persisted to disk on terminal states
 # job_id -> { status: "processing"|"done"|"error", path: str, msg: str }
 export_jobs = {}
 export_job_queue = deque()  # items: (job_id, ExportRequest)
 export_job_queue_lock = threading.Lock()
 export_worker_started = False
+
+
+def _persist_job_meta(job_id: str) -> None:
+    """将 job 元数据写入 JSON 文件，重启后可恢复。"""
+    job = export_jobs.get(job_id)
+    if not job:
+        return
+    meta_dir = DATA_DIR / "_export_jobs"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "status": job.get("status"),
+        "path": job.get("path"),
+        "filename": job.get("filename"),
+        "saved_copy_path": job.get("saved_copy_path"),
+        "msg": job.get("msg"),
+        "created_at": job.get("created_at"),
+    }
+    try:
+        (meta_dir / f"{job_id}.json").write_text(
+            json.dumps(meta, ensure_ascii=False), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
+def _restore_job_from_disk(job_id: str) -> dict | None:
+    """从磁盘 JSON 恢复 job 元数据（用于重启后的 fallback）。"""
+    meta_path = DATA_DIR / "_export_jobs" / f"{job_id}.json"
+    if not meta_path.exists():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(meta, dict):
+        return None
+    # PDF 文件必须存在才算有效
+    pdf_path = meta.get("path")
+    if not pdf_path or not Path(pdf_path).exists():
+        return None
+    return {
+        "status": meta.get("status") or "done",
+        "path": pdf_path,
+        "filename": meta.get("filename"),
+        "saved_copy_path": meta.get("saved_copy_path"),
+        "msg": meta.get("msg") or "ok",
+        "phase": "done",
+        "progress": {"done": 1, "total": 1, "percent": 100.0},
+        "created_at": meta.get("created_at"),
+    }
 
 
 def _queue_position(job_id: str) -> int:
@@ -86,25 +138,66 @@ def _export_worker_loop():
         job["progress"] = {"done": 1, "total": 3, "percent": 33.3}
         process_export_job(job_id, req)
 
-# 启动时清理旧的导出文件
+# 启动时清理旧的导出文件（保留最近 7 天，以便重启后恢复 job 状态）
 def cleanup_old_export_files():
-    """清理所有旧的导出文件，避免积累占用空间"""
+    """清理 7 天前的导出文件，避免积累占用空间"""
     export_dir = DATA_DIR / "_export_jobs"
-    if export_dir.exists():
-        try:
-            # 清理PDF文件和JSON文件
-            for pattern in ["*.pdf", "*.json"]:
-                for file in export_dir.glob(pattern):
-                    try:
+    if not export_dir.exists():
+        return
+    try:
+        cutoff = time.time() - 7 * 86400
+        for pattern in ["*.pdf", "*.json"]:
+            for file in export_dir.glob(pattern):
+                try:
+                    if file.stat().st_mtime < cutoff:
                         file.unlink()
-                    except Exception as e:
-                        print(f"删除旧导出文件失败 {file}: {e}")
-            print(f"清理旧导出文件完成: {export_dir}")
-        except Exception as e:
-            print(f"清理旧导出文件失败: {e}")
+                except Exception as e:
+                    print(f"删除旧导出文件失败 {file}: {e}")
+        print(f"清理旧导出文件完成: {export_dir}")
+    except Exception as e:
+        print(f"清理旧导出文件失败: {e}")
 
-# 启动时执行清理
+
+def _restore_jobs_from_disk():
+    """重启后从磁盘恢复最近的 job 状态到内存。"""
+    export_dir = DATA_DIR / "_export_jobs"
+    if not export_dir.exists():
+        return
+    cutoff = time.time() - 7 * 86400
+    restored = 0
+    for meta_file in export_dir.glob("*.json"):
+        try:
+            if meta_file.stat().st_mtime < cutoff:
+                continue
+            job_id = meta_file.stem
+            if job_id in export_jobs:
+                continue
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            if not isinstance(meta, dict):
+                continue
+            pdf_path = meta.get("path")
+            if not pdf_path or not Path(pdf_path).exists():
+                continue
+            export_jobs[job_id] = {
+                "status": meta.get("status") or "done",
+                "path": pdf_path,
+                "filename": meta.get("filename"),
+                "saved_copy_path": meta.get("saved_copy_path"),
+                "msg": meta.get("msg") or "ok",
+                "phase": "done",
+                "progress": {"done": 1, "total": 1, "percent": 100.0},
+                "created_at": meta.get("created_at"),
+            }
+            restored += 1
+        except Exception:
+            continue
+    if restored:
+        print(f"从磁盘恢复了 {restored} 个导出任务")
+
+
+# 启动时清理旧文件并恢复最近的 job
 cleanup_old_export_files()
+_restore_jobs_from_disk()
 
 def _pick_directory(initial_dir: Optional[str]) -> Optional[str]:
     try:
@@ -175,13 +268,15 @@ def create_export_job(req: ExportRequest, background_tasks: BackgroundTasks):
 def check_export_status(job_id: str):
     job = export_jobs.get(job_id)
     if not job:
-        # Fallback: multi-worker may not share memory; check file on disk.
-        fallback_path = DATA_DIR / "_export_jobs" / f"{job_id}.pdf"
-        if fallback_path.exists():
+        # Fallback: 重启后从磁盘恢复 job 状态
+        restored = _restore_job_from_disk(job_id)
+        if restored:
             return {
-                "status": "done",
+                "status": restored["status"],
                 "download_url": f"/export/download/{job_id}",
-                "progress": {"done": 1, "total": 1, "percent": 100.0},
+                "saved_copy_path": restored.get("saved_copy_path"),
+                "phase": "done",
+                "progress": restored.get("progress"),
             }
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -260,11 +355,11 @@ def download_export_file(job_id: str):
         path = job["path"]
         filename = job.get("filename")
     else:
-        # Fallback: multi-worker may not share memory; check file on disk.
-        fallback_path = DATA_DIR / "_export_jobs" / f"{job_id}.pdf"
-        if fallback_path.exists():
-            path = str(fallback_path)
-            filename = _read_download_filename_from_meta(job_id)
+        # Fallback: 重启后从磁盘恢复
+        restored = _restore_job_from_disk(job_id)
+        if restored and restored.get("path"):
+            path = restored["path"]
+            filename = restored.get("filename")
     if not path:
         raise HTTPException(status_code=404, detail="File not ready")
     if not filename:
@@ -277,41 +372,12 @@ def download_export_file(job_id: str):
     )
 
 from sqlalchemy.orm import Session
-from fpdf import FPDF
-from PIL import Image
 import backend.database as _db_mod
 from backend.database import Question, QuestionBox, Answer, AnswerBox, Paper, QuestionSection, SectionGroup, SectionGroupMember
 from backend.config import DATA_DIR, PAGE_DIR
 from backend.services.paper_utils import resolve_page_image
+from backend.dependencies import get_db
 import traceback
-
-# Custom PDF class with page numbers
-class PDFWithPageNumbers(FPDF):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # When a summary cover is inserted, keep question pages starting from 1.
-        self.page_number_offset = 0
-        self.page_number_enabled = True
-
-    def footer(self):
-        """Add centered page numbers at the bottom of each page."""
-        if not getattr(self, "page_number_enabled", True):
-            return
-        display_no = self.page_no() - int(getattr(self, "page_number_offset", 0) or 0)
-        if display_no <= 0:
-            return
-        self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
-        self.set_text_color(128, 128, 128)
-        # Page number centered
-        self.cell(0, 10, f'{display_no}', 0, 0, 'C')
-
-def get_db():
-    db = _db_mod.SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 def _crop_image_with_bbox(img: Image.Image, bbox: list) -> Image.Image:
     """Crop image according to normalized bbox [x0, y0, x1, y1]."""
@@ -346,20 +412,6 @@ def _sanitize_download_filename(raw: str | None, default_name: str) -> str:
     return name
 
 
-def _read_download_filename_from_meta(job_id: str) -> str | None:
-    meta_path = DATA_DIR / "_export_jobs" / f"{job_id}.json"
-    if not meta_path.exists():
-        return None
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    filename = meta.get("filename") if isinstance(meta, dict) else None
-    if not filename:
-        return None
-    return _sanitize_download_filename(filename, f"export_{job_id}")
-
-
 def _normalize_filter_summary_lines(lines: list[str] | None) -> list[str]:
     raw = [str(x).strip() for x in (lines or []) if str(x).strip()]
     if not raw:
@@ -383,6 +435,27 @@ def _normalize_filter_summary_lines(lines: list[str] | None) -> list[str]:
 
 
 def _make_pdf(job_id, ids, options, progress_cb=None):
+    from PIL import Image
+    from fpdf import FPDF
+
+    # Custom PDF class with page numbers
+    class PDFWithPageNumbers(FPDF):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.page_number_offset = 0
+            self.page_number_enabled = True
+
+        def footer(self):
+            if not getattr(self, "page_number_enabled", True):
+                return
+            display_no = self.page_no() - int(getattr(self, "page_number_offset", 0) or 0)
+            if display_no <= 0:
+                return
+            self.set_y(-15)
+            self.set_font('Arial', 'I', 8)
+            self.set_text_color(128, 128, 128)
+            self.cell(0, 10, f'{display_no}', 0, 0, 'C')
+
     db: Session = _db_mod.SessionLocal()
     out_dir = DATA_DIR / "_export_jobs"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -843,3 +916,6 @@ def process_export_job(job_id: str, req: ExportRequest):
             "phase": "error",
             "progress": current.get("progress") or {"done": 0, "total": 1, "percent": 0.0},
         }
+
+    # 持久化 job 元数据到磁盘，重启后可恢复
+    _persist_job_meta(job_id)

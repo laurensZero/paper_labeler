@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SectionTagEditor from './SectionTagEditor.vue'
+import type { TagGroupOption } from './SectionTagEditor.vue'
 
 const { t } = useI18n()
 
@@ -22,7 +23,7 @@ export interface QuestionData {
     filename: string
     exam_code: string | null
   }
-  __ansBoxes?: any[]
+  __ansBoxes?: { image_url: string; bbox: number[] }[]
   __ansOpen?: boolean
   __ansMeta?: string
   __ansLoaded?: boolean
@@ -38,6 +39,8 @@ const props = withDefaults(defineProps<{
   editSections?: string[]
   editNotes?: string
   sectionOptions?: { label: string; options: { value: string; label: string }[] }[]
+  groupOptions?: TagGroupOption[]
+  groupLabel?: string
 }>(), {
   collapsed: false,
   ansOpen: false,
@@ -47,6 +50,8 @@ const props = withDefaults(defineProps<{
   editSections: () => [],
   editNotes: '',
   sectionOptions: () => [],
+  groupOptions: () => [],
+  groupLabel: '',
 })
 
 const emit = defineEmits<{
@@ -62,12 +67,14 @@ const emit = defineEmits<{
   'go-to-mark': []
   'update:editSections': [value: string[]]
   'update:editNotes': [value: string]
+  'create-section': [name: string, groupId: string | number | null]
 }>()
 
 // When collapsed, clicking an action button expands first, then fires the action
-function collapsedAction(name: string) {
+type SimpleEvent = 'toggle-favorite' | 'toggle-collapse' | 'edit' | 'edit-answer' | 'locate' | 'delete' | 'toggle-answer' | 'cancel-edit' | 'save-edit' | 'go-to-mark'
+function collapsedAction(name: SimpleEvent) {
   if (props.collapsed) emit('toggle-collapse')
-  emit(name as any)
+  emit(name)
 }
 
 const paperLabel = computed(() => {
@@ -170,7 +177,12 @@ const answerButtonText = computed(() => {
             :model-value="editSections"
             :option-groups="sectionOptions"
             :placeholder="t('inspector.sectionPlaceholder')"
+            creatable
+            :create-label="t('inspector.createSection')"
+            :group-options="groupOptions"
+            :group-label="t('inspector.sectionGroup')"
             @update:model-value="emit('update:editSections', $event)"
+            @create="(name: string, groupId: string | number | null) => emit('create-section', name, groupId)"
           />
         </div>
         <div class="inspector-section">
