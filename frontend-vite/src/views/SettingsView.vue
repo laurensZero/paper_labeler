@@ -405,7 +405,7 @@ onMounted(() => {
           <div style="display: flex; align-items: center; gap: 8px">
             <div
               style="max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text-secondary); padding: 6px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm)"
-              :title="exportDefaultSaveDir || t('settings.export.saveDirPlaceholder')"
+              v-tooltip="exportDefaultSaveDir || t('settings.export.saveDirPlaceholder')"
             >
               {{ exportDefaultSaveDir || t('settings.export.saveDirPlaceholder') }}
             </div>

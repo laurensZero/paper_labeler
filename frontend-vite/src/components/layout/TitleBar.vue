@@ -90,7 +90,7 @@ function close() { window.electronAPI?.close() }
         <span class="status-pulse"></span>
         <span class="status-label">{{ statusLabel }}</span>
       </div>
-      <button class="titlebar-ghost-btn" @click="emit('toggleTheme', $event)" :title="isDark ? t('sidebar.lightMode') : t('sidebar.darkMode')">
+      <button class="titlebar-ghost-btn" @click="emit('toggleTheme', $event)" v-tooltip="isDark ? t('sidebar.lightMode') : t('sidebar.darkMode')">
         <svg v-if="isDark" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
         </svg>
@@ -99,10 +99,10 @@ function close() { window.electronAPI?.close() }
         </svg>
       </button>
       <div class="titlebar-sep"></div>
-      <button class="titlebar-win-btn" @click="minimize" :title="t('titlebar.minimize')">
+      <button class="titlebar-win-btn" @click="minimize" v-tooltip="t('titlebar.minimize')">
         <svg width="12" height="12" viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" stroke-width="1.5"/></svg>
       </button>
-      <button class="titlebar-win-btn" @click="maximize" :title="isMaximized ? t('titlebar.restore') : t('titlebar.maximize')">
+      <button class="titlebar-win-btn" @click="maximize" v-tooltip="isMaximized ? t('titlebar.restore') : t('titlebar.maximize')">
         <svg v-if="isMaximized" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2">
           <rect x="3" y="1" width="8" height="8" rx="1"/><path d="M1 3h2v8H3a1 1 0 0 1-1-1V3z"/>
         </svg>
@@ -110,7 +110,7 @@ function close() { window.electronAPI?.close() }
           <rect x="1.5" y="1.5" width="9" height="9" rx="1"/>
         </svg>
       </button>
-      <button class="titlebar-win-btn titlebar-win-btn--close" @click="close" :title="t('titlebar.close')">
+      <button class="titlebar-win-btn titlebar-win-btn--close" @click="close" v-tooltip="t('titlebar.close')">
         <svg width="12" height="12" viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5"/></svg>
       </button>
     </div>

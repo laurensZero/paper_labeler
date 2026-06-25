@@ -150,7 +150,7 @@ function persistOptions() {
                 :placeholder="t('exportWizard.fileNamePlaceholder')"
               />
               <div class="section-card-footer">
-                <div class="footer-text" :title="exportDefaultSaveDir || t('exportWizard.noSaveDir')">
+                <div class="footer-text" v-tooltip="exportDefaultSaveDir || t('exportWizard.noSaveDir')">
                   {{ t('exportWizard.saveDir') }}：{{ exportDefaultSaveDir || t('exportWizard.noSaveDir') }}
                 </div>
                 <button class="btn btn-sm" @click="onEditSaveDir">{{ t('exportWizard.editDir') }}</button>

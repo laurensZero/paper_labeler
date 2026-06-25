@@ -647,7 +647,7 @@ onBeforeUnmount(() => {
                 :class="{ 'pcms-paper-item--selected': selectedSet.has(paper.value) }"
                 role="option"
                 :aria-selected="selectedSet.has(paper.value)"
-                :title="paper.label"
+                v-tooltip="paper.label"
                 @mousedown.prevent="togglePaper(paper.value)"
               >
                 <span class="pcms-checkbox" :class="{ 'pcms-checkbox--checked': selectedSet.has(paper.value) }">

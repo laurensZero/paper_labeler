@@ -834,10 +834,10 @@ function formatBbox(bbox: number[]): string {
               <div class="toolbar-divider"></div>
 
               <!-- Prev/Next question -->
-              <button class="btn btn-ghost btn-icon" :disabled="!canPrevAnswer" title="上一题 (J / ←)" @click="answerPrev">
+              <button class="btn btn-ghost btn-icon" :disabled="!canPrevAnswer" v-tooltip="'上一题 (J / ←)'" @click="answerPrev">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
-              <button class="btn btn-ghost btn-icon" :disabled="!canNextAction" :title="`${answerNextButtonLabel} (K / →)`" @click="answerNext">
+              <button class="btn btn-ghost btn-icon" :disabled="!canNextAction" v-tooltip="`${answerNextButtonLabel} (K / →)`" @click="answerNext">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
 
@@ -857,10 +857,10 @@ function formatBbox(bbox: number[]): string {
               <div class="toolbar-divider"></div>
 
               <!-- Undo/Redo -->
-              <button class="btn btn-ghost btn-icon" :disabled="!canUndo" title="撤销 (Ctrl+Z)" @click="handleUndo">
+              <button class="btn btn-ghost btn-icon" :disabled="!canUndo" v-tooltip="'撤销 (Ctrl+Z)'" @click="handleUndo">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
               </button>
-              <button class="btn btn-ghost btn-icon" :disabled="!canRedo" title="重做 (Ctrl+Y)" @click="handleRedo">
+              <button class="btn btn-ghost btn-icon" :disabled="!canRedo" v-tooltip="'重做 (Ctrl+Y)'" @click="handleRedo">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
               </button>
 
@@ -1254,7 +1254,7 @@ function formatBbox(bbox: number[]): string {
 
 /* ── Right panel ── */
 .answer-right-panel {
-  width: clamp(340px, 28vw, 430px);
+  width: clamp(420px, 38vw, 640px);
   max-width: 100%;
   flex-shrink: 0;
   margin-bottom: 0;

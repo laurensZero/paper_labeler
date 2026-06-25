@@ -549,7 +549,7 @@ const {
         </div>
       </div>
       <div class="ws-toolbar-right">
-        <button class="ws-toolbar-btn" :class="{ active: fullscreen }" @click="toggleFullscreen" :title="fullscreen ? t('filter.exitFullscreenHint') : t('filter.fullscreen')">
+        <button class="ws-toolbar-btn" :class="{ active: fullscreen }" @click="toggleFullscreen" v-tooltip="fullscreen ? t('filter.exitFullscreenHint') : t('filter.fullscreen')">
           <svg v-if="!fullscreen" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
           <span>{{ fullscreen ? t('filter.exitFullscreen') : t('filter.fullscreen') }}</span>
@@ -566,7 +566,7 @@ const {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           <span>{{ t('filter.batchDelete') }}</span>
         </button>
-        <button class="ws-toolbar-btn ws-toolbar-btn--icon" :title="t('filter.keyboardHelp') + ' (?)'" @click="appStore.toggleKeyboardHelp()">
+        <button class="ws-toolbar-btn ws-toolbar-btn--icon" v-tooltip="t('filter.keyboardHelp') + ' (?)'" @click="appStore.toggleKeyboardHelp()">
           <span style="font-size:14px;font-weight:600;line-height:1">?</span>
         </button>
         <button class="ws-toolbar-btn" @click="exportStore.exportFilterPdf()">
@@ -684,16 +684,16 @@ const {
 
     <!-- ═══ Fullscreen floating buttons ═══ -->
     <div v-if="fullscreen" class="ws-fs-bar" :style="fsBarX >= 0 ? { left: fsBarX + 'px', top: fsBarY + 'px', right: 'auto' } : undefined" @pointerdown="onFsBarPointerDown" @pointermove="onFsBarPointerMove" @pointerup="onFsBarPointerUp">
-      <button class="ws-fs-btn" @click="toggleFullscreen" :title="t('filter.exitFullscreenHint')">
+      <button class="ws-fs-btn" @click="toggleFullscreen" v-tooltip="t('filter.exitFullscreenHint')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
         <span>{{ t('filter.exitFullscreen') }}</span>
       </button>
       <div class="ws-fs-zoom">
-        <button class="ws-fs-btn ws-fs-btn--sm" @click="fsZoomOut" title="缩小">
+        <button class="ws-fs-btn ws-fs-btn--sm" @click="fsZoomOut" v-tooltip="'缩小'">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
         </button>
-        <button class="ws-fs-zoom-label" @click="fsZoomReset" title="重置">{{ Math.round(fsZoom * 100) }}%</button>
-        <button class="ws-fs-btn ws-fs-btn--sm" @click="fsZoomIn" title="放大">
+        <button class="ws-fs-zoom-label" @click="fsZoomReset" v-tooltip="'重置'">{{ Math.round(fsZoom * 100) }}%</button>
+        <button class="ws-fs-btn ws-fs-btn--sm" @click="fsZoomIn" v-tooltip="'放大'">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
         </button>
       </div>

@@ -242,7 +242,7 @@ onMounted(async () => {
           </div>
           <button
             class="btn btn-ghost btn-icon btn-delete"
-            :title="t('paperAdmin.deleteTitle')"
+            v-tooltip="t('paperAdmin.deleteTitle')"
             @click="deletePaper(p)"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -254,7 +254,7 @@ onMounted(async () => {
           </button>
         </div>
 
-        <div class="paper-name" :title="formatPaperName(p) || p.filename">
+        <div class="paper-name" v-tooltip="formatPaperName(p) || p.filename">
           {{ formatPaperName(p) || p.filename }}
         </div>
 
@@ -291,7 +291,7 @@ onMounted(async () => {
             <button
               class="btn btn-sm"
               :class="p.done ? 'btn-done-active' : ''"
-              :title="p.done ? t('paperAdmin.unmarkDone') : t('paperAdmin.markDone')"
+              v-tooltip="p.done ? t('paperAdmin.unmarkDone') : t('paperAdmin.markDone')"
               @click="toggleDone(p)"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

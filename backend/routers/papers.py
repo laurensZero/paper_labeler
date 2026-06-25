@@ -231,6 +231,8 @@ def list_papers(db: Session = Depends(get_db)):
                 "done": bool(p.done),
                 "paired_paper_id": p.paired_paper_id,
                 "is_answer": bool(p.is_answer),
+                "year_token": p.year_token,
+                "season_token": p.season_token,
                 "created_at": p.created_at,
             }
             for p in papers

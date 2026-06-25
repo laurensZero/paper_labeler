@@ -32,12 +32,6 @@ const emit = defineEmits<{
 
 const scrollRef = ref<HTMLElement | null>(null)
 
-// Tooltip state
-const tipText = ref('')
-const tipX = ref(0)
-const tipY = ref(0)
-const tipVisible = ref(false)
-
 function getItemColor(item: FilmStripItem): string | null {
   const map = props.sectionColorMap
   if (!map) return null
@@ -52,20 +46,6 @@ function getItemSectionLabel(item: FilmStripItem): string {
   if (item.sections?.length) return item.sections.join(', ')
   if (item.section) return item.section
   return ''
-}
-
-function onItemMouseEnter(e: MouseEvent, item: FilmStripItem) {
-  const label = getItemSectionLabel(item)
-  if (!label) return
-  tipText.value = label
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  tipX.value = rect.left + rect.width / 2
-  tipY.value = rect.top - 6
-  tipVisible.value = true
-}
-
-function onItemMouseLeave() {
-  tipVisible.value = false
 }
 
 function scrollToActive() {
@@ -146,8 +126,7 @@ watch(() => props.activeId, () => {
         }"
         :data-fs-id="item.id"
         @click="onItemClick(item)"
-        @mouseenter="onItemMouseEnter($event, item)"
-        @mouseleave="onItemMouseLeave"
+        v-tooltip="getItemSectionLabel(item)"
       >
         <div v-if="multiSelect" class="fs-item-check">
           <svg v-if="selectedIds.has(item.id)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -167,14 +146,6 @@ watch(() => props.activeId, () => {
         </button>
       </div>
     </div>
-    <!-- Fixed tooltip -->
-    <Teleport to="body">
-      <div
-        v-if="tipVisible && tipText"
-        class="fs-tooltip"
-        :style="{ left: tipX + 'px', top: tipY + 'px' }"
-      >{{ tipText }}</div>
-    </Teleport>
   </div>
 </template>
 
@@ -228,26 +199,20 @@ watch(() => props.activeId, () => {
   border-color: var(--border-strong);
 }
 
-.fs-tooltip {
-  position: fixed;
-  transform: translate(-50%, -100%);
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 10000;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
-}
-
 .fs-item--active {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--text-accent);
+}
+
+.fs-item--fav {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.fs-item--fav.fs-item--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .fs-item--active .fs-item-no {

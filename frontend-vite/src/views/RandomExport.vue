@@ -129,10 +129,10 @@ function toggleGroupSelectAll(group: RandomExportGroup) {
             <!-- Batch Controls -->
             <div class="batch-controls">
               <div class="batch-left">
-                <button class="btn btn-sm" :title="t('randomExport.batchSubTitle')" @click="onBatchSub">
+                <button class="btn btn-sm" v-tooltip="t('randomExport.batchSubTitle')" @click="onBatchSub">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
-                <button class="btn btn-sm" :title="t('randomExport.batchAddTitle')" @click="onBatchAdd">
+                <button class="btn btn-sm" v-tooltip="t('randomExport.batchAddTitle')" @click="onBatchAdd">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
                 <input
@@ -188,7 +188,7 @@ function toggleGroupSelectAll(group: RandomExportGroup) {
                     >
                       <div class="section-label">
                         <AppCheckbox v-model="item.selected" />
-                        <span class="section-name" :title="item.section || t('randomExport.unsectioned')">
+                        <span class="section-name" v-tooltip="item.section || t('randomExport.unsectioned')">
                           {{ item.section || t('randomExport.unsectioned') }}
                         </span>
                         <span class="section-stock">({{ t('randomExport.stock') }} {{ item.count }})</span>

@@ -67,6 +67,15 @@ function onBankItemDblClick(q: Question, e: MouseEvent) {
   previewQuestion.value = q
 }
 
+function getSectionDotColor(q: Question): string | null {
+  const map = sectionsStore.sectionColorMap
+  if (!map || !q.sections?.length) return null
+  for (const s of q.sections) {
+    if (map[s]) return map[s]
+  }
+  return null
+}
+
 function closePreview() {
   previewQuestion.value = null
 }
@@ -122,10 +131,16 @@ watch(() => route.params.id, async (id) => {
 /* ── Year/Season options ── */
 const yearOptions = computed(() => {
   const years = new Set<string>()
-  papersStore.papers.forEach(p => {
-    if (p.year_token) years.add(p.year_token)
-  })
-  return Array.from(years).sort((a, b) => Number(b) - Number(a))
+  for (const p of papersStore.papers) {
+    if (p.year_token) {
+      years.add(p.year_token)
+    } else {
+      const text = (p.exam_code || '') + ' ' + (p.filename || '')
+      const m = text.match(/_(m|s|w)(\d{2})_/i)
+      if (m) years.add(m[2])
+    }
+  }
+  return Array.from(years).sort((a, b) => Number(b) - Number(a)).map(y => ({ value: y, label: `20${y}` }))
 })
 
 const seasonOptions = [
@@ -466,13 +481,13 @@ async function exportComposition() {
                     />
                   </div>
                   <div class="comp-list-actions">
-                    <button class="btn-icon" @click.stop="startRename(comp)" title="重命名">
+                    <button class="btn-icon" @click.stop="startRename(comp)" v-tooltip="'重命名'">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                     </button>
-                    <button class="btn-icon" @click.stop="duplicateComposition(comp.id)" :title="t('compose.duplicate')">
+                    <button class="btn-icon" @click.stop="duplicateComposition(comp.id)" v-tooltip="t('compose.duplicate')">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     </button>
-                    <button class="btn-icon btn-icon--danger" @click.stop="deleteComposition(comp.id)" :title="t('compose.delete')">
+                    <button class="btn-icon btn-icon--danger" @click.stop="deleteComposition(comp.id)" v-tooltip="t('compose.delete')">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                     </button>
                   </div>
@@ -492,7 +507,7 @@ async function exportComposition() {
       <!-- Toolbar -->
       <div class="compose-toolbar">
         <div class="toolbar-left">
-          <button class="btn-ghost" @click="showListModal = true" :title="t('compose.loadList')">
+          <button class="btn-ghost" @click="showListModal = true" v-tooltip="t('compose.loadList')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           </button>
           <div v-if="editingName" class="name-edit">
@@ -508,13 +523,13 @@ async function exportComposition() {
             <span>{{ current.name }}</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           </div>
-          <span v-if="dirty" class="dirty-dot" title="有未保存的修改">●</span>
+          <span v-if="dirty" class="dirty-dot" v-tooltip="'有未保存的修改'">●</span>
         </div>
         <div class="toolbar-right">
-          <button class="btn-ghost" @click="duplicateComposition(current.id)" :title="t('compose.duplicate')">
+          <button class="btn-ghost" @click="duplicateComposition(current.id)" v-tooltip="t('compose.duplicate')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           </button>
-          <button class="btn-ghost btn-ghost--danger" @click="deleteComposition(current.id)" :title="t('compose.delete')">
+          <button class="btn-ghost btn-ghost--danger" @click="deleteComposition(current.id)" v-tooltip="t('compose.delete')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
           <button class="btn-primary" @click="exportComposition" :disabled="!items.length || exportBusy">
@@ -538,7 +553,7 @@ async function exportComposition() {
             />
             <MultiSelect
               v-model="bankYearMulti"
-              :options="yearOptions.map(y => ({ value: y, label: y }))"
+              :options="yearOptions"
               :placeholder="'Year'"
               @update:model-value="searchBank()"
             />
@@ -560,18 +575,23 @@ async function exportComposition() {
                 v-for="q in bankResults"
                 :key="q.id"
                 class="bank-item"
-                :class="{ 'bank-item--added': isInComposition(q.id) }"
+                :class="{ 'bank-item--added': isInComposition(q.id), 'bank-item--fav': q.is_favorite }"
                 @click="toggleQuestion(q)"
                 @dblclick="onBankItemDblClick(q, $event)"
+                v-tooltip="q.sections?.join(', ') || ''"
               >
                 <div class="bank-item-check">
                   <svg v-if="isInComposition(q.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
                 </div>
                 <div class="bank-item-info">
                   <span class="bank-item-qno">{{ q.question_no || '?' }}</span>
+                  <span v-if="getSectionDotColor(q)" class="bank-item-dot" :style="{ background: getSectionDotColor(q) }"></span>
                   <span class="bank-item-sections">{{ q.sections?.[0] || '-' }}</span>
                   <span class="bank-item-paper">{{ q.paper?.exam_code || '' }}</span>
                 </div>
+                <svg v-if="q.is_favorite" class="bank-item-fav-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                </svg>
               </div>
             </template>
             <div v-if="!bankLoading && bankTotal > bankPageSize" class="bank-pagination">
@@ -888,13 +908,13 @@ async function exportComposition() {
                   />
                 </div>
                 <div class="comp-list-actions">
-                  <button class="btn-icon" @click.stop="startRename(comp)" title="重命名">
+                  <button class="btn-icon" @click.stop="startRename(comp)" v-tooltip="'重命名'">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   </button>
-                  <button class="btn-icon" @click.stop="duplicateComposition(comp.id)" :title="t('compose.duplicate')">
+                  <button class="btn-icon" @click.stop="duplicateComposition(comp.id)" v-tooltip="t('compose.duplicate')">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                   </button>
-                  <button class="btn-icon btn-icon--danger" @click.stop="deleteComposition(comp.id)" :title="t('compose.delete')">
+                  <button class="btn-icon btn-icon--danger" @click.stop="deleteComposition(comp.id)" v-tooltip="t('compose.delete')">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                   </button>
                 </div>
@@ -1152,6 +1172,30 @@ async function exportComposition() {
 
 .bank-item--added {
   background: var(--accent-soft);
+}
+
+.bank-item--fav {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.bank-item--fav.bank-item--added {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.bank-item-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.bank-item-fav-icon {
+  color: var(--danger);
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .bank-item-check {

@@ -10,6 +10,8 @@ export interface PaperListItem {
   done: boolean
   paired_paper_id: number | null
   is_answer: boolean
+  year_token: string | null
+  season_token: string | null
   created_at: string
 }
 

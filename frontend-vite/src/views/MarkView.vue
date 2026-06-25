@@ -430,10 +430,10 @@ onBeforeUnmount(() => {
               <div v-if="canReturnToFilter" class="toolbar-divider"></div>
 
               <!-- Page navigation -->
-              <button class="btn btn-ghost btn-icon" :disabled="!canPrevPage" title="上一页 (J)" @click="prevPage">
+              <button class="btn btn-ghost btn-icon" :disabled="!canPrevPage" v-tooltip="'上一页 (J)'" @click="prevPage">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
-              <button class="btn btn-ghost btn-icon" :disabled="!canNextPage" title="下一页 (K)" @click="nextPage">
+              <button class="btn btn-ghost btn-icon" :disabled="!canNextPage" v-tooltip="'下一页 (K)'" @click="nextPage">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
               <input
@@ -461,13 +461,13 @@ onBeforeUnmount(() => {
               <div class="toolbar-divider"></div>
 
               <!-- Keyboard help -->
-              <button class="btn btn-ghost btn-icon" title="快捷键帮助 (?)" @click="appStore.toggleKeyboardHelp()" style="font-size:14px;font-weight:600">?</button>
+              <button class="btn btn-ghost btn-icon" v-tooltip="'快捷键帮助 (?)'" @click="appStore.toggleKeyboardHelp()" style="font-size:14px;font-weight:600">?</button>
 
               <!-- Undo/Redo -->
-              <button class="btn btn-ghost btn-icon" :disabled="!canUndo" title="撤销 (Ctrl+Z)" @click="markStore.undoMark()">
+              <button class="btn btn-ghost btn-icon" :disabled="!canUndo" v-tooltip="'撤销 (Ctrl+Z)'" @click="markStore.undoMark()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
               </button>
-              <button class="btn btn-ghost btn-icon" :disabled="!canRedo" title="重做 (Ctrl+Y)" @click="markStore.redoMark()">
+              <button class="btn btn-ghost btn-icon" :disabled="!canRedo" v-tooltip="'重做 (Ctrl+Y)'" @click="markStore.redoMark()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
               </button>
 
