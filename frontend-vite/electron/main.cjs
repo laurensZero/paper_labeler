@@ -106,12 +106,48 @@ function findPython() {
   return null
 }
 
+async function ensureDependencies(python) {
+  const root = getRoot()
+  const reqFile = path.join(root, 'requirements.txt')
+  if (!fs.existsSync(reqFile)) {
+    console.log('[deps] requirements.txt not found, skipping install')
+    return
+  }
+
+  console.log('[deps] Installing Python dependencies...')
+  return new Promise((resolve, reject) => {
+    const child = spawn(python, ['-m', 'pip', 'install', '-r', reqFile, '--quiet', '--disable-pip-version-check', '-i', 'https://pypi.tuna.tsinghua.edu.cn/simple'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    })
+    child.stdout?.setEncoding('utf-8')
+    child.stderr?.setEncoding('utf-8')
+    child.stdout?.on('data', (d) => process.stdout.write(`[deps] ${d}`))
+    child.stderr?.on('data', (d) => process.stderr.write(`[deps] ${d}`))
+    child.on('error', reject)
+    child.on('exit', (code) => {
+      if (code === 0) {
+        console.log('[deps] Dependencies OK')
+        resolve()
+      } else {
+        reject(new Error(`pip install exited with code ${code}`))
+      }
+    })
+  })
+}
+
 async function startBackend() {
   const python = findPython()
   if (!python) {
     console.error('Python not found. Please install Python 3.8+ and add it to PATH.')
     app.quit()
     return
+  }
+
+  try {
+    await ensureDependencies(python)
+  } catch (err) {
+    console.error('[deps] Failed to install dependencies:', err.message)
   }
 
   backendPort = await getFreePort()
