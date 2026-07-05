@@ -20,8 +20,10 @@ const isLoading = ref(true)
 const hasError = ref(false)
 let drawSeq = 0
 let resizeObserver: ResizeObserver | null = null
+let intersectionObserver: IntersectionObserver | null = null
 let resizeFrame: number | null = null
 let lastDrawCssWidth = 0
+let isVisible = false
 
 function clamp01(value: unknown): number {
   const n = Number(value)
@@ -121,7 +123,24 @@ function scheduleResizeDraw() {
 
 onMounted(() => {
   nextTick(() => {
-    drawCrop()
+    if (rootEl.value && typeof IntersectionObserver !== 'undefined') {
+      intersectionObserver = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          isVisible = true
+          // Re-read container width after layout, then draw
+          nextTick(() => {
+            lastDrawCssWidth = 0  // Force redraw with correct width
+            drawCrop()
+          })
+          intersectionObserver?.disconnect()
+          intersectionObserver = null
+        }
+      }, { rootMargin: '200px', threshold: 0.01 })
+      intersectionObserver.observe(rootEl.value)
+    } else {
+      isVisible = true
+      drawCrop()
+    }
     if (rootEl.value && typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(scheduleResizeDraw)
       resizeObserver.observe(rootEl.value)
@@ -130,6 +149,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  intersectionObserver?.disconnect()
+  intersectionObserver = null
   resizeObserver?.disconnect()
   resizeObserver = null
   if (resizeFrame != null) {

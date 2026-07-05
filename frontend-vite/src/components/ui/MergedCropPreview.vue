@@ -240,11 +240,15 @@ onMounted(() => {
       intersectionObserver = new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
           isVisible = true
-          requestDraw()
+          // Re-read container width after layout, then draw
+          nextTick(() => {
+            lastDrawCssWidth = 0  // Force redraw with correct width
+            requestDraw()
+          })
           intersectionObserver?.disconnect()
           intersectionObserver = null
         }
-      }, { rootMargin: '80px', threshold: 0.01 })
+      }, { rootMargin: '200px', threshold: 0.01 })
       intersectionObserver.observe(rootEl.value)
     } else {
       isVisible = true
