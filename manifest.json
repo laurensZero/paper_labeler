@@ -1,7 +1,7 @@
 {
-  "version": "20260705.2",
-  "url": "bundle-20260705.2.zip",
-  "hash": "sha256:ab044f1acda360cdb7babd8887f123d9cf42ebd766a45a2b9edb0ae0e8e39459",
-  "notes": "193010f fix: remove unused visibility tracking in CropCanvas component ",
-  "publishedAt": "2026-07-05T11:59:18Z"
+  "version": "20260705.3",
+  "url": "bundle-20260705.3.zip",
+  "hash": "sha256:cf1171f4e80d52f88beb70e2ed4478454867437596ec719738734ccb5dd639a2",
+  "notes": "71f2cc4 fix: ensure valid container width for drawing in CropCanvas and MergedCropPreview components; update FilterView styles for image responsiveness ",
+  "publishedAt": "2026-07-05T12:05:36Z"
 }
