@@ -560,7 +560,11 @@
     "checking": "Checking for updates...",
     "upToDate": "Already up to date",
     "checkForUpdates": "Check for Updates",
-    "releaseNotes": "Release Notes"
+    "releaseNotes": "Release Notes",
+    "readyToInstall": "Update ready to install",
+    "quickUpdate": "Quick Update",
+    "downloadedHint": "Update has been downloaded. Restart to apply.",
+    "restartToInstall": "Restart to Update"
   },
   "compose": {
     "title": "Compose",

@@ -19,13 +19,19 @@
     "e2e:api": "node tests/api-e2e.mjs",
     "electron:dev": "vite build && electron .",
     "electron:watch": "node electron/watch.cjs",
-    "electron:build": "vue-tsc -b && vite build && electron-builder --win portable --publish never",
-    "electron:release": "vue-tsc -b && vite build && electron-builder --win portable --publish always",
+    "electron:build": "vue-tsc -b && vite build && electron-builder --win nsis --publish never",
+    "electron:release": "vue-tsc -b && vite build && electron-builder --win nsis --publish always",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "build": {
-    "publish": [{ "provider": "github", "owner": "laurens1995s", "repo": "paper_labeler" }],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "laurensZero",
+        "repo": "paper_labeler"
+      }
+    ],
     "appId": "com.paper-labeler.app",
     "productName": "Paper Labeler",
     "icon": "build/icon.png",
@@ -37,8 +43,24 @@
       "electron/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "installerIcon": "build/icon.png",
+      "uninstallerIcon": "build/icon.png",
+      "installerHeaderIcon": "build/icon.png",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Paper Labeler"
     },
     "extraResources": [
       {
@@ -56,6 +78,7 @@
   },
   "dependencies": {
     "@vueuse/core": "^14.3.0",
+    "electron-updater": "^6.8.9",
     "naive-ui": "^2.44.1",
     "pinia": "^3.0.4",
     "vue": "^3.5.34",

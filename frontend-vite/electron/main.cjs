@@ -1,13 +1,15 @@
-const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const net = require('net')
 const http = require('http')
 const fs = require('fs')
+const { autoUpdater } = require('electron-updater')
 
 let backendProcess = null
 let backendPort = 0
 let mainWindow = null
+let isUpdateDownloaded = false
 
 // ROOT: where backend/ lives (for Python import).
 function getRoot() {
@@ -263,6 +265,99 @@ function makeErrorHtml(isDark) {
   <button onclick="window.electronAPI.restartApp()">重试</button></body></html>`
 }
 
+// ── Auto-updater (electron-updater, VS Code style) ──
+function setupAutoUpdater() {
+  // Disable auto-download — we control it from the renderer via IPC
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[updater] checking for update...')
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[updater] update available:', info.version)
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:available', {
+        version: info.version,
+        releaseNotes: info.releaseNotes || '',
+        releaseDate: info.releaseDate || '',
+      })
+    }
+  })
+
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('[updater] up to date:', info.version)
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:not-available')
+    }
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:progress', {
+        percent: Math.round(progress.percent),
+        bytesPerSecond: progress.bytesPerSecond,
+        transferred: progress.transferred,
+        total: progress.total,
+      })
+    }
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[updater] downloaded:', info.version)
+    isUpdateDownloaded = true
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:downloaded', {
+        version: info.version,
+      })
+    }
+  })
+
+  autoUpdater.on('error', (err) => {
+    console.error('[updater] error:', err.message)
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:error', err.message)
+    }
+  })
+
+  // IPC: renderer triggers
+  ipcMain.handle('updater:check', async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      return { hasUpdate: !!result?.updateInfo }
+    } catch (e) {
+      return { error: e.message }
+    }
+  })
+
+  ipcMain.handle('updater:download', async () => {
+    try {
+      await autoUpdater.downloadUpdate()
+      return { ok: true }
+    } catch (e) {
+      return { error: e.message }
+    }
+  })
+
+  ipcMain.handle('updater:install', () => {
+    if (isUpdateDownloaded) {
+      // Kill backend before installing
+      killBackend()
+      autoUpdater.quitAndInstall(false, true)
+    }
+  })
+
+  ipcMain.handle('updater:is-downloaded', () => isUpdateDownloaded)
+
+  // Check on startup (after window is shown)
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((e) => {
+      console.log('[updater] startup check failed (non-fatal):', e.message)
+    })
+  }, 5000)
+}
+
 function createWindow() {
   const isDark = readSavedTheme() === 'dark'
 
@@ -346,6 +441,7 @@ function killBackend() {
 
 app.whenReady().then(async () => {
   createWindow()
+  setupAutoUpdater()
   startBackend()
 
   try {

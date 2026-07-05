@@ -530,8 +530,9 @@ onMounted(() => {
       <!-- 更新信息面板 -->
       <div v-if="appUpdateStore.dialogVisible" style="margin-top: 12px; padding: 12px; border-radius: 10px; background: var(--bg-pressed); border: 1px solid var(--border)">
         <div style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-primary); font-weight: 600">
-          <span>{{ t('update.newVersion') }}</span>
+          <span>{{ appUpdateStore.fullUpdateReady ? t('update.readyToInstall') : t('update.newVersion') }}</span>
           <span style="font-size: 12px; color: var(--accent); font-weight: 500">v{{ appUpdateStore.latestVersion }}</span>
+          <span v-if="appUpdateStore.updateSource === 'hot'" style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--accent); color: #fff; opacity: 0.8">{{ t('update.quickUpdate') }}</span>
         </div>
         <div v-if="appUpdateStore.releaseNotes" style="margin-top: 8px; font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap">{{ appUpdateStore.releaseNotes }}</div>
         <div v-if="appUpdateStore.downloading" style="margin-top: 8px">
@@ -540,16 +541,21 @@ onMounted(() => {
           </div>
           <div style="margin-top: 4px; font-size: 12px; color: var(--text-tertiary)">{{ appUpdateStore.downloadProgress }}%</div>
         </div>
+        <div v-if="appUpdateStore.fullUpdateReady" style="margin-top: 6px; font-size: 12px; color: #22c55e">
+          {{ t('update.downloadedHint') }}
+        </div>
         <div v-if="appUpdateStore.updateLevel === 'force'" style="margin-top: 6px; font-size: 12px; color: var(--danger)">{{ t('update.forceHint') }}</div>
         <div style="margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end">
           <button v-if="appUpdateStore.updateLevel !== 'force'" class="btn btn-ghost btn-sm" :disabled="appUpdateStore.downloading" @click="appUpdateStore.dismiss()">
             {{ t('update.dismiss') }}
           </button>
-          <button v-if="appUpdateStore.downloadUrl" class="btn btn-primary btn-sm" :disabled="appUpdateStore.downloading" @click="appUpdateStore.downloadAndApply()">
-            {{ appUpdateStore.downloading ? t('update.downloading') : t('update.downloadAndApply') }}
+          <!-- Full update already downloaded → "Restart to install" -->
+          <button v-if="appUpdateStore.fullUpdateReady" class="btn btn-primary btn-sm" @click="appUpdateStore.installFullUpdate()">
+            {{ t('update.restartToInstall') }}
           </button>
-          <button v-else-if="appUpdateStore.releasePageUrl" class="btn btn-primary btn-sm" @click="appUpdateStore.openReleasePage()">
-            {{ t('update.openReleasePage') }}
+          <!-- Hot update or full update download -->
+          <button v-else class="btn btn-primary btn-sm" :disabled="appUpdateStore.downloading" @click="appUpdateStore.downloadAndApply()">
+            {{ appUpdateStore.downloading ? t('update.downloading') : t('update.downloadAndApply') }}
           </button>
         </div>
       </div>

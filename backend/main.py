@@ -222,23 +222,52 @@ async def apply_update(request: Request, version: str = ""):
     ZIP structure:
       ui/...       → APP_DIR/frontend-vite/dist/
       backend/...  → APP_DIR/backend/
+
+    Includes rollback: backs up before overwriting, restores on failure.
     """
-    import io, shutil, zipfile
+    import io, shutil, zipfile, time
     from backend.config import APP_DIR, BUNDLE_DIR
 
     body = await request.body()
     if not body:
         return JSONResponse({"error": "empty body"}, status_code=400)
 
+    # Parse ZIP first to validate
     try:
         with zipfile.ZipFile(io.BytesIO(body)) as zf:
-            for name in zf.namelist():
+            names = zf.namelist()
+    except Exception as e:
+        return JSONResponse({"error": f"bad zip: {e}"}, status_code=400)
+
+    # Backup directories before overwriting
+    backup_dir = APP_DIR / "data" / ".update_backup"
+    ui_target = BUNDLE_DIR / "frontend-vite" / "dist"
+    backend_target = APP_DIR / "backend"
+
+    # Clean old backup
+    if backup_dir.exists():
+        shutil.rmtree(backup_dir, ignore_errors=True)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    # Backup current files
+    try:
+        if ui_target.exists():
+            shutil.copytree(ui_target, backup_dir / "ui", dirs_exist_ok=True)
+        if backend_target.exists():
+            shutil.copytree(backend_target, backup_dir / "backend", dirs_exist_ok=True)
+    except Exception as e:
+        # Non-fatal: log but continue (backup is best-effort)
+        print(f"[update] backup warning: {e}")
+
+    # Apply update
+    try:
+        with zipfile.ZipFile(io.BytesIO(body)) as zf:
+            for name in names:
                 if name.startswith('ui/'):
-                    # ui/ → frontend-vite/dist/
                     rel = name[3:]
                     if not rel:
                         continue
-                    target = BUNDLE_DIR / "frontend-vite" / "dist" / rel
+                    target = ui_target / rel
                     if name.endswith('/'):
                         target.mkdir(parents=True, exist_ok=True)
                     else:
@@ -249,7 +278,7 @@ async def apply_update(request: Request, version: str = ""):
                     rel = name[8:]
                     if not rel:
                         continue
-                    target = APP_DIR / "backend" / rel
+                    target = backend_target / rel
                     if name.endswith('/'):
                         target.mkdir(parents=True, exist_ok=True)
                     else:
@@ -257,7 +286,20 @@ async def apply_update(request: Request, version: str = ""):
                         with zf.open(name) as src, open(target, 'wb') as dst:
                             shutil.copyfileobj(src, dst)
     except Exception as e:
-        return JSONResponse({"error": f"bad zip: {e}"}, status_code=400)
+        # Rollback: restore from backup
+        print(f"[update] apply failed, rolling back: {e}")
+        try:
+            if (backup_dir / "ui").exists():
+                if ui_target.exists():
+                    shutil.rmtree(ui_target)
+                shutil.copytree(backup_dir / "ui", ui_target)
+            if (backup_dir / "backend").exists():
+                if backend_target.exists():
+                    shutil.rmtree(backend_target)
+                shutil.copytree(backup_dir / "backend", backend_target)
+        except Exception as rb_err:
+            return JSONResponse({"error": f"update failed and rollback also failed: {e} / rollback: {rb_err}"}, status_code=500)
+        return JSONResponse({"error": f"update failed, rolled back: {e}"}, status_code=400)
 
     # Save installed version
     if version:
@@ -265,6 +307,7 @@ async def apply_update(request: Request, version: str = ""):
         ver_path.parent.mkdir(parents=True, exist_ok=True)
         ver_path.write_text(version, encoding="utf-8")
 
+    # Cleanup backup on success (keep for 1 session just in case, delete on next update)
     return {"ok": True}
 
 
