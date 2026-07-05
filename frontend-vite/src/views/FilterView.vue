@@ -924,6 +924,7 @@ const {
 }
 
 .ws-question-img {
+  width: 100%;
   max-width: 100%;
   border-radius: 20px;
   overflow: hidden;

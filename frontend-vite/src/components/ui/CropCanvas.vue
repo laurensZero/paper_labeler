@@ -85,8 +85,12 @@ function drawCrop() {
     }
 
     const dpr = window.devicePixelRatio || 1
-    const rootWidth = rootEl.value?.clientWidth || 0
-    const displayWidth = Math.max(1, Math.round(rootWidth || canvas.clientWidth || 300))
+    let rootWidth = Math.round(rootEl.value?.clientWidth || 0)
+    if (rootWidth < 10) {
+      // Container not laid out yet, use parent width or fallback
+      rootWidth = Math.round(rootEl.value?.parentElement?.clientWidth || 300)
+    }
+    const displayWidth = Math.max(10, rootWidth)
     const aspect = sh / sw
     const displayHeight = Math.max(1, Math.round(displayWidth * aspect))
     lastDrawCssWidth = displayWidth
@@ -125,10 +129,12 @@ onMounted(() => {
     if (rootEl.value && typeof IntersectionObserver !== 'undefined') {
       intersectionObserver = new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          // Re-read container width after layout, then draw
-          nextTick(() => {
-            lastDrawCssWidth = 0  // Force redraw with correct width
-            drawCrop()
+          // Wait for two frames to ensure layout is complete
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              lastDrawCssWidth = 0  // Force redraw with correct width
+              drawCrop()
+            })
           })
           intersectionObserver?.disconnect()
           intersectionObserver = null
@@ -136,7 +142,7 @@ onMounted(() => {
       }, { rootMargin: '200px', threshold: 0.01 })
       intersectionObserver.observe(rootEl.value)
     } else {
-      drawCrop()
+      requestAnimationFrame(() => requestAnimationFrame(() => drawCrop()))
     }
     if (rootEl.value && typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(scheduleResizeDraw)

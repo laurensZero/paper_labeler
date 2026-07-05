@@ -172,7 +172,13 @@ async function drawMergedCrops() {
     })))
     if (seq !== drawSeq || disposed || !isVisible) return
 
-    const containerWidth = Math.max(1, Math.round(root.clientWidth || canvas.clientWidth || 300))
+    // Wait for container to have a valid width
+    let containerWidth = Math.round(root.clientWidth || 0)
+    if (containerWidth < 10) {
+      // Container not laid out yet, use parent width or fallback
+      containerWidth = Math.round(root.parentElement?.clientWidth || 300)
+    }
+    containerWidth = Math.max(10, containerWidth)
     const cssWidth = Math.min(MAX_RENDER_CSS_WIDTH, containerWidth)
     estimatedHeight.value = estimateMergedHeight(cssWidth)
     const dpr = Math.min(MAX_CANVAS_DPR, window.devicePixelRatio || 1)
@@ -240,10 +246,12 @@ onMounted(() => {
       intersectionObserver = new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
           isVisible = true
-          // Re-read container width after layout, then draw
-          nextTick(() => {
-            lastDrawCssWidth = 0  // Force redraw with correct width
-            requestDraw()
+          // Wait for two frames to ensure layout is complete
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              lastDrawCssWidth = 0  // Force redraw with correct width
+              requestDraw()
+            })
           })
           intersectionObserver?.disconnect()
           intersectionObserver = null
@@ -303,8 +311,6 @@ watch(() => props.boxes, () => {
   overflow: hidden;
   border-radius: var(--radius-sm);
   background: var(--bg-input);
-  content-visibility: auto;
-  contain-intrinsic-size: 220px;
 }
 
 .merged-crop-preview-canvas {
