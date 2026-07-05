@@ -1,7 +1,7 @@
 {
-  "version": "20260705.1",
-  "url": "bundle-20260705.1.zip",
-  "hash": "sha256:fd44077e0521d060438536c88b23cf6651dd1c59b8f0b7d9f66f659f0bf5de9d",
-  "notes": "09cb539 fix ",
-  "publishedAt": "2026-07-05T07:40:45Z"
+  "version": "20260705.2",
+  "url": "bundle-20260705.2.zip",
+  "hash": "sha256:ab044f1acda360cdb7babd8887f123d9cf42ebd766a45a2b9edb0ae0e8e39459",
+  "notes": "193010f fix: remove unused visibility tracking in CropCanvas component ",
+  "publishedAt": "2026-07-05T11:59:18Z"
 }
