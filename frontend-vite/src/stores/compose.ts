@@ -2,7 +2,6 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { compositionsApi } from '@/api/endpoints'
 import { useAppStore } from './app'
-import { useDialogStore } from './dialog'
 import type {
   Composition,
   CompositionDetail,
@@ -155,7 +154,7 @@ export const useComposeStore = defineStore('compose', () => {
       return
     }
     try {
-      const item = await compositionsApi.addItem(current.value.id, { questionId })
+      const item = await compositionsApi.addItem(current.value.id, { question_id: questionId })
       items.value.push(item)
       dirty.value = true
     } catch (e) {
@@ -178,7 +177,7 @@ export const useComposeStore = defineStore('compose', () => {
   async function updateItemBlankPages(itemId: number, blankPages: number) {
     if (!current.value) return
     try {
-      const updated = await compositionsApi.updateItem(current.value.id, itemId, { blankPages })
+      const updated = await compositionsApi.updateItem(current.value.id, itemId, { blank_pages: blankPages })
       const idx = items.value.findIndex(i => i.id === itemId)
       if (idx >= 0) items.value[idx] = { ...items.value[idx], ...updated }
       dirty.value = true
@@ -190,7 +189,7 @@ export const useComposeStore = defineStore('compose', () => {
   async function insertBlankPage(afterItemId?: number) {
     if (!current.value) return
     try {
-      const item = await compositionsApi.insertBlankPage(current.value.id, afterItemId)
+      await compositionsApi.insertBlankPage(current.value.id, afterItemId)
       // Reload to get correct sort orders
       await loadComposition(current.value.id)
     } catch (e) {
@@ -201,7 +200,7 @@ export const useComposeStore = defineStore('compose', () => {
   async function reorderItems(itemIds: number[]) {
     if (!current.value) return
     try {
-      await compositionsApi.reorder(current.value.id, { itemIds })
+      await compositionsApi.reorder(current.value.id, { item_ids: itemIds })
       // Reorder local items to match
       const map = new Map(items.value.map(i => [i.id, i]))
       const reordered = itemIds.map(id => map.get(id)).filter(Boolean) as CompositionItemDetail[]
@@ -220,7 +219,7 @@ export const useComposeStore = defineStore('compose', () => {
   async function addQuestionsBatch(questionIds: number[]) {
     if (!current.value) return
     try {
-      const result = await compositionsApi.addItemsBatch(current.value.id, { questionIds })
+      const result = await compositionsApi.addItemsBatch(current.value.id, { question_ids: questionIds })
       // Reload to get full item details
       await loadComposition(current.value.id)
       if (result.skipped.length) {
@@ -235,12 +234,12 @@ export const useComposeStore = defineStore('compose', () => {
 
   function toggleAnswers() {
     if (!current.value) return
-    updateComposition({ includeAnswers: !current.value.include_answers })
+    updateComposition({ include_answers: !current.value.include_answers })
   }
 
   function setAnswersPlacement(placement: 'end' | 'interleaved') {
     if (!current.value) return
-    updateComposition({ answersPlacement: placement })
+    updateComposition({ answers_placement: placement })
   }
 
   function selectItem(itemId: number | null) {

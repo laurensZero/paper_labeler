@@ -1,7 +1,7 @@
 import { ref, nextTick, onBeforeUnmount } from 'vue'
 import type { Ref } from 'vue'
 import type { BoundingBox } from '@/types/common'
-import type { Question, QuestionBox } from '@/types'
+import type { Question } from '@/types'
 import { clamp01, normalizeBox, pointInBox } from '@/utils/geometry'
 
 interface NewBox {
@@ -59,7 +59,6 @@ export function useMarkCanvas(options: UseMarkCanvasOptions) {
   let pageImgResizeObserver: ResizeObserver | null = null
   let overlayRefreshFrame = 0
   let overlayDrawFrame = 0
-  let markCanvasInteractionActive = false
 
   // --- canvas sizing ---
   function setCanvasSize() {
@@ -93,9 +92,7 @@ export function useMarkCanvas(options: UseMarkCanvasOptions) {
   }
 
   function finishMarkCanvasInteractionSoon() {
-    requestAnimationFrame(() => {
-      markCanvasInteractionActive = false
-    })
+    // no-op
   }
 
   function observePageImageSize() {
@@ -295,7 +292,6 @@ export function useMarkCanvas(options: UseMarkCanvasOptions) {
   function onPointerDown(evt: PointerEvent) {
     if (currentPageIndex.value < 0) return
     evt.preventDefault()
-    markCanvasInteractionActive = true
     const canvas = overlayCanvas.value
     if (canvas) canvas.setPointerCapture?.(evt.pointerId)
 

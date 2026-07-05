@@ -614,14 +614,14 @@ export const compositionsApi = {
       body: JSON.stringify({
         name: params.name,
         title: params.title,
-        header_text: params.headerText,
-        footer_text: params.footerText,
-        include_answers: params.includeAnswers ?? false,
-        answers_placement: params.answersPlacement ?? 'end',
-        group_by_section: params.groupBySection ?? true,
-        show_section_headers: params.showSectionHeaders ?? true,
-        show_question_info: params.showQuestionInfo ?? true,
-        show_page_numbers: params.showPageNumbers ?? true,
+        header_text: params.header_text,
+        footer_text: params.footer_text,
+        include_answers: params.include_answers ?? false,
+        answers_placement: params.answers_placement ?? 'end',
+        group_by_section: params.group_by_section ?? true,
+        show_section_headers: params.show_section_headers ?? true,
+        show_question_info: params.show_question_info ?? true,
+        show_page_numbers: params.show_page_numbers ?? true,
       }),
     })
   },
@@ -631,14 +631,14 @@ export const compositionsApi = {
     const body: Record<string, unknown> = {}
     if (params.name !== undefined) body.name = params.name
     if (params.title !== undefined) body.title = params.title
-    if (params.headerText !== undefined) body.header_text = params.headerText
-    if (params.footerText !== undefined) body.footer_text = params.footerText
-    if (params.includeAnswers !== undefined) body.include_answers = params.includeAnswers
-    if (params.answersPlacement !== undefined) body.answers_placement = params.answersPlacement
-    if (params.groupBySection !== undefined) body.group_by_section = params.groupBySection
-    if (params.showSectionHeaders !== undefined) body.show_section_headers = params.showSectionHeaders
-    if (params.showQuestionInfo !== undefined) body.show_question_info = params.showQuestionInfo
-    if (params.showPageNumbers !== undefined) body.show_page_numbers = params.showPageNumbers
+    if (params.header_text !== undefined) body.header_text = params.header_text
+    if (params.footer_text !== undefined) body.footer_text = params.footer_text
+    if (params.include_answers !== undefined) body.include_answers = params.include_answers
+    if (params.answers_placement !== undefined) body.answers_placement = params.answers_placement
+    if (params.group_by_section !== undefined) body.group_by_section = params.group_by_section
+    if (params.show_section_headers !== undefined) body.show_section_headers = params.show_section_headers
+    if (params.show_question_info !== undefined) body.show_question_info = params.show_question_info
+    if (params.show_page_numbers !== undefined) body.show_page_numbers = params.show_page_numbers
     return api(`/compositions/${compId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -662,12 +662,12 @@ export const compositionsApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        question_id: params.questionId,
-        sort_order: params.sortOrder,
-        blank_pages: params.blankPages ?? 0,
-        item_type: params.itemType ?? 'question',
+        question_id: params.question_id,
+        sort_order: params.sort_order,
+        blank_pages: params.blank_pages ?? 0,
+        item_type: params.item_type ?? 'question',
         score: params.score,
-        custom_header: params.customHeader,
+        custom_header: params.custom_header,
       }),
     })
   },
@@ -678,7 +678,7 @@ export const compositionsApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        question_ids: params.questionIds,
+        question_ids: params.question_ids,
       }),
     })
   },
@@ -691,9 +691,9 @@ export const compositionsApi = {
   /** Update a composition item */
   updateItem(compId: number, itemId: number, params: CompositionItemUpdateParams): Promise<CompositionItemDetail> {
     const body: Record<string, unknown> = {}
-    if (params.sortOrder !== undefined) body.sort_order = params.sortOrder
-    if (params.blankPages !== undefined) body.blank_pages = params.blankPages
-    if (params.customHeader !== undefined) body.custom_header = params.customHeader
+    if (params.sort_order !== undefined) body.sort_order = params.sort_order
+    if (params.blank_pages !== undefined) body.blank_pages = params.blank_pages
+    if (params.custom_header !== undefined) body.custom_header = params.custom_header
     if (params.score !== undefined) body.score = params.score
     return api(`/compositions/${compId}/items/${itemId}`, {
       method: 'PATCH',
@@ -708,7 +708,7 @@ export const compositionsApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        item_ids: params.itemIds,
+        item_ids: params.item_ids,
       }),
     })
   },

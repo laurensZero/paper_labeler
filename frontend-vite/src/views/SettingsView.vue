@@ -9,7 +9,6 @@ import { useAppStore } from '@/stores/app'
 import { usePapersStore } from '@/stores/papers'
 import { useMarkStore } from '@/stores/mark'
 import { useAnswerStore } from '@/stores/answer'
-import { useFilterStore } from '@/stores/filter'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { i18n } from '@/i18n'
 import AppCheckbox from '@/components/ui/AppCheckbox.vue'
@@ -25,7 +24,6 @@ const appStore = useAppStore()
 const papersStore = usePapersStore()
 const markStore = useMarkStore()
 const answerStore = useAnswerStore()
-const filterStore = useFilterStore()
 const appUpdateStore = useAppUpdateStore()
 
 const importing = ref(false)
@@ -71,8 +69,6 @@ const {
   ocrAutoEnabled,
   ocrMinHeightPx,
   ocrYPaddingPx,
-  filterVirtualThreshold,
-  filterVirtualOverscanPx,
   maintenanceBusy,
   maintenanceRemoveOrphanBoxes,
   maintenanceFillMissingQuestionNo,
@@ -87,21 +83,8 @@ const {
 const {
   exportDefaultSaveDir,
   exportCropWorkers,
-  exportNameTemplate,
-  exportNameTemplateError,
-  exportNameCustom,
-  exportNameAutoTimestamp,
-  exportNameSectionStyle,
-  exportCacheStats,
-  exportCacheOverview,
-  exportCacheHitRateText,
 } = storeToRefs(exportStore)
 
-const { filterTotal } = storeToRefs(filterStore)
-
-const exportNamePreview = computed(() =>
-  exportStore.buildRecommendedExportFileNamePreview({ idsCount: Math.max(0, Number(filterTotal.value || 0)), fromRandom: false }).name
-)
 
 // Toggle handlers — call store actions to persist + enforce mutual exclusion
 function onToggleAlignLeft() {
@@ -182,13 +165,6 @@ function onOcrYPaddingChange() {
   settingsStore.saveOcrYPadding(Number(ocrYPaddingPx.value))
 }
 
-function onFilterVirtualThresholdChange() {
-  settingsStore.saveFilterVirtualThreshold(Number(filterVirtualThreshold.value))
-}
-
-function onFilterVirtualOverscanChange() {
-  settingsStore.saveFilterVirtualOverscanPx(Number(filterVirtualOverscanPx.value))
-}
 
 // Export handlers
 async function pickExportSaveDir() {
@@ -199,36 +175,11 @@ function onCropWorkersChange() {
   exportStore.saveExportSettings()
 }
 
-function onNameTemplateBlur() {
-  exportStore.saveExportSettings()
-}
-
-function onExportNameOptionChange() {
-  exportStore.saveExportSettings()
-}
-
-function resetNameTemplate() {
-  exportNameTemplate.value = '{mode}_{section}_{paper}_{year}_{season}_{count}'
-  exportStore.saveExportSettings()
-}
-
 function clearExportSaveDir() {
   exportDefaultSaveDir.value = ''
   exportStore.saveExportSettings()
 }
 
-function clearExportCache() {
-  exportStore.invalidateExportFilterCache()
-  appStore.setStatus(t('settings.exportCache.cleared'), 'ok')
-}
-
-function formatAgeText(ms: number | null | undefined) {
-  const n = Number(ms)
-  if (!Number.isFinite(n) || n < 0) return t('settings.exportCache.noAge')
-  if (n < 60_000) return t('settings.exportCache.seconds', { n: Math.round(n / 1000) })
-  if (n < 3_600_000) return t('settings.exportCache.minutes', { n: Math.round(n / 60_000) })
-  return t('settings.exportCache.hoursFmt', { n: (n / 3_600_000).toFixed(1) })
-}
 
 // Maintenance
 function runIntegrityCheck() {

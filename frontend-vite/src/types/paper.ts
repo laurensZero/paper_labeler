@@ -76,6 +76,9 @@ export interface UploadPdfsResponse {
 export interface OcrQuestionDraft {
   label: string | null
   boxes: OcrBoxDraft[]
+  sections?: string[]
+  section?: string
+  source?: string
 }
 
 /** OCR auto-suggest box draft */

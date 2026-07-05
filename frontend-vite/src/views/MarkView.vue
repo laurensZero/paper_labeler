@@ -15,7 +15,6 @@ import { useMarkCanvas } from '@/composables/useMarkCanvas'
 import type { TagOptionGroup } from '@/components/ui/SectionTagEditor.vue'
 import type { BoundingBox } from '@/types/common'
 import type { Question } from '@/types'
-import { clamp01 } from '@/utils/geometry'
 
 defineOptions({ name: 'MarkView' })
 
@@ -78,7 +77,7 @@ const pageImgUrl = computed(() => {
 // --- canvas composable ---
 const {
   pageImg, overlayCanvas, canvasArea, pageImageLoaded,
-  setCanvasSize, refreshOverlaySize, queueOverlayDraw, clearOverlayCanvas,
+  setCanvasSize, queueOverlayDraw, clearOverlayCanvas,
   drawOverlay, highlightQuestion, onPageImgLoad,
   onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onWindowResize,
 } = useMarkCanvas({
@@ -86,10 +85,12 @@ const {
   pageQuestions, hasOcrDraftMode, selectedOcrDraftIdx, ocrDraftQuestions,
   editingQuestionId, pages, currentPageIndex, pageImgUrl,
   captureMarkSnapshot: () => markStore.captureMarkSnapshot(),
-  commitMarkHistory: (snap) => markStore.commitMarkHistory(snap),
-  getMarkAlignBoundsForBox: (box, isDrawing) => markStore.getMarkAlignBoundsForBox(box, isDrawing),
-  alignMarkBBoxToBoundsX: (bbox, bounds) => markStore.alignMarkBBoxToBoundsX(bbox, bounds),
+  commitMarkHistory: (snap) => markStore.commitMarkHistory(snap as any),
+  getMarkAlignBoundsForBox: (box, isDrawing) => markStore.getMarkAlignBoundsForBox(box, isDrawing) as any,
+  alignMarkBBoxToBoundsX: (bbox, bounds) => markStore.alignMarkBBoxToBoundsX(bbox, bounds as any) as any,
 })
+// overlayCanvas is used as a template ref
+void overlayCanvas
 
 // Adjacent page preload cache — loads prev/next images into browser HTTP cache
 function preloadAdjacentPages() {
@@ -329,7 +330,7 @@ async function cancelEditQuestion() {
   appStore.setStatus('已取消修改', 'ok')
 }
 
-async function onCreateSection(name: string, groupId: number | null) {
+async function onCreateSection(name: string, groupId: string | number | null) {
   if (!name) return
   const gid = groupId != null ? Number(groupId) : null
   await sectionsStore.createSectionDef(name, '', gid)
@@ -338,7 +339,7 @@ async function onCreateSection(name: string, groupId: number | null) {
   }
 }
 
-async function onCreateSectionForOcr(q: { sections: string[] }, name: string, groupId: number | null) {
+async function onCreateSectionForOcr(q: { sections: string[] }, name: string, groupId: string | number | null) {
   if (!name) return
   const gid = groupId != null ? Number(groupId) : null
   await sectionsStore.createSectionDef(name, '', gid)
@@ -607,7 +608,7 @@ onBeforeUnmount(() => {
                     :no-match-label="t('sectionEditor.noMatch')"
                     :all-selected-label="t('sectionEditor.allSelected')"
                     @update:model-value="(val: string[]) => { q.sections = val }"
-                    @create="(name: string, groupId: number | null) => onCreateSectionForOcr(q, name, groupId)"
+                    @create="(name: string, groupId: string | number | null) => onCreateSectionForOcr(q, name, groupId)"
                   />
                 </div>
               </div>

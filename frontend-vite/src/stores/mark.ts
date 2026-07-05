@@ -113,7 +113,7 @@ interface PersistedQuestionPayload {
   boxes?: { page: number; bbox: BoundingBox }[]
 }
 
-function clonePersistedQuestionPayload(payload: PersistedQuestionPayload | null | undefined) {
+function clonePersistedQuestionPayload(payload: PersistedQuestionPayload | null | undefined): { sections: string[]; notes: string | null; boxes: { page: number; bbox: BoundingBox }[] } {
   if (!payload || typeof payload !== 'object') return { sections: [] as string[], notes: null as string | null, boxes: [] as { page: number; bbox: BoundingBox }[] }
   const sections = Array.isArray(payload.sections)
     ? payload.sections.filter((s) => s != null && String(s).trim()).map((s) => String(s))
@@ -395,7 +395,7 @@ export const useMarkStore = defineStore('mark', () => {
         if (!first || Number(q.id) < Number(first.id)) first = q
       }
       const boxes = first?.boxes || []
-      const bounds = computeUnionAlignBoundsFromBoxesPayload(boxes)
+      const bounds = computeUnionAlignBoundsFromBoxesPayload(boxes as any)
       if (bounds) settingsStore.savePaperAlignRef(paperId, bounds)
     } catch {
       // best effort only
@@ -549,8 +549,6 @@ export const useMarkStore = defineStore('mark', () => {
       selectedSectionsForNewQuestion.value = full?.sections && Array.isArray(full.sections) ? [...full.sections] : []
       resetMarkHistory()
       enterEditQuestionMode(q.id, {
-        questionNo: full?.question_no ?? null,
-        section: full?.section ?? null,
         sections: full?.sections ?? [],
         notes: full?.notes ?? null,
         boxes: clonePersistedBoxPayload(boxes),
@@ -598,7 +596,7 @@ export const useMarkStore = defineStore('mark', () => {
     sectionsToSave: string[],
     notes: string | null,
     boxesPayload: { page: number; bbox: BoundingBox }[],
-    beforePayload: PersistedQuestionPayload,
+    beforePayload: { sections: string[]; notes: string | null; boxes: { page: number; bbox: BoundingBox }[] },
   ) {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
@@ -674,7 +672,6 @@ export const useMarkStore = defineStore('mark', () => {
 
   // --- save question ---
   async function saveQuestion() {
-    const appStore = useAppStore()
     if (editingQuestionId.value == null && hasOcrDraftMode.value) {
       await saveOcrDraftQuestionsBatch()
       return

@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useComposeStore } from '@/stores/compose'
-import { useFilterStore } from '@/stores/filter'
 import { useSectionsStore } from '@/stores/sections'
 import { usePapersStore } from '@/stores/papers'
 import { useAppStore } from '@/stores/app'
@@ -14,7 +13,7 @@ import { api } from '@/api/client'
 import { questionsApi, compositionsApi } from '@/api/endpoints'
 import MultiSelect from '@/components/ui/MultiSelect.vue'
 import SectionCascadeSelect from '@/components/ui/SectionCascadeSelect.vue'
-import type { Question, FilterQuestion } from '@/types'
+import type { Question } from '@/types'
 
 defineOptions({ name: 'ComposeView' })
 
@@ -22,7 +21,6 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const composeStore = useComposeStore()
-const filterStore = useFilterStore()
 const sectionsStore = useSectionsStore()
 const papersStore = usePapersStore()
 const appStore = useAppStore()
@@ -34,7 +32,6 @@ const {
   current,
   items,
   dirty,
-  loading,
   selectedItemId,
   previewMode,
   questionItemCount,
@@ -67,13 +64,13 @@ function onBankItemDblClick(q: Question, e: MouseEvent) {
   previewQuestion.value = q
 }
 
-function getSectionDotColor(q: Question): string | null {
+function getSectionDotColor(q: Question): string {
   const map = sectionsStore.sectionColorMap
-  if (!map || !q.sections?.length) return null
+  if (!map || !q.sections?.length) return ''
   for (const s of q.sections) {
     if (map[s]) return map[s]
   }
-  return null
+  return ''
 }
 
 function closePreview() {
@@ -363,7 +360,7 @@ async function exportComposition() {
   const blankPages = questionItems.map(i => i.blank_pages)
 
   exportBusy.value = true
-  appStore.setStatus(`正在导出 ${ids.length} 题...`, 'busy')
+  appStore.setStatus(`正在导出 ${ids.length} 题...`)
 
   try {
     const createResp = await api('/export/questions_pdf_job', {
@@ -781,7 +778,7 @@ async function exportComposition() {
               <input
                 class="prop-input"
                 :value="current.header_text || ''"
-                @input="composeStore.updateComposition({ headerText: ($event.target as HTMLInputElement).value || null })"
+                @input="composeStore.updateComposition({ header_text: ($event.target as HTMLInputElement).value || null })"
               />
             </div>
 
@@ -790,7 +787,7 @@ async function exportComposition() {
               <input
                 class="prop-input"
                 :value="current.footer_text || ''"
-                @input="composeStore.updateComposition({ footerText: ($event.target as HTMLInputElement).value || null })"
+                @input="composeStore.updateComposition({ footer_text: ($event.target as HTMLInputElement).value || null })"
               />
             </div>
 
@@ -816,15 +813,15 @@ async function exportComposition() {
             <div class="prop-divider"></div>
 
             <label class="prop-checkbox">
-              <input type="checkbox" :checked="current.show_question_info" @change="composeStore.updateComposition({ showQuestionInfo: !current.show_question_info })" />
+              <input type="checkbox" :checked="current.show_question_info" @change="composeStore.updateComposition({ show_question_info: !current.show_question_info })" />
               <span>{{ t('compose.showQuestionInfo') }}</span>
             </label>
             <label class="prop-checkbox">
-              <input type="checkbox" :checked="current.show_page_numbers" @change="composeStore.updateComposition({ showPageNumbers: !current.show_page_numbers })" />
+              <input type="checkbox" :checked="current.show_page_numbers" @change="composeStore.updateComposition({ show_page_numbers: !current.show_page_numbers })" />
               <span>{{ t('compose.showPageNumbers') }}</span>
             </label>
             <label class="prop-checkbox">
-              <input type="checkbox" :checked="current.show_section_headers" @change="composeStore.updateComposition({ showSectionHeaders: !current.show_section_headers })" />
+              <input type="checkbox" :checked="current.show_section_headers" @change="composeStore.updateComposition({ show_section_headers: !current.show_section_headers })" />
               <span>{{ t('compose.showSectionHeaders') }}</span>
             </label>
           </div>

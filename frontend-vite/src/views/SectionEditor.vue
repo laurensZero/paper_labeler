@@ -99,10 +99,6 @@ function applyPickerColor(s: SectionDef) {
   s.color = hslToHex(pickerHue.value, pickerSat.value, pickerLit.value)
 }
 
-function saveAndClosePicker(s: SectionDef) {
-  store.updateSectionDef(s)
-  openColorPicker.value = null
-}
 
 function clearColor(s: SectionDef) {
   s.color = null
@@ -206,8 +202,9 @@ function onAddSection() {
 
 // ── Auto-save section group on blur/enter ──
 function autoSaveSectionGroup(g: SectionGroup) {
-  const nameChanged = g.name !== (g as Record<string, unknown>).__lastSavedName
-  const showChanged = g.show_in_filter !== (g as Record<string, unknown>).__lastSavedShow
+  const gAny = g as any
+  const nameChanged = g.name !== gAny.__lastSavedName
+  const showChanged = g.show_in_filter !== gAny.__lastSavedShow
   if (nameChanged || showChanged) {
     store.updateSectionGroup(g)
   }
@@ -215,8 +212,9 @@ function autoSaveSectionGroup(g: SectionGroup) {
 
 // ── Auto-save section def on blur/enter ──
 function autoSaveSectionDef(s: SectionDef) {
-  const nameChanged = s.name !== (s as Record<string, unknown>).__lastSavedName
-  const groupChanged = s.group_id !== (s as Record<string, unknown>).__lastSavedGroupId
+  const sAny = s as any
+  const nameChanged = s.name !== sAny.__lastSavedName
+  const groupChanged = s.group_id !== sAny.__lastSavedGroupId
   if (nameChanged || groupChanged) {
     store.updateSectionDef(s)
   }
@@ -475,7 +473,7 @@ onMounted(() => {
               <SimpleSelect
                 :modelValue="s.group_id"
                 :options="groupOptions"
-                @change="(val: number | null) => onSectionDefGroupChange(s, val)"
+                @change="(val: string | number | null) => onSectionDefGroupChange(s, val as number | null)"
               />
             </div>
             <button class="btn btn-ghost btn-icon se-btn-delete-sm" v-tooltip="t('sectionEditor.delete')" @click="onDeleteSection(s)">

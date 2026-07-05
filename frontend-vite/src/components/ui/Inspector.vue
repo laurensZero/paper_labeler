@@ -74,7 +74,7 @@ const emit = defineEmits<{
 type SimpleEvent = 'toggle-favorite' | 'toggle-collapse' | 'edit' | 'edit-answer' | 'locate' | 'delete' | 'toggle-answer' | 'cancel-edit' | 'save-edit' | 'go-to-mark'
 function collapsedAction(name: SimpleEvent) {
   if (props.collapsed) emit('toggle-collapse')
-  emit(name)
+  ;(emit as any)(name)
 }
 
 const paperLabel = computed(() => {

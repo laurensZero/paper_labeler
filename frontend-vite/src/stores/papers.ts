@@ -68,7 +68,7 @@ export const pendingOcrDraftByPaperId = new Map<number, unknown[]>()
 export const pendingOcrWarningByPaperId = new Map<number, string>()
 export const pendingOcrDraftSelectedIdxByPaperId = new Map<number, number>()
 
-function stashPendingOcrUploadResult(item: UploadPdfResult & { ocr_warn?: string; warning?: string }): string | null {
+function stashPendingOcrUploadResult(item: UploadPdfResult & { id?: number; ocr_warn?: string; warning?: string }): string | null {
   const paperId = Number(item?.id ?? item?.paper_id)
   if (!Number.isFinite(paperId)) return null
 

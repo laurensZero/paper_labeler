@@ -503,7 +503,7 @@ export const useExportStore = defineStore('export', () => {
   }
 
   function updateExportJobProgress(statusData: ExportJobStatus) {
-    const p = statusData.progress || {}
+    const p = statusData.progress ?? { done: 0, total: 0, percent: 0 }
     exportJobStatus.value = String(statusData.status || '')
     exportJobPhase.value = String(statusData.phase || '')
     exportJobQueuePos.value = Math.max(0, Number(statusData.queue_position || 0))

@@ -1,5 +1,6 @@
 import { nextTick, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { i18n } from '@/i18n'
 import router from '@/router'
 import { useAppStore } from './app'
 import { usePapersStore } from './papers'
@@ -8,7 +9,7 @@ import { useAnswerStore } from './answer'
 import { useExportStore } from './export'
 import { useDialogStore } from './dialog'
 import { api, convertKeysToSnake } from '@/api/client'
-import type { Question, QuestionSearchParams, QuestionSearchResponse, QuestionIdsSearchResponse, QuestionsBatchUpdateParams, FilterQuestion } from '@/types'
+import type { Question, QuestionSearchParams, QuestionSearchResponse, QuestionsBatchUpdateParams, FilterQuestion } from '@/types'
 import { clampInt } from '@/utils/geometry'
 
 function extractPaperYear(text: string): string {
@@ -567,7 +568,7 @@ export const useFilterStore = defineStore('filter', () => {
       const pageIds = Array.isArray(data?.question_ids)
         ? data.question_ids
         : (Array.isArray(data?.questions) ? (data.questions as Question[]).map((q) => q.id) : [])
-      ids.push(...pageIds.map((x) => Number(x)).filter((x) => Number.isFinite(x)))
+      ids.push(...pageIds.map((x: number | string) => Number(x)).filter((x: number) => Number.isFinite(x)))
       totalPages = Number(data.total_pages || 1)
       page += 1
     } while (page <= totalPages)

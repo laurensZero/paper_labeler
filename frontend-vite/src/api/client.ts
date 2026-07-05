@@ -7,7 +7,7 @@ export function convertKeysToSnake(obj: unknown): unknown {
   const result: Record<string, unknown> = {}
   for (const key of Object.keys(obj as Record<string, unknown>)) {
     const snakeKey = key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
-    result[snakeKey] = convertKeysToSnake(obj[key])
+    result[snakeKey] = convertKeysToSnake((obj as Record<string, unknown>)[key])
   }
   return result
 }

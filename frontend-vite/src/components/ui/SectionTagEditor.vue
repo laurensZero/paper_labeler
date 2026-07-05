@@ -428,7 +428,7 @@ watch(() => optionItems.value.length, (len) => {
                       >—</div>
                       <div
                         v-for="g in groupOptions"
-                        :key="g.value"
+                        :key="g.value ?? ''"
                         class="ste-create-group-option"
                         :class="{ active: createGroupId === g.value }"
                         @mousedown.prevent.stop="createGroupId = g.value; createGroupOpen = false"

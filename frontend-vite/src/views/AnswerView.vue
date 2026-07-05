@@ -11,7 +11,7 @@ import { useAnswerMsPageWindow } from '@/composables/useAnswerMsPageWindow'
 import { clamp01, normalizeBox, pointInBox, clampInt } from '@/utils/geometry'
 import { alignAnswerBBoxToBoundsX } from '@/utils/alignment'
 import type { BoundingBox } from '@/types/common'
-import type { Question, QuestionBox, PaperDetail } from '@/types'
+import type { QuestionBox, PaperDetail } from '@/types'
 
 defineOptions({ name: 'AnswerView' })
 
@@ -361,11 +361,15 @@ function onAnswerPointerMove(pageNum: number, evt: PointerEvent) {
     const b = op.box
     const [x0, y0, x1, y1] = b.bbox
     if (op.kind === 'move') {
-      const nx0 = clamp01(x - op.offX)
-      const ny0 = clamp01(y - op.offY)
-      const fx0 = clamp01(Math.min(nx0, 1 - op.w))
-      const fy0 = clamp01(Math.min(ny0, 1 - op.h))
-      b.bbox = normalizeBox([fx0, fy0, fx0 + op.w, fy0 + op.h])
+      const offX = op.offX ?? 0
+      const offY = op.offY ?? 0
+      const w = op.w ?? 0
+      const h = op.h ?? 0
+      const nx0 = clamp01(x - offX)
+      const ny0 = clamp01(y - offY)
+      const fx0 = clamp01(Math.min(nx0, 1 - w))
+      const fy0 = clamp01(Math.min(ny0, 1 - h))
+      b.bbox = normalizeBox([fx0, fy0, fx0 + w, fy0 + h])
     } else if (op.kind === 'resize') {
       let nx0 = x0, ny0 = y0, nx1 = x1, ny1 = y1
       if (op.corner === 'tl') { nx0 = x; ny0 = y }

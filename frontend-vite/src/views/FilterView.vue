@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
@@ -22,7 +22,7 @@ import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 import { useDeferredQuestionPreview } from '@/composables/useDeferredQuestionPreview'
 import { useFullscreen } from '@/composables/useFullscreen'
 import { useFilterAnswer } from '@/composables/useFilterAnswer'
-import type { FilterQuestion, Question, QuestionBox, Answer } from '@/types'
+import type { FilterQuestion, Question, QuestionBox } from '@/types'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -108,7 +108,7 @@ const seasonShortLabels: Record<string, string> = { m: 'm', s: 's', w: 'w' }
 /* ── Film strip data (all questions, independent of pagination) ── */
 interface FilmStripItem { id: number; question_no: string | null; is_favorite: boolean; section: string | null; sections: string[] }
 const allFilmStripItems = ref<FilmStripItem[]>([])
-const questionCache = new Map<number, Question>()
+const questionCache = new Map<number, FilterQuestion>()
 
 async function loadAllFilmStripItems() {
   try {
@@ -126,7 +126,7 @@ async function loadAllFilmStripItems() {
           section: q.section,
           sections: q.sections,
         })
-        questionCache.set(q.id, q)
+        questionCache.set(q.id, q as FilterQuestion)
       }
       totalPages = Number(data?.total_pages || 1)
       page += 1
@@ -168,9 +168,11 @@ function getQuestionBoxes(q: FilterQuestion): QuestionBox[] {
 
 /* ── Answer state ── */
 const {
-  ansOpen, ansLoaded, ansLoading, ansBoxes, ansMeta, ansSectionRef,
+  ansOpen, ansLoaded, ansLoading, ansBoxes, ansSectionRef,
   resetAnswerState, onToggleAnswer,
 } = useFilterAnswer()
+// ansSectionRef is used as a template ref
+void ansSectionRef
 
 /* ── Quick edit state ── */
 const editMode = ref(false)
@@ -190,7 +192,7 @@ function cancelEdit() {
   editMode.value = false
 }
 
-async function onCreateSection(name: string, groupId: number | null) {
+async function onCreateSection(name: string, groupId: string | number | null) {
   if (!name) return
   const gid = groupId != null ? Number(groupId) : null
   await sectionsStore.createSectionDef(name, '', gid)
@@ -237,13 +239,13 @@ function onPaperMultiChange(v: string[]) {
   filterStore.onFilterChange()
 }
 
-function onYearMultiChange(v: string[]) {
-  filterYearMulti.value = Array.isArray(v) ? v : []
+function onYearMultiChange(v: (string | number)[]) {
+  filterYearMulti.value = Array.isArray(v) ? v.map(String) : []
   filterStore.onFilterChange()
 }
 
-function onSeasonMultiChange(v: string[]) {
-  filterSeasonMulti.value = Array.isArray(v) ? v : []
+function onSeasonMultiChange(v: (string | number)[]) {
+  filterSeasonMulti.value = Array.isArray(v) ? v.map(String) : []
   filterStore.onFilterChange()
 }
 
@@ -260,12 +262,6 @@ async function onBatchDelete() {
   await filterStore.batchDeleteSelected()
 }
 
-async function onBatchChangeSection() {
-  const section = filterStore.filterBatchSection
-  if (!section) return
-  await filterStore.batchUpdateSelected([section])
-  filterStore.filterBatchSection = ''
-}
 
 /* ── Question selection ── */
 function selectQuestion(q: FilterQuestion | null) {
@@ -596,7 +592,7 @@ const {
         <!-- Question image -->
         <div v-else-if="selectedQuestion" class="ws-question">
           <div
-            :ref="(el) => setPreviewTargetRef(selectedQuestion.id, el as Element | null)"
+            :ref="(el) => setPreviewTargetRef(selectedQuestion!.id, el as Element | null)"
             class="ws-question-img"
           >
             <img

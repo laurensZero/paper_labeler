@@ -275,7 +275,7 @@ watch(() => props.options.length, () => {
         >
           <div
             v-for="(option, i) in options"
-            :key="option.value"
+            :key="option.value ?? ''"
             class="ss-option"
             :class="{
               'ss-option-highlighted': i === highlightedIndex,

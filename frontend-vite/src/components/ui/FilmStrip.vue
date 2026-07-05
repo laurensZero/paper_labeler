@@ -32,14 +32,14 @@ const emit = defineEmits<{
 
 const scrollRef = ref<HTMLElement | null>(null)
 
-function getItemColor(item: FilmStripItem): string | null {
+function getItemColor(item: FilmStripItem): string {
   const map = props.sectionColorMap
-  if (!map) return null
+  if (!map) return ''
   const sections = item.sections?.length ? item.sections : (item.section ? [item.section] : [])
   for (const s of sections) {
     if (map[s]) return map[s]
   }
-  return null
+  return ''
 }
 
 function getItemSectionLabel(item: FilmStripItem): string {
