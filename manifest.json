@@ -1,7 +1,7 @@
 {
-  "version": "20260705.3",
-  "url": "bundle-20260705.3.zip",
-  "hash": "sha256:cf1171f4e80d52f88beb70e2ed4478454867437596ec719738734ccb5dd639a2",
-  "notes": "71f2cc4 fix: ensure valid container width for drawing in CropCanvas and MergedCropPreview components; update FilterView styles for image responsiveness ",
-  "publishedAt": "2026-07-05T12:05:36Z"
+  "version": "20260727.1",
+  "url": "bundle-20260727.1.zip",
+  "hash": "sha256:30af6481c104ee3de514eb9fa646a81b0373206cbc4c1f883288e5e080b7f661",
+  "notes": "34b133b Refactor composition handling and improve performance ",
+  "publishedAt": "2026-07-27T01:56:15Z"
 }
