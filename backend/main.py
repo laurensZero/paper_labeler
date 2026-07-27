@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,8 +27,56 @@ from backend.config import DATA_DIR, UI_DIR
 from backend.routers import admin, papers, questions, sections, stats, export, cie_import, compositions
 
 
+def _migrate_legacy_appdata_data() -> None:
+    """v2.0.0 packaged builds stored data in %APPDATA%/PaperLabeler/data.
+    If the current DATA_DIR has no database yet but the legacy location does,
+    copy the legacy data over so upgrading users keep their work. The AppData
+    originals are left untouched as a backup, and files already present in
+    DATA_DIR are never overwritten."""
+    import shutil
+
+    if (DATA_DIR / "app.db").exists():
+        return
+    appdata = os.getenv("APPDATA", "").strip()
+    if not appdata:
+        return
+    legacy_dir = Path(appdata) / "PaperLabeler" / "data"
+    if not (legacy_dir / "app.db").exists():
+        return
+    try:
+        if legacy_dir.resolve() == DATA_DIR.resolve():
+            return
+    except Exception:
+        return
+
+    def _copy_tree(src: Path, dst: Path) -> None:
+        dst.mkdir(parents=True, exist_ok=True)
+        for child in src.iterdir():
+            child_dst = dst / child.name
+            if child.is_dir():
+                _copy_tree(child, child_dst)
+            elif not child_dst.exists():
+                shutil.copy2(child, child_dst)
+
+    print(f"[migrate] found legacy data in {legacy_dir}, copying to {DATA_DIR}")
+    try:
+        # Copy app.db last: if the copy is interrupted, the missing app.db
+        # makes the migration retry on next startup instead of serving
+        # partially migrated data.
+        for item in sorted(legacy_dir.iterdir(), key=lambda p: p.name == "app.db"):
+            target = DATA_DIR / item.name
+            if item.is_dir():
+                _copy_tree(item, target)
+            elif not target.exists():
+                shutil.copy2(item, target)
+        print(f"[migrate] legacy data migrated from {legacy_dir} to {DATA_DIR} (originals kept as backup)")
+    except Exception as e:
+        print(f"[migrate] legacy data migration failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    _migrate_legacy_appdata_data()
     init_db()
     yield
 
@@ -72,25 +120,48 @@ app.add_middleware(
 # ── Rate limiter (in-memory sliding window, no external deps) ──────────
 _RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "120"))  # requests per window
 _RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
-_rate_hits: dict[str, list[float]] = defaultdict(list)
+_rate_hits: dict[str, deque[float]] = defaultdict(deque)
+_rate_last_sweep = 0.0
+
+
+def _rate_limit_exempt(path: str) -> bool:
+    # Static assets, health checks and high-frequency read endpoints
+    # (question preview images, export status polling) must not count
+    # against the limit — in Electron all traffic shares 127.0.0.1.
+    if path.startswith("/data/") or path.startswith("/ui/") or path == "/health":
+        return True
+    if path.endswith("/preview.png"):
+        return True
+    if path.startswith("/export/questions_pdf_job/"):
+        return True
+    return False
 
 
 @app.middleware("http")
 async def _rate_limit(request: Request, call_next):
-    # Skip static assets and health checks
-    path = request.url.path
-    if path.startswith("/data/") or path.startswith("/ui/") or path == "/health":
+    if _rate_limit_exempt(request.url.path):
         return await call_next(request)
 
+    global _rate_last_sweep
     client = request.client
     ip = client.host if client else "unknown"
     now = time.monotonic()
+    cutoff = now - _RATE_LIMIT_WINDOW
+
+    # Periodically drop idle clients so _rate_hits cannot grow forever
+    if now - _rate_last_sweep >= _RATE_LIMIT_WINDOW:
+        _rate_last_sweep = now
+        for stale_ip, stale_hits in list(_rate_hits.items()):
+            while stale_hits and stale_hits[0] < cutoff:
+                stale_hits.popleft()
+            if not stale_hits:
+                del _rate_hits[stale_ip]
+
     hits = _rate_hits[ip]
 
     # Prune expired entries
-    cutoff = now - _RATE_LIMIT_WINDOW
     while hits and hits[0] < cutoff:
-        hits.pop(0)
+        hits.popleft()
 
     if len(hits) >= _RATE_LIMIT_MAX:
         return JSONResponse(
@@ -168,7 +239,11 @@ def get_version():
     ver_file = DATA_DIR / ".hot_update_version"
     if ver_file.exists():
         return {"version": ver_file.read_text(encoding="utf-8").strip()}
-    # Fallback to package.json
+    # Packaged app: Electron passes its own version via environment
+    env_ver = os.environ.get("PAPER_LABELER_APP_VERSION", "").strip()
+    if env_ver:
+        return {"version": env_ver}
+    # Fallback to package.json (dev environment)
     pkg = Path(__file__).resolve().parents[1] / "frontend-vite" / "package.json"
     ver = "0.0.0"
     if pkg.exists():
@@ -190,7 +265,13 @@ async def import_data(request: Request):
         return JSONResponse({"error": "无效的文件夹路径"}, status_code=400)
 
     from backend.config import DATA_DIR
-    src_path = Path(src)
+    src_path = Path(src).resolve()
+    data_dir = DATA_DIR.resolve()
+    if src_path == data_dir or data_dir in src_path.parents or src_path in data_dir.parents:
+        return JSONResponse(
+            {"error": "导入文件夹不能是当前数据目录本身，也不能是它的上级或下级目录"},
+            status_code=400,
+        )
 
     copied = []
     for item in ("app.db", "pdfs", "pages"):
@@ -209,9 +290,11 @@ async def import_data(request: Request):
     if not copied:
         return JSONResponse({"error": "文件夹中没有找到可导入的数据（需要 app.db、pdfs、pages）"}, status_code=400)
 
-    # Reconnect database to imported data
+    # Reconnect database to imported data, then ensure schema is up to date
+    # (an older app.db may lack newer tables/columns)
     from backend.database import reconnect_db
     reconnect_db()
+    init_db()
 
     return {"ok": True, "imported": copied}
 
@@ -259,32 +342,39 @@ async def apply_update(request: Request, version: str = ""):
         # Non-fatal: log but continue (backup is best-effort)
         print(f"[update] backup warning: {e}")
 
+    def _resolve_entry(base: Path, rel: str, name: str) -> Path:
+        # Reject absolute paths, drive letters and any entry that escapes
+        # the target directory (zip-slip).
+        rel_path = Path(rel)
+        if rel_path.is_absolute() or rel_path.drive:
+            raise ValueError(f"unsafe zip entry: {name}")
+        base_resolved = base.resolve()
+        target = (base_resolved / rel_path).resolve()
+        try:
+            target.relative_to(base_resolved)
+        except ValueError:
+            raise ValueError(f"unsafe zip entry: {name}") from None
+        return target
+
     # Apply update
     try:
         with zipfile.ZipFile(io.BytesIO(body)) as zf:
             for name in names:
                 if name.startswith('ui/'):
-                    rel = name[3:]
-                    if not rel:
-                        continue
-                    target = ui_target / rel
-                    if name.endswith('/'):
-                        target.mkdir(parents=True, exist_ok=True)
-                    else:
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        with zf.open(name) as src, open(target, 'wb') as dst:
-                            shutil.copyfileobj(src, dst)
+                    base, rel = ui_target, name[3:]
                 elif name.startswith('backend/'):
-                    rel = name[8:]
-                    if not rel:
-                        continue
-                    target = backend_target / rel
-                    if name.endswith('/'):
-                        target.mkdir(parents=True, exist_ok=True)
-                    else:
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        with zf.open(name) as src, open(target, 'wb') as dst:
-                            shutil.copyfileobj(src, dst)
+                    base, rel = backend_target, name[8:]
+                else:
+                    continue
+                if not rel:
+                    continue
+                target = _resolve_entry(base, rel, name)
+                if name.endswith('/'):
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(name) as src, open(target, 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
     except Exception as e:
         # Rollback: restore from backup
         print(f"[update] apply failed, rolling back: {e}")

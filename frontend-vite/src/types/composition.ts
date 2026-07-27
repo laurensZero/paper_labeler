@@ -25,7 +25,7 @@ export interface CompositionDetail extends Composition {
 export interface CompositionItem {
   id: number
   composition_id: number
-  question_id: number
+  question_id: number | null
   sort_order: number
   blank_pages: number
   item_type: 'question' | 'blank_page'

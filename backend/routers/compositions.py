@@ -76,29 +76,55 @@ def _item_to_dict(
     return d
 
 
-def _get_preview_url(db: Session, question_id: int) -> str | None:
+def _prefetch_question_data(
+    db: Session, question_ids: list[int | None]
+) -> tuple[dict[int, Question], dict[int, list[str]], dict[int, Paper], dict[int, list[QuestionBox]]]:
+    qids = list({qid for qid in question_ids if qid is not None})
+    questions: dict[int, Question] = {}
+    sections_by_qid: dict[int, list[str]] = {}
+    papers_by_id: dict[int, Paper] = {}
+    boxes_by_qid: dict[int, list[QuestionBox]] = {}
+    if not qids:
+        return questions, sections_by_qid, papers_by_id, boxes_by_qid
+    questions = {q.id: q for q in db.query(Question).filter(Question.id.in_(qids)).all()}
+    for row in db.query(QuestionSection).filter(QuestionSection.question_id.in_(qids)).all():
+        sections_by_qid.setdefault(row.question_id, []).append(row.section_name)
+    paper_ids = {q.paper_id for q in questions.values()}
+    if paper_ids:
+        papers_by_id = {p.id: p for p in db.query(Paper).filter(Paper.id.in_(paper_ids)).all()}
     boxes = (
         db.query(QuestionBox)
-        .filter(QuestionBox.question_id == question_id)
+        .filter(QuestionBox.question_id.in_(qids))
         .order_by(QuestionBox.page, QuestionBox.id)
         .all()
     )
-    if not boxes:
-        return None
-    version = question_preview_version(boxes)
-    return f"/questions/{int(question_id)}/preview.png?w=1200&v={version}"
+    for box in boxes:
+        boxes_by_qid.setdefault(box.question_id, []).append(box)
+    return questions, sections_by_qid, papers_by_id, boxes_by_qid
 
 
-def _get_question_sections(db: Session, question_id: int) -> list[str]:
-    rows = db.query(QuestionSection).filter(QuestionSection.question_id == question_id).all()
-    return [r.section_name for r in rows]
-
-
-def _get_paper_exam_code(db: Session, paper_id: int) -> str | None:
-    paper = db.query(Paper).filter(Paper.id == paper_id).first()
-    if paper:
-        return paper.exam_code or paper.filename
-    return None
+def _serialize_item(
+    item: CompositionItem,
+    questions: dict[int, Question],
+    sections_by_qid: dict[int, list[str]],
+    papers_by_id: dict[int, Paper],
+    boxes_by_qid: dict[int, list[QuestionBox]],
+) -> dict:
+    q = questions.get(item.question_id) if item.question_id is not None else None
+    if q is None:
+        return _item_to_dict(item)
+    sections = list(sections_by_qid.get(q.id) or [])
+    # fallback to legacy section field
+    if not sections and q.section:
+        sections = [q.section]
+    paper = papers_by_id.get(q.paper_id)
+    exam_code = (paper.exam_code or paper.filename) if paper else None
+    boxes = boxes_by_qid.get(q.id) or []
+    preview_url = None
+    if boxes:
+        version = question_preview_version(boxes)
+        preview_url = f"/questions/{int(q.id)}/preview.png?w=1200&v={version}"
+    return _item_to_dict(item, q, sections, exam_code, preview_url)
 
 
 # ── Composition CRUD ─────────────────────────────────────────────────
@@ -131,15 +157,12 @@ def create_composition(body: CompositionCreate, db: Session = Depends(get_db)):
 @router.get("/compositions")
 def list_compositions(db: Session = Depends(get_db)):
     comps = db.query(Composition).order_by(Composition.updated_at.desc()).all()
-    result = []
-    for comp in comps:
-        count = (
-            db.query(func.count(CompositionItem.id))
-            .filter(CompositionItem.composition_id == comp.id)
-            .scalar()
-        )
-        result.append(_composition_to_dict(comp, item_count=count or 0))
-    return result
+    counts = dict(
+        db.query(CompositionItem.composition_id, func.count(CompositionItem.id))
+        .group_by(CompositionItem.composition_id)
+        .all()
+    )
+    return [_composition_to_dict(comp, item_count=counts.get(comp.id, 0)) for comp in comps]
 
 
 @router.get("/compositions/{comp_id}")
@@ -155,20 +178,8 @@ def get_composition(comp_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-    item_details = []
-    for item in items:
-        q = db.query(Question).filter(Question.id == item.question_id).first()
-        sections = _get_question_sections(db, item.question_id) if q else []
-        exam_code = _get_paper_exam_code(db, q.paper_id) if q else None
-        preview_url = _get_preview_url(db, item.question_id) if q else None
-
-        # fallback to legacy section field
-        if not sections and q and q.section:
-            sections = [q.section]
-
-        item_details.append(
-            _item_to_dict(item, q, sections, exam_code, preview_url)
-        )
+    prefetched = _prefetch_question_data(db, [item.question_id for item in items])
+    item_details = [_serialize_item(item, *prefetched) for item in items]
 
     result = _composition_to_dict(comp, item_count=len(items))
     result["items"] = item_details
@@ -210,6 +221,9 @@ def delete_composition(comp_id: int, db: Session = Depends(get_db)):
     comp = db.query(Composition).filter(Composition.id == comp_id).first()
     if not comp:
         raise HTTPException(status_code=404, detail="Composition not found")
+    db.query(CompositionItem).filter(
+        CompositionItem.composition_id == comp_id
+    ).delete(synchronize_session=False)
     db.delete(comp)
     db.commit()
     return {"ok": True}
@@ -308,13 +322,7 @@ def add_item(comp_id: int, body: CompositionItemAdd, db: Session = Depends(get_d
     db.commit()
     db.refresh(item)
 
-    sections = _get_question_sections(db, q.id)
-    if not sections and q.section:
-        sections = [q.section]
-    exam_code = _get_paper_exam_code(db, q.paper_id)
-    preview_url = _get_preview_url(db, q.id)
-
-    return _item_to_dict(item, q, sections, exam_code, preview_url)
+    return _serialize_item(item, *_prefetch_question_data(db, [item.question_id]))
 
 
 @router.post("/compositions/{comp_id}/items/batch")
@@ -330,23 +338,24 @@ def add_items_batch(comp_id: int, body: CompositionItemBatchAdd, db: Session = D
     )
     next_order = (max_order or 0) + 1
 
+    found_ids = {
+        row[0]
+        for row in db.query(Question.id).filter(Question.id.in_(body.question_ids)).all()
+    }
+    existing_ids = {
+        row[0]
+        for row in db.query(CompositionItem.question_id)
+        .filter(
+            CompositionItem.composition_id == comp_id,
+            CompositionItem.question_id.isnot(None),
+        )
+        .all()
+    }
+
     added = []
     skipped = []
     for qid in body.question_ids:
-        q = db.query(Question).filter(Question.id == qid).first()
-        if not q:
-            skipped.append(qid)
-            continue
-
-        existing = (
-            db.query(CompositionItem)
-            .filter(
-                CompositionItem.composition_id == comp_id,
-                CompositionItem.question_id == qid,
-            )
-            .first()
-        )
-        if existing:
+        if qid not in found_ids or qid in existing_ids:
             skipped.append(qid)
             continue
 
@@ -357,6 +366,7 @@ def add_items_batch(comp_id: int, body: CompositionItemBatchAdd, db: Session = D
             item_type="question",
         )
         db.add(item)
+        existing_ids.add(qid)
         added.append(qid)
         next_order += 1
 
@@ -401,14 +411,7 @@ def update_item(comp_id: int, item_id: int, body: CompositionItemUpdate, db: Ses
     db.commit()
     db.refresh(item)
 
-    q = db.query(Question).filter(Question.id == item.question_id).first()
-    sections = _get_question_sections(db, item.question_id) if q else []
-    if not sections and q and q.section:
-        sections = [q.section]
-    exam_code = _get_paper_exam_code(db, q.paper_id) if q else None
-    preview_url = _get_preview_url(db, item.question_id) if q else None
-
-    return _item_to_dict(item, q, sections, exam_code, preview_url)
+    return _serialize_item(item, *_prefetch_question_data(db, [item.question_id]))
 
 
 @router.post("/compositions/{comp_id}/items/reorder")
@@ -463,7 +466,7 @@ def insert_blank_page(comp_id: int, after_item_id: int | None = None, db: Sessio
 
     item = CompositionItem(
         composition_id=comp_id,
-        question_id=0,  # blank pages use question_id=0 as sentinel
+        question_id=None,  # blank pages have no associated question
         sort_order=insert_order,
         blank_pages=0,
         item_type="blank_page",

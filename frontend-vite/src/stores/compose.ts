@@ -17,12 +17,10 @@ export const useComposeStore = defineStore('compose', () => {
   const items = ref<CompositionItemDetail[]>([])
   const dirty = ref(false)
   const loading = ref(false)
-  const saving = ref(false)
   const selectedItemId = ref<number | null>(null)
   const previewMode = ref<'grouped' | 'free'>('grouped')
 
   // --- computed ---
-  const itemCount = computed(() => items.value.length)
   const questionItemCount = computed(() => items.value.filter(i => i.item_type === 'question').length)
   const blankPageCount = computed(() => {
     let count = 0
@@ -246,10 +244,6 @@ export const useComposeStore = defineStore('compose', () => {
     selectedItemId.value = itemId
   }
 
-  function markDirty() {
-    dirty.value = true
-  }
-
   function reset() {
     current.value = null
     items.value = []
@@ -264,11 +258,9 @@ export const useComposeStore = defineStore('compose', () => {
     items,
     dirty,
     loading,
-    saving,
     selectedItemId,
     previewMode,
     // computed
-    itemCount,
     questionItemCount,
     blankPageCount,
     estimatedPages,
@@ -290,7 +282,6 @@ export const useComposeStore = defineStore('compose', () => {
     toggleAnswers,
     setAnswersPlacement,
     selectItem,
-    markDirty,
     reset,
   }
 })

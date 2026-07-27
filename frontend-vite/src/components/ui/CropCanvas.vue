@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, watch, nextTick } from 'vue'
+import { useLazyCanvasDraw } from '@/composables/useLazyCanvasDraw'
 
 defineOptions({ name: 'CropCanvas' })
 
@@ -19,9 +20,6 @@ const rootEl = ref<HTMLElement | null>(null)
 const isLoading = ref(true)
 const hasError = ref(false)
 let drawSeq = 0
-let resizeObserver: ResizeObserver | null = null
-let intersectionObserver: IntersectionObserver | null = null
-let resizeFrame: number | null = null
 let lastDrawCssWidth = 0
 
 function clamp01(value: unknown): number {
@@ -85,12 +83,7 @@ function drawCrop() {
     }
 
     const dpr = window.devicePixelRatio || 1
-    let rootWidth = Math.round(rootEl.value?.clientWidth || 0)
-    if (rootWidth < 10) {
-      // Container not laid out yet, use parent width or fallback
-      rootWidth = Math.round(rootEl.value?.parentElement?.clientWidth || 300)
-    }
-    const displayWidth = Math.max(10, rootWidth)
+    const displayWidth = resolveContainerWidth()
     const aspect = sh / sw
     const displayHeight = Math.max(1, Math.round(displayWidth * aspect))
     lastDrawCssWidth = displayWidth
@@ -114,52 +107,11 @@ function drawCrop() {
   })
 }
 
-function scheduleResizeDraw() {
-  if (resizeFrame != null) return
-  resizeFrame = window.requestAnimationFrame(() => {
-    resizeFrame = null
-    const width = Math.round(rootEl.value?.clientWidth || 0)
-    if (!width || Math.abs(width - lastDrawCssWidth) < 1) return
-    drawCrop()
-  })
-}
-
-onMounted(() => {
-  nextTick(() => {
-    if (rootEl.value && typeof IntersectionObserver !== 'undefined') {
-      intersectionObserver = new IntersectionObserver((entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          // Wait for two frames to ensure layout is complete
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              lastDrawCssWidth = 0  // Force redraw with correct width
-              drawCrop()
-            })
-          })
-          intersectionObserver?.disconnect()
-          intersectionObserver = null
-        }
-      }, { rootMargin: '200px', threshold: 0.01 })
-      intersectionObserver.observe(rootEl.value)
-    } else {
-      requestAnimationFrame(() => requestAnimationFrame(() => drawCrop()))
-    }
-    if (rootEl.value && typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(scheduleResizeDraw)
-      resizeObserver.observe(rootEl.value)
-    }
-  })
-})
-
-onBeforeUnmount(() => {
-  intersectionObserver?.disconnect()
-  intersectionObserver = null
-  resizeObserver?.disconnect()
-  resizeObserver = null
-  if (resizeFrame != null) {
-    window.cancelAnimationFrame(resizeFrame)
-    resizeFrame = null
-  }
+const { resolveContainerWidth } = useLazyCanvasDraw({
+  rootEl,
+  draw: drawCrop,
+  getDrawnCssWidth: () => lastDrawCssWidth,
+  resetDrawnCssWidth: () => { lastDrawCssWidth = 0 },
 })
 
 watch(() => [props.imageUrl, props.bbox], () => {

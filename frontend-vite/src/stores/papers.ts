@@ -355,6 +355,8 @@ export const usePapersStore = defineStore('papers', () => {
     } catch (e) {
       if (seq === openPaperSeq && currentPaperId.value === paperId) {
         paperOpening.value = false
+        currentPaperId.value = null
+        currentQpPaperName.value = ''
         currentPaperCacheToken.value = null
         pages.value = []
         currentPageIndex.value = -1

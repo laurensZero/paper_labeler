@@ -1,23 +1,34 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const net = require('net')
 const http = require('http')
 const fs = require('fs')
+const crypto = require('crypto')
 const { autoUpdater } = require('electron-updater')
 
 let backendProcess = null
 let backendPort = 0
 let mainWindow = null
 let isUpdateDownloaded = false
+let depsInstallError = ''
+
+// Directory next to the executable (portable dir when applicable), dev root otherwise.
+function getExeDir() {
+  if (app.isPackaged) {
+    const portableDir = process.env.PORTABLE_EXECUTABLE_DIR
+    if (portableDir && fs.existsSync(portableDir)) {
+      return portableDir
+    }
+    return path.dirname(app.getPath('exe'))
+  }
+  return path.resolve(__dirname, '..', '..')
+}
 
 // ROOT: where backend/ lives (for Python import).
 function getRoot() {
   if (app.isPackaged) {
-    const portableDir = process.env.PORTABLE_EXECUTABLE_DIR
-    const exeDir = (portableDir && fs.existsSync(portableDir))
-      ? portableDir
-      : path.dirname(app.getPath('exe'))
+    const exeDir = getExeDir()
     if (fs.existsSync(path.join(exeDir, 'backend', 'main.py'))) {
       return exeDir
     }
@@ -34,17 +45,7 @@ function getDataRoot() {
     if (stored && fs.existsSync(path.join(stored, 'data'))) return stored
   }
 
-  let exeDir
-  if (app.isPackaged) {
-    const portableDir = process.env.PORTABLE_EXECUTABLE_DIR
-    if (portableDir && fs.existsSync(portableDir)) {
-      exeDir = portableDir
-    } else {
-      exeDir = path.dirname(app.getPath('exe'))
-    }
-  } else {
-    exeDir = path.resolve(__dirname, '..', '..')
-  }
+  const exeDir = getExeDir()
 
   const dataDir = path.join(exeDir, 'data')
   if (!fs.existsSync(dataDir)) {
@@ -106,6 +107,10 @@ function findPython() {
   return null
 }
 
+function getDepsHashCachePath() {
+  return path.join(app.getPath('userData'), 'deps-hash.txt')
+}
+
 async function ensureDependencies(python) {
   const root = getRoot()
   const reqFile = path.join(root, 'requirements.txt')
@@ -113,6 +118,15 @@ async function ensureDependencies(python) {
     console.log('[deps] requirements.txt not found, skipping install')
     return
   }
+
+  const reqHash = crypto.createHash('sha256').update(fs.readFileSync(reqFile)).digest('hex')
+  const hashCachePath = getDepsHashCachePath()
+  try {
+    if (fs.existsSync(hashCachePath) && fs.readFileSync(hashCachePath, 'utf-8').trim() === reqHash) {
+      console.log('[deps] requirements unchanged, skipping install')
+      return
+    }
+  } catch {}
 
   console.log('[deps] Installing Python dependencies...')
   return new Promise((resolve, reject) => {
@@ -128,6 +142,10 @@ async function ensureDependencies(python) {
     child.on('exit', (code) => {
       if (code === 0) {
         console.log('[deps] Dependencies OK')
+        try {
+          fs.mkdirSync(path.dirname(hashCachePath), { recursive: true })
+          fs.writeFileSync(hashCachePath, reqHash, 'utf-8')
+        } catch {}
         resolve()
       } else {
         reject(new Error(`pip install exited with code ${code}`))
@@ -139,14 +157,13 @@ async function ensureDependencies(python) {
 async function startBackend() {
   const python = findPython()
   if (!python) {
-    console.error('Python not found. Please install Python 3.8+ and add it to PATH.')
-    app.quit()
-    return
+    throw new Error('未找到 Python，请安装 Python 3.8+ 并添加到 PATH')
   }
 
   try {
     await ensureDependencies(python)
   } catch (err) {
+    depsInstallError = err.message
     console.error('[deps] Failed to install dependencies:', err.message)
   }
 
@@ -169,6 +186,7 @@ async function startBackend() {
       PAPER_LABELER_ROOT: dataRoot,
       PAPER_LABELER_BUNDLE_DIR: dataRoot,
       PAPER_LABELER_RESOURCES_DIR: root,
+      PAPER_LABELER_APP_VERSION: app.getVersion(),
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },
@@ -187,7 +205,7 @@ async function startBackend() {
   })
 }
 
-function waitForBackend(retries = 80) {
+function waitForBackend(retries = 200) {
   return new Promise((resolve, reject) => {
     let attempt = 0
     const check = () => {
@@ -204,7 +222,7 @@ function waitForBackend(retries = 80) {
     const retry = () => {
       attempt++
       if (attempt >= retries) {
-        reject(new Error('Backend did not start in time'))
+        reject(new Error('后端服务未在预期时间内启动'))
         return
       }
       setTimeout(check, 200)
@@ -285,19 +303,21 @@ function makeSplashHtml(isDark) {
 </html>`
 }
 
-function makeErrorHtml(isDark) {
+function makeErrorHtml(isDark, detail) {
   const bg = isDark ? '#18181b' : '#ffffff'
   const text = isDark ? '#ef4444' : '#dc2626'
   const sub = isDark ? '#a1a1aa' : '#71717a'
   const btnBg = isDark ? '#27272a' : '#f4f4f5'
   const btnText = isDark ? '#e4e4e7' : '#18181b'
   const btnHover = isDark ? '#3f3f46' : '#e4e4e7'
+  const msg = String(detail || '请确认已安装 Python 3.8+ 并添加到 PATH')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
   body{font-family:sans-serif;background:${bg};color:${text};display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column}
-  h1{font-size:20px;margin-bottom:12px} p{color:${sub};font-size:14px}
+  h1{font-size:20px;margin-bottom:12px} p{color:${sub};font-size:14px;max-width:80%;text-align:center;word-break:break-all}
   button{margin-top:20px;padding:8px 24px;background:${btnBg};color:${btnText};border:none;border-radius:6px;cursor:pointer;font-size:14px}
   button:hover{background:${btnHover}}
-  </style></head><body><h1>后端启动失败</h1><p>请确认已安装 Python 3.8+ 并添加到 PATH</p>
+  </style></head><body><h1>后端启动失败</h1><p>${msg}</p>
   <button onclick="window.electronAPI.restartApp()">重试</button></body></html>`
 }
 
@@ -386,6 +406,13 @@ function setupAutoUpdater() {
 
   ipcMain.handle('updater:is-downloaded', () => isUpdateDownloaded)
 
+  // Portable builds cannot self-update via electron-updater (no installer / latest.yml)
+  ipcMain.handle('updater:is-portable', () => !!process.env.PORTABLE_EXECUTABLE_DIR)
+
+  ipcMain.handle('updater:open-releases', () => {
+    shell.openExternal('https://github.com/laurensZero/paper_labeler/releases/latest')
+  })
+
   // Check on startup (after window is shown)
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((e) => {
@@ -412,6 +439,12 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
     },
+  })
+
+  // Open external links (window.open / target=_blank) in the system browser
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
   })
 
   // Show splash immediately
@@ -478,16 +511,19 @@ function killBackend() {
 app.whenReady().then(async () => {
   createWindow()
   setupAutoUpdater()
-  startBackend()
 
   try {
+    await startBackend()
     await waitForBackend()
     navigateToApp()
   } catch (err) {
     console.error(err)
     if (mainWindow) {
       const isDark = readSavedTheme() === 'dark'
-      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(makeErrorHtml(isDark))}`)
+      const detail = depsInstallError
+        ? `依赖安装失败：${depsInstallError}`
+        : (err && err.message) || ''
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(makeErrorHtml(isDark, detail))}`)
     }
   }
 

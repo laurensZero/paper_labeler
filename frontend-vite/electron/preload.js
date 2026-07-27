@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updaterDownload: () => ipcRenderer.invoke('updater:download'),
   updaterInstall: () => ipcRenderer.invoke('updater:install'),
   updaterIsDownloaded: () => ipcRenderer.invoke('updater:is-downloaded'),
+  updaterIsPortable: () => ipcRenderer.invoke('updater:is-portable'),
+  updaterOpenReleases: () => ipcRenderer.invoke('updater:open-releases'),
   onUpdaterAvailable: (cb) => ipcRenderer.on('updater:available', (_, info) => cb(info)),
   onUpdaterProgress: (cb) => ipcRenderer.on('updater:progress', (_, progress) => cb(progress)),
   onUpdaterDownloaded: (cb) => ipcRenderer.on('updater:downloaded', (_, info) => cb(info)),

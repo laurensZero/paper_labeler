@@ -5,6 +5,20 @@ import { compareVersions, getLatestRelease, getLatestReleaseFromGitee, parseUpda
 
 function t(key: string) { return i18n.global.t(key) }
 
+function missingHashError() {
+  if (i18n.global.te('update.missingHash')) return t('update.missingHash')
+  return String(i18n.global.locale.value).startsWith('zh')
+    ? '更新清单缺少校验哈希，已拒绝热更新'
+    : 'Update manifest has no checksum hash; hot update refused'
+}
+
+declare global {
+  interface ElectronAPI {
+    updaterIsPortable?(): Promise<boolean>
+    updaterOpenReleases?(): Promise<void>
+  }
+}
+
 const REPO_OWNER = 'laurensZero'
 const REPO_REPO = 'paper_labeler'
 const MANIFEST_BASE: Record<string, string> = {
@@ -46,6 +60,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   // Full-update specific (electron-updater)
   const fullUpdateReady = ref(false)  // downloaded and ready to install
   const fullUpdateVersion = ref('')
+  const isPortable = ref(false)  // portable build cannot self-update via electron-updater
 
   // Whether we're running inside Electron
   const isElectron = computed(() => !!window.electronAPI?.updaterCheck)
@@ -65,6 +80,9 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
     // Wire up electron-updater events (fire-and-forget from main process)
     if (isElectron.value) {
       const api = window.electronAPI!
+      try {
+        isPortable.value = !!(await api.updaterIsPortable?.())
+      } catch {}
       api.onUpdaterAvailable?.((info) => {
         console.log('[updater:full] available', info.version)
         fullUpdateVersion.value = info.version
@@ -152,9 +170,13 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
         const m: Manifest = await res.json()
         console.log('[update:hot] manifest', m.version, 'current', currentVersion.value)
         if (compareVersions(m.version, currentVersion.value) > 0) {
+          if (!m.hash) {
+            errors.push(src + ': manifest missing hash, hot update refused')
+            continue
+          }
           latestVersion.value = m.version
           hotDownloadUrl.value = base + '/' + m.url
-          hotExpectedHash.value = m.hash || ''
+          hotExpectedHash.value = m.hash
           releaseNotes.value = m.notes || ''
           updateLevel.value = m.updateLevel || 'prompt'
           updateSource.value = 'hot'
@@ -174,7 +196,8 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   async function checkFullRelease() {
     // If electron-updater is available, it already auto-checks on startup.
     // We just need to check if it found something.
-    if (isElectron.value) {
+    // Portable builds can't self-update — go straight to the API check.
+    if (isElectron.value && !isPortable.value) {
       try {
         const result = await window.electronAPI!.updaterCheck!()
         if (result.error) {
@@ -230,10 +253,14 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
       if (fullUpdateReady.value) {
         // Already downloaded — just install
         await installFullUpdate()
-      } else if (isElectron.value) {
+      } else if (isElectron.value && !isPortable.value) {
         await startFullDownload()
+        if (error.value) {
+          // electron-updater can't download (e.g. no latest.yml) — open release page
+          openReleasePage()
+        }
       } else {
-        // Browser mode — open release page
+        // Browser mode or portable build — open release page
         openReleasePage()
       }
     }
@@ -241,6 +268,11 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
 
   async function downloadAndApplyHot() {
     if (!hotDownloadUrl.value) return
+    if (!hotExpectedHash.value) {
+      error.value = missingHashError()
+      if (updateLevel.value === 'force') updateLevel.value = 'prompt'
+      return
+    }
     downloading.value = true
     downloadProgress.value = 0
     error.value = ''
@@ -264,15 +296,13 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
 
       const blob = new Blob(chunks)
 
-      if (hotExpectedHash.value) {
-        const buf = await blob.arrayBuffer()
-        const hashBuf = await crypto.subtle.digest('SHA-256', buf)
-        const hash = Array.from(new Uint8Array(hashBuf))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('')
-        if (hash !== hotExpectedHash.value.replace(/^sha256:/i, '')) {
-          throw new Error(t('update.hashMismatch'))
-        }
+      const buf = await blob.arrayBuffer()
+      const hashBuf = await crypto.subtle.digest('SHA-256', buf)
+      const hash = Array.from(new Uint8Array(hashBuf))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+      if (hash !== hotExpectedHash.value.replace(/^sha256:/i, '')) {
+        throw new Error(t('update.hashMismatch'))
       }
 
       const applyRes = await fetch('/admin/apply-update?version=' + encodeURIComponent(latestVersion.value), { method: 'POST', body: blob })
@@ -317,6 +347,11 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   }
 
   function openReleasePage() {
+    // In Electron, open in the system browser via the main process
+    if (window.electronAPI?.updaterOpenReleases) {
+      window.electronAPI.updaterOpenReleases()
+      return
+    }
     // Fallback for browser mode — open GitHub releases
     const url = `https://github.com/${REPO_OWNER}/${REPO_REPO}/releases/latest`
     window.open(url, '_blank')
@@ -346,7 +381,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
     currentVersion, latestVersion, updateLevel, releaseNotes,
     updateSource, checking, downloading, downloadProgress,
     dialogVisible, error, source, upToDate, fullUpdateReady,
-    dialogState,
+    isPortable, dialogState,
     // Actions
     init, checkForUpdates, downloadAndApply, openReleasePage, dismiss,
     installFullUpdate,

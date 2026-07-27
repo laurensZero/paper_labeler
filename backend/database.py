@@ -1,8 +1,11 @@
 from __future__ import annotations
+import logging
 from datetime import datetime
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine, Column, Boolean, Float
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine, Column, Boolean, Float, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from backend.config import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -144,7 +147,7 @@ class CompositionItem(Base):
     __tablename__ = "composition_items"
     id = Column(Integer, primary_key=True, index=True)
     composition_id = Column(Integer, ForeignKey("compositions.id", ondelete="CASCADE"), nullable=False, index=True)
-    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey("questions.id"), nullable=True, index=True)
     sort_order = Column(Integer, nullable=False, default=0)
     blank_pages = Column(Integer, nullable=False, default=0)
     item_type = Column(String, nullable=False, default="question")
@@ -172,5 +175,78 @@ def init_db():
             cols = {str(r[1]) for r in conn.exec_driver_sql("PRAGMA table_info(section_defs)").fetchall()}
             if "color" not in cols:
                 conn.exec_driver_sql("ALTER TABLE section_defs ADD COLUMN color VARCHAR")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_questions_question_no_global
+                ON questions(question_no)
+                WHERE question_no IS NOT NULL AND question_no != ''
+                """
+            )
+    except Exception as exc:
+        logger.warning(
+            "Could not create unique index uq_questions_question_no_global "
+            "(the questions table likely contains duplicate question_no values; "
+            "question_no uniqueness is NOT enforced at the database level until "
+            "the duplicates are resolved): %s",
+            exc,
+        )
+    # Legacy data migration: section -> question_sections
+    try:
+        with SessionLocal() as db:
+            result = db.execute(text("""
+                SELECT q.id, q.section
+                FROM questions q
+                WHERE q.section IS NOT NULL AND q.section != ''
+                AND NOT EXISTS (
+                    SELECT 1 FROM question_sections qs WHERE qs.question_id = q.id
+                )
+            """))
+            to_migrate = result.fetchall()
+            if to_migrate:
+                for qid, section in to_migrate:
+                    db.execute(text("""
+                        INSERT OR IGNORE INTO question_sections (question_id, section_name, created_at)
+                        VALUES (:qid, :section, :now)
+                    """), {"qid": qid, "section": section, "now": datetime.utcnow()})
+                db.commit()
+    except Exception:
+        pass
+    # Migration: composition_items.question_id must be nullable (blank pages use NULL)
+    try:
+        with engine.begin() as conn:
+            info = conn.exec_driver_sql("PRAGMA table_info(composition_items)").fetchall()
+            if info:
+                if any(str(r[1]) == "question_id" and r[3] for r in info):
+                    conn.exec_driver_sql("ALTER TABLE composition_items RENAME TO composition_items_old")
+                    idx_rows = conn.exec_driver_sql(
+                        "SELECT name FROM sqlite_master WHERE type='index' "
+                        "AND tbl_name='composition_items_old' AND name NOT LIKE 'sqlite_autoindex%'"
+                    ).fetchall()
+                    for (idx_name,) in idx_rows:
+                        conn.exec_driver_sql(f'DROP INDEX IF EXISTS "{idx_name}"')
+                    CompositionItem.__table__.create(bind=conn)
+                    cols_list = ", ".join(str(r[1]) for r in info)
+                    conn.exec_driver_sql(
+                        f"INSERT INTO composition_items ({cols_list}) "
+                        f"SELECT {cols_list} FROM composition_items_old"
+                    )
+                    conn.exec_driver_sql("DROP TABLE composition_items_old")
+                conn.exec_driver_sql(
+                    "UPDATE composition_items SET question_id = NULL "
+                    "WHERE item_type = 'blank_page' AND question_id = 0"
+                )
+    except Exception:
+        logger.warning("composition_items nullable question_id migration failed", exc_info=True)
+    # Cleanup: composition_items orphaned by deleted compositions
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "DELETE FROM composition_items "
+                "WHERE composition_id NOT IN (SELECT id FROM compositions)"
+            )
     except Exception:
         pass

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useLazyCanvasDraw } from '@/composables/useLazyCanvasDraw'
 
 defineOptions({ name: 'MergedCropPreview' })
 
@@ -61,9 +62,6 @@ let drawSeq = 0
 let isVisible = false
 let disposed = false
 let drawQueued = false
-let intersectionObserver: IntersectionObserver | null = null
-let resizeObserver: ResizeObserver | null = null
-let resizeFrame = 0
 let lastDrawCssWidth = 0
 
 function clamp01(value: unknown): number {
@@ -172,14 +170,7 @@ async function drawMergedCrops() {
     })))
     if (seq !== drawSeq || disposed || !isVisible) return
 
-    // Wait for container to have a valid width
-    let containerWidth = Math.round(root.clientWidth || 0)
-    if (containerWidth < 10) {
-      // Container not laid out yet, use parent width or fallback
-      containerWidth = Math.round(root.parentElement?.clientWidth || 300)
-    }
-    containerWidth = Math.max(10, containerWidth)
-    const cssWidth = Math.min(MAX_RENDER_CSS_WIDTH, containerWidth)
+    const cssWidth = Math.min(MAX_RENDER_CSS_WIDTH, resolveContainerWidth())
     estimatedHeight.value = estimateMergedHeight(cssWidth)
     const dpr = Math.min(MAX_CANVAS_DPR, window.devicePixelRatio || 1)
     const rows = imageEntries.map(({ box, img }) => {
@@ -228,55 +219,26 @@ async function drawMergedCrops() {
   }
 }
 
-function scheduleResizeDraw() {
-  if (resizeFrame) return
-  resizeFrame = window.requestAnimationFrame(() => {
-    resizeFrame = 0
-    const width = Math.min(MAX_RENDER_CSS_WIDTH, Math.round(rootEl.value?.clientWidth || 0))
-    if (!width || Math.abs(width - lastDrawCssWidth) < 1) return
-    requestDraw()
-  })
-}
-
 onMounted(() => {
   nextTick(() => {
     const width = Math.min(MAX_RENDER_CSS_WIDTH, Math.round(rootEl.value?.clientWidth || 0) || 300)
     estimatedHeight.value = estimateMergedHeight(width)
-    if (rootEl.value && typeof IntersectionObserver !== 'undefined') {
-      intersectionObserver = new IntersectionObserver((entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          isVisible = true
-          // Wait for two frames to ensure layout is complete
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              lastDrawCssWidth = 0  // Force redraw with correct width
-              requestDraw()
-            })
-          })
-          intersectionObserver?.disconnect()
-          intersectionObserver = null
-        }
-      }, { rootMargin: '200px', threshold: 0.01 })
-      intersectionObserver.observe(rootEl.value)
-    } else {
-      isVisible = true
-      requestDraw()
-    }
-    if (rootEl.value && typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(scheduleResizeDraw)
-      resizeObserver.observe(rootEl.value)
-    }
   })
 })
 
 onBeforeUnmount(() => {
   disposed = true
   drawSeq += 1
-  intersectionObserver?.disconnect()
-  intersectionObserver = null
-  resizeObserver?.disconnect()
-  resizeObserver = null
-  if (resizeFrame) window.cancelAnimationFrame(resizeFrame)
+})
+
+const { resolveContainerWidth } = useLazyCanvasDraw({
+  rootEl,
+  draw: requestDraw,
+  getDrawnCssWidth: () => lastDrawCssWidth,
+  resetDrawnCssWidth: () => { lastDrawCssWidth = 0 },
+  clampResizeWidth: (width) => Math.min(MAX_RENDER_CSS_WIDTH, width),
+  onVisible: () => { isVisible = true },
+  immediateFallbackDraw: true,
 })
 
 watch(() => props.boxes, () => {

@@ -355,9 +355,21 @@ async function exportComposition() {
     }
   }
 
-  const questionItems = items.value.filter(i => i.item_type === 'question')
-  const ids = questionItems.map(i => i.question_id)
-  const blankPages = questionItems.map(i => i.blank_pages)
+  const ids: number[] = []
+  const blankPages: number[] = []
+  for (const item of items.value) {
+    if (item.item_type === 'question') {
+      if (item.question_id == null) continue
+      ids.push(item.question_id)
+      blankPages.push(item.blank_pages)
+    } else if (item.item_type === 'blank_page') {
+      if (!blankPages.length) {
+        console.warn('导出：跳过位于第一题之前的空白页（后端暂不支持）', item)
+        continue
+      }
+      blankPages[blankPages.length - 1] += 1
+    }
+  }
 
   exportBusy.value = true
   appStore.setStatus(`正在导出 ${ids.length} 题...`)
