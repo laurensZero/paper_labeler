@@ -39,10 +39,11 @@ class TestAutoSuggestAllowedByFilename:
         assert ok is True
         assert reason is None
 
-    def test_year_gt_23_disabled(self):
+    def test_year_gt_23_allowed(self):
+        # Year gate lifted: recognition quality no longer depends on year.
         ok, reason = auto_suggest_allowed_by_filename("9709_s24_qp_1.pdf")
-        assert ok is False
-        assert reason  # non-empty explanation
+        assert ok is True
+        assert reason is None
 
     def test_unknown_year_allowed(self):
         ok, reason = auto_suggest_allowed_by_filename("no_year_here.pdf")

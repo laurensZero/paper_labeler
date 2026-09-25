@@ -629,6 +629,17 @@ def _is_writing_lines_region(rules_in: list[float], *, y0: float, y1: float) -> 
     return False, None
 
 
+def _q_values_coherent(vals: list[str | None]) -> bool:
+    """True when values form a strictly increasing integer sequence (real Q run)."""
+    nums: list[int] = []
+    for v in vals:
+        try:
+            nums.append(int(str(v)))
+        except Exception:
+            return False
+    return all(nums[i] < nums[i + 1] for i in range(len(nums) - 1))
+
+
 def suggest_question_boxes_from_pdf(
     pdf_path: Path,
     page_count: int,
@@ -778,25 +789,30 @@ def suggest_question_boxes_from_pdf(
         i += 1
     markers = collapsed
 
-    # Per-page noise: if many Q markers exist on a page, keep only the topmost one.
+    # Per-page noise filter: only when Q values on a page do NOT form a coherent
+    # increasing question sequence (e.g. math-fragment false positives like 2,5,2,1).
+    # Real exam pages often contain several sequential questions (1,2,3...) and must be kept.
     try:
         q_by_page: dict[int, list[Marker]] = {}
         for m in markers:
             if m.kind == "Q":
                 q_by_page.setdefault(int(m.page), []).append(m)
-        if any(len(arr) >= 3 for arr in q_by_page.values() if arr):
-            chosen: dict[int, Marker] = {}
-            for p, arr in q_by_page.items():
-                arr = sorted(arr, key=lambda mm: float(mm.y))
-                chosen[int(p)] = arr[0]
+
+        drop_ids: set[int] = set()
+        for p, arr in q_by_page.items():
+            if len(arr) < 3:
+                continue
+            ordered = sorted(arr, key=lambda mm: float(mm.y))
+            if _q_values_coherent([m.val for m in ordered]):
+                continue
+            # Incoherent multi-marks: keep only the topmost Q on this page.
+            for m in ordered[1:]:
+                drop_ids.add(id(m))
+
+        if drop_ids:
             markers2: list[Marker] = []
             for m in markers:
-                if m.kind == "Q":
-                    if chosen.get(int(m.page)) is m:
-                        markers2.append(m)
-                    continue
-                cq = chosen.get(int(m.page))
-                if cq is not None and float(m.y) < float(cq.y):
+                if m.kind == "Q" and id(m) in drop_ids:
                     continue
                 markers2.append(m)
             markers = sorted(markers2, key=lambda mm: (int(mm.page), float(mm.y)))

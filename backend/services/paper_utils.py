@@ -26,12 +26,11 @@ def extract_year_from_filename(name: str) -> Optional[int]:
 
 
 def auto_suggest_allowed_by_filename(name: str) -> Tuple[bool, Optional[str]]:
-    """Business rule: years > 23 do NOT auto-suggest."""
-    y = extract_year_from_filename(name)
-    if y is None:
-        return True, None
-    if int(y) > 23:
-        return False, f"根据文件名年份规则（>{23} 不自动识别），该试卷（{y}）已禁用自动框选。"
+    """Auto-suggest is allowed for all exam years.
+
+    Previously years > 23 were disabled due to recognition quality issues;
+    the root cause (per-page noise filter dropping multi-question pages) is fixed.
+    """
     return True, None
 
 

@@ -4,6 +4,7 @@ from backend.auto_suggest import (
     _extract_markers_from_lines,
     _norm_params,
     _normalize_and_dedupe_questions,
+    _q_values_coherent,
     detect_problematic_control_chars,
 )
 
@@ -195,3 +196,24 @@ class TestNormalizeAndDedupe:
             [{"boxes": [{"page": 1, "bbox": [0, 0]}, {"page": 1, "bbox": [0, 0, 1, 1]}]}]
         )
         assert len(out[0]["boxes"]) == 1
+
+
+class TestQValuesCoherent:
+    def test_sequential_run(self):
+        assert _q_values_coherent(["1", "2", "3", "4", "5", "6"]) is True
+
+    def test_mid_sequence(self):
+        assert _q_values_coherent(["7", "8", "9"]) is True
+
+    def test_math_fragment_noise(self):
+        assert _q_values_coherent(["2", "2", "3", "1"]) is False
+
+    def test_non_monotonic(self):
+        assert _q_values_coherent(["5", "1", "3"]) is False
+
+    def test_non_integer(self):
+        assert _q_values_coherent(["1", "a", "3"]) is False
+
+    def test_empty_and_single(self):
+        assert _q_values_coherent([]) is True
+        assert _q_values_coherent(["4"]) is True
