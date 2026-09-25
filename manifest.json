@@ -1,7 +1,7 @@
 {
-  "version": "20260925.1",
-  "url": "bundle-20260925.1.zip",
-  "hash": "sha256:6fdc40779ab1f7616367b94aa49867899532fff18ff7fc336f4b62b2bb984453",
-  "notes": "8d94982 feat: enhance settings management with duplicate name checks and error handling ",
-  "publishedAt": "2026-09-25T07:07:42Z"
+  "version": "20260925.2",
+  "url": "bundle-20260925.2.zip",
+  "hash": "sha256:525c21cef88d4db90632cd64640109e218e4a6bd0e2f39b1b67d5c353f6a0c44",
+  "notes": "e4a2599 优化启动速度 ",
+  "publishedAt": "2026-09-25T07:35:13Z"
 }
