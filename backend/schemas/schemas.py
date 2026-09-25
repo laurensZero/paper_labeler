@@ -80,6 +80,7 @@ class QuestionSearchRequest(BaseModel):
     page: int = 1
     page_size: int = 10
     ids_only: bool = False
+    summary_only: bool = False
 
 class QuestionsBatchUpdate(BaseModel):
     ids: list[int] = Field(min_length=1)

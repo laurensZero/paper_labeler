@@ -85,7 +85,7 @@ function findPython() {
       if (cached) {
         const { execSync } = require('child_process')
         try {
-          execSync(`"${cached}" --version`, { stdio: 'ignore', timeout: 3000 })
+          execSync(`"${cached}" --version`, { stdio: 'ignore', timeout: 1500 })
           return cached
         } catch {}
       }
@@ -96,7 +96,7 @@ function findPython() {
   const { execSync } = require('child_process')
   for (const cmd of candidates) {
     try {
-      execSync(`${cmd} --version`, { stdio: 'ignore', timeout: 3000 })
+      execSync(`${cmd} --version`, { stdio: 'ignore', timeout: 1500 })
       try {
         fs.mkdirSync(path.dirname(cachePath), { recursive: true })
         fs.writeFileSync(cachePath, cmd, 'utf-8')
@@ -155,7 +155,10 @@ async function ensureDependencies(python) {
 }
 
 async function startBackend() {
-  const python = findPython()
+  const [python, port] = await Promise.all([
+    Promise.resolve().then(() => findPython()),
+    getFreePort(),
+  ])
   if (!python) {
     throw new Error('未找到 Python，请安装 Python 3.8+ 并添加到 PATH')
   }
@@ -167,7 +170,7 @@ async function startBackend() {
     console.error('[deps] Failed to install dependencies:', err.message)
   }
 
-  backendPort = await getFreePort()
+  backendPort = port
   const root = getRoot()
   const dataRoot = getDataRoot()
   console.log(`Starting backend: ${python} on port ${backendPort}, cwd: ${root}, dataRoot: ${dataRoot}`)
@@ -177,6 +180,7 @@ async function startBackend() {
     '-m', 'uvicorn', 'backend.main:app',
     '--host', '127.0.0.1',
     '--port', String(backendPort),
+    '--log-level', 'warning',
   ], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -205,11 +209,13 @@ async function startBackend() {
   })
 }
 
-function waitForBackend(retries = 200) {
+function waitForBackend(retries = 250) {
   return new Promise((resolve, reject) => {
     let attempt = 0
     const check = () => {
       const req = http.get(`http://127.0.0.1:${backendPort}/health`, (res) => {
+        // Drain body so the socket can close promptly
+        res.resume()
         if (res.statusCode === 200) {
           resolve()
         } else {
@@ -217,7 +223,7 @@ function waitForBackend(retries = 200) {
         }
       })
       req.on('error', retry)
-      req.setTimeout(300)
+      req.setTimeout(150)
     }
     const retry = () => {
       attempt++
@@ -225,7 +231,8 @@ function waitForBackend(retries = 200) {
         reject(new Error('后端服务未在预期时间内启动'))
         return
       }
-      setTimeout(check, 200)
+      // Tight poll: backend is usually ready within 1-3s on warm Python
+      setTimeout(check, attempt < 25 ? 50 : 150)
     }
     check()
   })

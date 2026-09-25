@@ -175,21 +175,31 @@ export const usePapersStore = defineStore('papers', () => {
     }
   }
 
+  let _refreshPapersInFlight: Promise<void> | null = null
+
   async function refreshPapers(options: { silent?: boolean } = {}) {
+    // Coalesce concurrent first-load callers (AppShell + FilterView) into one request.
+    if (_refreshPapersInFlight) return _refreshPapersInFlight
+    _refreshPapersInFlight = _refreshPapersNow(options).finally(() => {
+      _refreshPapersInFlight = null
+    })
+    return _refreshPapersInFlight
+  }
+
+  async function _refreshPapersNow(options: { silent?: boolean } = {}) {
     const appStore = useAppStore()
     const silent = !!options.silent
     if (!silent) appStore.setStatus('加载试卷列表...')
     try {
-      const data = await api('/papers')
+      const [data, filenameData] = await Promise.all([
+        api('/papers'),
+        api('/papers/filenames').catch(() => ({ filenames: [] as string[] })),
+      ])
       papers.value = Array.isArray(data.papers) ? data.papers : []
-      try {
-        const filenameData = await api('/papers/filenames')
-        allPaperFilenames.value = filenameData.filenames || []
-      } catch {
-        allPaperFilenames.value = []
-      }
+      allPaperFilenames.value = filenameData.filenames || []
       if (!silent) appStore.setStatus(`试卷数：${papers.value.length}`, 'ok')
-      await refreshStats()
+      // Stats is display-only; don't block the papers list on it.
+      void refreshStats()
     } catch (e) {
       if (!silent) appStore.setStatus('列表加载失败: ' + String(e), 'err')
       papers.value = []

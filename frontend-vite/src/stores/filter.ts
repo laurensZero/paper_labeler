@@ -259,7 +259,7 @@ export const useFilterStore = defineStore('filter', () => {
     return params
   }
 
-  function buildFilterSearchPayload({ page, pageSize, idsOnly = false }: { page: number; pageSize: number; idsOnly?: boolean }): QuestionSearchParams {
+  function buildFilterSearchPayload({ page, pageSize, idsOnly = false, summaryOnly = false }: { page: number; pageSize: number; idsOnly?: boolean; summaryOnly?: boolean }): QuestionSearchParams {
     const papersStore = usePapersStore()
     const selectedPaperIds = filterPaperMulti.value.length
       ? filterPaperMulti.value.map(Number).filter(Number.isFinite)
@@ -294,18 +294,19 @@ export const useFilterStore = defineStore('filter', () => {
       page: Number(page || 1),
       pageSize: Number(pageSize || 10),
       idsOnly: !!idsOnly,
+      summaryOnly: !!summaryOnly,
     }
   }
 
-  async function requestFilterSearch({ page, pageSize, idsOnly = false, signal }: { page: number; pageSize: number; idsOnly?: boolean; signal?: AbortSignal | null }) {
+  async function requestFilterSearch({ page, pageSize, idsOnly = false, summaryOnly = false, signal }: { page: number; pageSize: number; idsOnly?: boolean; summaryOnly?: boolean; signal?: AbortSignal | null }) {
     const params = buildFilterSearchParams({ page, pageSize })
-    if (!idsOnly && params.toString().length < 1200) {
+    if (!idsOnly && !summaryOnly && params.toString().length < 1200) {
       return api(`/questions?${params.toString()}`, signal ? { signal } : undefined)
     }
     const req: RequestInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(convertKeysToSnake(buildFilterSearchPayload({ page, pageSize, idsOnly }))),
+      body: JSON.stringify(convertKeysToSnake(buildFilterSearchPayload({ page, pageSize, idsOnly, summaryOnly }))),
       ...(signal ? { signal } : {}),
     }
     return api('/questions/search', req)

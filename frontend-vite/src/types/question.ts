@@ -80,11 +80,30 @@ export interface QuestionSearchParams {
   page?: number
   pageSize?: number
   idsOnly?: boolean
+  /** Lean film-strip payload (id/no/fav/sections only, no boxes/preview) */
+  summaryOnly?: boolean
 }
 
 /** Search response with pagination */
 export interface QuestionSearchResponse {
   questions: Question[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+/** Lean question row returned when summary_only=true */
+export interface QuestionSummary {
+  id: number
+  question_no: string | null
+  is_favorite: boolean
+  section: string | null
+  sections: string[]
+}
+
+export interface QuestionSummarySearchResponse {
+  questions: QuestionSummary[]
   total: number
   page: number
   page_size: number

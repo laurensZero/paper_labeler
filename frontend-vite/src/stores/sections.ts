@@ -93,7 +93,18 @@ export const useSectionsStore = defineStore('sections', () => {
   }
 
   // --- actions ---
+  let _refreshSectionsInFlight: Promise<void> | null = null
+
   async function refreshSectionDefs() {
+    // Coalesce concurrent first-load callers into one request.
+    if (_refreshSectionsInFlight) return _refreshSectionsInFlight
+    _refreshSectionsInFlight = _refreshSectionDefsNow().finally(() => {
+      _refreshSectionsInFlight = null
+    })
+    return _refreshSectionsInFlight
+  }
+
+  async function _refreshSectionDefsNow() {
     try {
       const [d, g] = await Promise.all([
         api('/section_defs'),

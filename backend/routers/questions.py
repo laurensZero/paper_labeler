@@ -474,9 +474,10 @@ def _search_questions_core(
     page: int = 1,
     page_size: int = 10,
     ids_only: bool = False,
+    summary_only: bool = False,
 ):
     page = max(1, int(page or 1))
-    max_page_size = 2000 if ids_only else 200
+    max_page_size = 2000 if (ids_only or summary_only) else 200
     page_size = max(1, min(max_page_size, int(page_size or 10)))
 
     q = db.query(Question, Paper).join(Paper, Question.paper_id == Paper.id)
@@ -632,6 +633,39 @@ def _search_questions_core(
         }
 
     page_qids = [int(qq.id) for qq, _ in page_entries]
+    sections_by_qid: dict[int, list[str]] = {qid: [] for qid in page_qids}
+    if page_qids:
+        for qid, section_name in (
+            db.query(QuestionSection.question_id, QuestionSection.section_name)
+            .filter(QuestionSection.question_id.in_(page_qids))
+            .all()
+        ):
+            sections_by_qid.setdefault(int(qid), []).append(section_name)
+
+    if summary_only:
+        # Lean payload for film-strip / bulk UI: skip boxes and preview URLs.
+        results = []
+        for qq, _pp in page_entries:
+            secs = sections_by_qid.get(int(qq.id), [])
+            if not secs and qq.section:
+                secs = [qq.section]
+            results.append(
+                {
+                    "id": int(qq.id),
+                    "question_no": qq.question_no,
+                    "is_favorite": bool(getattr(qq, "is_favorite", False)),
+                    "section": secs[0] if secs else None,
+                    "sections": secs,
+                }
+            )
+        return {
+            "questions": results,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
+
     box_rows = (
         db.query(QuestionBox)
         .filter(QuestionBox.question_id.in_(page_qids))
@@ -643,14 +677,6 @@ def _search_questions_core(
     boxes_by_qid: dict[int, list[QuestionBox]] = {}
     for box in box_rows:
         boxes_by_qid.setdefault(int(box.question_id), []).append(box)
-    sections_by_qid: dict[int, list[str]] = {qid: [] for qid in page_qids}
-    if page_qids:
-        for qid, section_name in (
-            db.query(QuestionSection.question_id, QuestionSection.section_name)
-            .filter(QuestionSection.question_id.in_(page_qids))
-            .all()
-        ):
-            sections_by_qid.setdefault(int(qid), []).append(section_name)
 
     results = []
     for qq, pp in page_entries:
@@ -686,6 +712,7 @@ def search_questions(
     page: int = 1,
     page_size: int = 10,
     ids_only: bool = False,
+    summary_only: bool = False,
     db: Session = Depends(get_db),
 ):
     return _search_questions_core(
@@ -706,6 +733,7 @@ def search_questions(
         page=page,
         page_size=page_size,
         ids_only=ids_only,
+        summary_only=summary_only,
     )
 
 
@@ -729,6 +757,7 @@ def search_questions_post(payload: QuestionSearchRequest, db: Session = Depends(
         page=payload.page,
         page_size=payload.page_size,
         ids_only=bool(payload.ids_only),
+        summary_only=bool(payload.summary_only),
     )
 
 @router.get("/papers/{paper_id}/questions/answer_status")

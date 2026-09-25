@@ -92,7 +92,8 @@ def build_question_preview_png(question_id: int, boxes: list[QuestionBox], width
                 crop = img.crop((left, top, right, bottom))
                 if crop.width > safe_width:
                     next_h = max(1, int(round(crop.height * (safe_width / crop.width))))
-                    crop = crop.resize((safe_width, next_h), Image.Resampling.LANCZOS)
+                    # BILINEAR is much cheaper than LANCZOS and fine for previews
+                    crop = crop.resize((safe_width, next_h), Image.Resampling.BILINEAR)
                 crops.append(crop.copy())
 
         if not crops:
@@ -107,7 +108,8 @@ def build_question_preview_png(question_id: int, boxes: list[QuestionBox], width
             y += crop.height
 
         buf = BytesIO()
-        out.save(buf, "PNG", optimize=True)
+        # optimize=True is CPU-heavy and barely helps for preview-sized PNGs
+        out.save(buf, "PNG", optimize=False)
         data = buf.getvalue()
         _cache_set(cache_key, data)
         return data, version

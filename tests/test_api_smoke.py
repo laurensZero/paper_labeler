@@ -131,6 +131,36 @@ class TestQuestionRoutes:
         resp = client.post("/questions/search", json={"page": 1, "page_size": 10})
         assert resp.status_code == 200
 
+    def test_search_summary_only_is_lean(self, client):
+        db = SessionLocal()
+        try:
+            paper = _make_paper(db)
+        finally:
+            db.close()
+        _make_page_image(paper.id)
+        created = client.post(
+            f"/papers/{paper.id}/questions",
+            json={
+                "boxes": [{"page": 1, "bbox": [0.1, 0.1, 0.5, 0.3]}],
+                "sections": ["Mechanics"],
+                "status": "confirmed",
+            },
+        )
+        assert created.status_code == 200
+
+        resp = client.post(
+            "/questions/search",
+            json={"page": 1, "page_size": 1000, "summary_only": True},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["page_size"] == 1000
+        assert body["questions"]
+        row = body["questions"][0]
+        assert set(row.keys()) == {"id", "question_no", "is_favorite", "section", "sections"}
+        assert "boxes" not in row
+        assert "preview_image_url" not in row
+
     def test_get_missing_question_404(self, client):
         resp = client.get("/questions/999999")
         assert resp.status_code == 404

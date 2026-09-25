@@ -102,10 +102,13 @@ def _auto_grayscale(img: "Image.Image") -> "Image.Image":
 
 
 def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
-    """Render PDF pages to PNG images (无损，最高清晰度，最大压缩).
+    """Render PDF pages to WebP images (same sharpness as before, faster encode).
 
-    Important: always clears output_dir first to avoid mixed/stale pages when
-    a paper id is reused or old images remain on disk.
+    Keeps the historical 4x zoom (~288 DPI) so new pages match existing
+    on-disk quality for deep zoom while labeling. WebP replaces the old
+    PNG optimize/compress_level=9 path, which dominated import time on
+    low-end machines. Important: always clears output_dir first to avoid
+    mixed/stale pages when a paper id is reused.
 
     Returns the rendered page count.
     """
@@ -124,13 +127,14 @@ def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
     try:
         for page_index in range(len(doc)):
             page = doc[page_index]
-            matrix = fitz.Matrix(4, 4)  # 4x zoom = 288 DPI
+            matrix = fitz.Matrix(4, 4)  # 4x zoom = 288 DPI — keep labeling sharpness
             pix = page.get_pixmap(matrix=matrix)
             png_data = pix.tobytes("png")
             with Image.open(BytesIO(png_data)) as img:
                 img = _auto_grayscale(img)
-                image_path = output_dir / f"page_{page_index + 1}.png"
-                img.save(str(image_path), "PNG", optimize=True, compress_level=9)
+                image_path = output_dir / f"page_{page_index + 1}.webp"
+                # quality 90 keeps text crisp; method=4 avoids max-effort encode cost
+                img.save(str(image_path), "WEBP", quality=90, method=4)
         return len(doc)
     finally:
         doc.close()

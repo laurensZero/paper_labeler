@@ -109,24 +109,39 @@ const seasonShortLabels: Record<string, string> = { m: 'm', s: 's', w: 'w' }
 interface FilmStripItem { id: number; question_no: string | null; is_favorite: boolean; section: string | null; sections: string[] }
 const allFilmStripItems = ref<FilmStripItem[]>([])
 const questionCache = new Map<number, FilterQuestion>()
+const fullQuestionLoads = new Map<number, Promise<FilterQuestion | null>>()
+
+function normalizeFilterQuestion(raw: Question): FilterQuestion {
+  return {
+    ...raw,
+    __editOpen: false,
+    __ansOpen: false,
+    __ansLoaded: false,
+    __ansBoxes: [],
+    __ansMeta: 'Not loaded',
+    __editSections: raw.sections && Array.isArray(raw.sections) ? [...raw.sections] : (raw.section ? [raw.section] : []),
+    __editNotes: raw.notes || '',
+    __notesOpen: false,
+  }
+}
 
 async function loadAllFilmStripItems() {
   try {
+    // Lean summary rows — full questions (boxes/preview) load only when selected.
     const allQuestions: FilmStripItem[] = []
     let page = 1
     let totalPages = 1
     do {
-      const data = await filterStore.requestFilterSearch({ page, pageSize: 500, idsOnly: false })
-      const qs = Array.isArray(data?.questions) ? data.questions as Question[] : []
+      const data = await filterStore.requestFilterSearch({ page, pageSize: 1000, summaryOnly: true })
+      const qs = Array.isArray(data?.questions) ? data.questions as FilmStripItem[] : []
       for (const q of qs) {
         allQuestions.push({
           id: q.id,
           question_no: q.question_no,
           is_favorite: q.is_favorite,
           section: q.section,
-          sections: q.sections,
+          sections: q.sections || [],
         })
-        questionCache.set(q.id, q as FilterQuestion)
       }
       totalPages = Number(data?.total_pages || 1)
       page += 1
@@ -141,6 +156,30 @@ async function loadAllFilmStripItems() {
       sections: q.sections,
     }))
   }
+}
+
+async function loadFullQuestion(id: number): Promise<FilterQuestion | null> {
+  const inPage = filterResults.value.find((r) => r.id === id)
+  if (inPage) return inPage
+  const cached = questionCache.get(id)
+  if (cached && Array.isArray(cached.boxes)) return cached
+  let pending = fullQuestionLoads.get(id)
+  if (!pending) {
+    pending = (async () => {
+      try {
+        const res = await questionsApi.get(id)
+        const full = normalizeFilterQuestion(res.question)
+        questionCache.set(id, full)
+        return full
+      } catch {
+        return null
+      } finally {
+        fullQuestionLoads.delete(id)
+      }
+    })()
+    fullQuestionLoads.set(id, pending)
+  }
+  return pending
 }
 
 const activeQuestionId = computed(() => selectedQuestion.value?.id ?? null)
@@ -279,21 +318,15 @@ function selectQuestionById(id: number) {
     preloadAdjacent(id)
     return
   }
-  // Then check cache
-  const cached = questionCache.get(id)
-  if (cached) {
-    if (cached.__ansOpen === undefined) cached.__ansOpen = false
-    if (cached.__ansLoaded === undefined) cached.__ansLoaded = false
-    if (cached.__ansBoxes === undefined) cached.__ansBoxes = []
-    if (cached.__ansMeta === undefined) cached.__ansMeta = ''
-    if (cached.__editSections === undefined) cached.__editSections = cached.sections || (cached.section ? [cached.section] : [])
-    if (cached.__editNotes === undefined) cached.__editNotes = cached.notes || ''
-    selectQuestion(cached)
-    preloadAdjacent(id)
-  }
+  // Film-strip only has summary rows; fetch full question for the inspector
+  void loadFullQuestion(id).then((full) => {
+    if (full) {
+      selectQuestion(full)
+      preloadAdjacent(id)
+    }
+  })
 }
 
-/* ── Preload adjacent question images ── */
 const _preloaded = new Set<number>()
 
 function preloadAdjacent(currentId: number) {
@@ -305,14 +338,12 @@ function preloadAdjacent(currentId: number) {
     if (i === idx || i < 0 || i >= items.length) continue
     const neighborId = items[i].id
     if (_preloaded.has(neighborId)) continue
-    _preloaded.add(neighborId)
     const cached = questionCache.get(neighborId)
-    if (!cached) continue
-    const url = cached.preview_image_url || cached.boxes?.[0]?.image_url
-    if (url) {
-      const img = new Image()
-      img.src = url
-    }
+    const url = cached?.preview_image_url || cached?.boxes?.[0]?.image_url
+    if (!url) continue
+    _preloaded.add(neighborId)
+    const img = new Image()
+    img.src = url
   }
 }
 

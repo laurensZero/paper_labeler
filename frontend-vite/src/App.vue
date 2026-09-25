@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, onErrorCaptured, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, onErrorCaptured, ref } from 'vue'
 import { NConfigProvider, darkTheme, lightTheme } from 'naive-ui'
 import AppShell from '@/components/layout/AppShell.vue'
-import CieImport from '@/components/CieImport.vue'
 import AppDialogHost from '@/components/AppDialogHost.vue'
-import ExportWizard from '@/views/ExportWizard.vue'
+
+// Modal hosts — keep out of the critical first-paint bundle
+const CieImport = defineAsyncComponent(() => import('@/components/CieImport.vue'))
+const ExportWizard = defineAsyncComponent(() => import('@/views/ExportWizard.vue'))
 
 // -- Global error boundary --
 const fatal = ref<{ error: unknown; info: string } | null>(null)
