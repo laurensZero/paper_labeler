@@ -226,6 +226,38 @@ class TestQuestionRoutes:
         assert "question_ids" in body
 
 
+class TestCieImportJob:
+    def test_create_and_poll_import_job(self, client):
+        created = client.post(
+            "/cie_import/import_job",
+            json={
+                "items": [{"url": "https://example.com/9709_s23_qp_1.pdf", "filename": "9709_s23_qp_1.pdf"}],
+                "ocr_auto": False,
+            },
+        )
+        assert created.status_code == 200
+        job_id = created.json()["job_id"]
+        assert created.json()["total"] == 1
+
+        # Immediately poll — may be queued/processing/done depending on timing
+        polled = client.get(f"/cie_import/import_job/{job_id}")
+        assert polled.status_code == 200
+        body = polled.json()
+        assert body["id"] == job_id
+        assert body["total"] == 1
+        assert "percent" in body
+        assert "step" in body
+        assert "status" in body
+
+    def test_import_job_missing_404(self, client):
+        resp = client.get("/cie_import/import_job/does-not-exist")
+        assert resp.status_code == 404
+
+    def test_import_job_rejects_empty_items(self, client):
+        resp = client.post("/cie_import/import_job", json={"items": []})
+        assert resp.status_code == 400
+
+
 class TestExportHelpersViaApi:
     def test_export_job_requires_ids_field(self, client):
         resp = client.post("/export/questions_pdf_job", json={"options": {}})

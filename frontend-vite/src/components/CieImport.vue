@@ -23,7 +23,75 @@ const {
   ciePaperCountText,
   cieSelectedIds,
   cieLoading,
+  cieImportProgress,
+  cieImportStep,
+  cieImportCurrent,
+  cieImportTotal,
+  cieImportFilename,
+  cieImportPhase,
+  cieSubjectComboList,
+  cieSubjectHistory,
+  cieYearHistory,
 } = storeToRefs(store)
+
+function onPickSubject(code: string) {
+  cieSubjectInput.value = String(code || '').trim()
+  void store.updateCieSubjectName()
+}
+
+function onPickYear(y: string) {
+  cieYearInput.value = String(y || '')
+}
+
+function displayYearLabel(y: string): string {
+  // Show 23/24/25 style for 20xx years
+  const s = String(y || '')
+  if (/^20(\d{2})$/.test(s)) return s.slice(2)
+  return s
+}
+
+function normalizeYearAndSearch() {
+  const norm = store.normalizeYearInput(cieYearInput.value)
+  if (norm && norm !== String(cieYearInput.value || '').trim()) {
+    cieYearInput.value = norm
+  }
+  void store.fetchPapers()
+}
+
+/** Blur only normalizes display (23 → 2023); search stays on Enter / 查询. */
+function onYearBlur() {
+  const norm = store.normalizeYearInput(cieYearInput.value)
+  if (norm) cieYearInput.value = norm
+}
+
+const stepList = [
+  { key: 'download', labelKey: 'cieImport.stepDownload' },
+  { key: 'save', labelKey: 'cieImport.stepSave' },
+  { key: 'render', labelKey: 'cieImport.stepRender' },
+  { key: 'analyze', labelKey: 'cieImport.stepAnalyze' },
+  { key: 'ocr', labelKey: 'cieImport.stepOcr' },
+  { key: 'done', labelKey: 'cieImport.stepDone' },
+] as const
+
+function stepState(key: string): 'done' | 'active' | 'pending' {
+  if (cieImportPhase.value === 'idle') return 'pending'
+  const cur = cieImportStep.value
+  const order = stepList.map((s) => s.key)
+  const curIdx = order.indexOf(cur as (typeof order)[number])
+  const idx = order.indexOf(key as (typeof order)[number])
+  if (cur === 'done' || cieImportPhase.value === 'done') return 'done'
+  if (curIdx < 0) return idx === 0 ? 'active' : 'pending'
+  if (idx < curIdx) return 'done'
+  if (idx === curIdx) return 'active'
+  return 'pending'
+}
+
+const progressPercent = computed(() => {
+  const n = Number(cieImportProgress.value)
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0
+})
+
+const showProgress = computed(() => cieImportPhase.value === 'running' || cieImportPhase.value === 'done' || cieImportPhase.value === 'error')
 
 const seasonOptions = ['Mar', 'Jun', 'Nov'] as const
 
@@ -44,10 +112,18 @@ function onOverlayClick(e: MouseEvent) {
   }
 }
 
-// Load combo list when dialog opens
+// Load combo list when dialog opens; re-resolve name if list arrives after typing
 watch(cieImportOpen, (open) => {
   if (open) {
-    store.ensureCieSubjectComboList()
+    void store.ensureCieSubjectComboList().then(() => {
+      if (cieSubjectInput.value) void store.updateCieSubjectName()
+    })
+  }
+})
+
+watch(cieSubjectComboList, (list) => {
+  if (list?.length && cieSubjectInput.value) {
+    void store.updateCieSubjectName()
   }
 })
 </script>
@@ -105,8 +181,9 @@ watch(cieImportOpen, (open) => {
                 v-model="cieYearInput"
                 type="text"
                 class="cie-input cie-input--narrow"
-                :placeholder="t('cieImport.yearPlaceholder')"
-                @keydown.enter="store.fetchPapers()"
+                :placeholder="t('cieImport.yearPlaceholderShort')"
+                @keydown.enter="normalizeYearAndSearch()"
+                @blur="onYearBlur"
               />
             </div>
             <div class="cie-field">
@@ -136,6 +213,35 @@ watch(cieImportOpen, (open) => {
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
                 {{ t('cieImport.fetch') }}
+              </button>
+            </div>
+          </div>
+          <div v-if="cieSubjectHistory.length || cieYearHistory.length" class="cie-history">
+            <div v-if="cieSubjectHistory.length" class="cie-history-row">
+              <span class="cie-history-label">{{ t('cieImport.recentSubjects') }}</span>
+              <button
+                v-for="s in cieSubjectHistory.slice(0, 8)"
+                :key="s.value"
+                type="button"
+                class="cie-chip"
+                :class="{ active: cieSubjectInput.trim() === String(s.value) }"
+                :title="s.text"
+                @click="onPickSubject(s.value)"
+              >
+                {{ s.value }}
+              </button>
+            </div>
+            <div v-if="cieYearHistory.length" class="cie-history-row">
+              <span class="cie-history-label">{{ t('cieImport.recentYears') }}</span>
+              <button
+                v-for="y in cieYearHistory.slice(0, 8)"
+                :key="y"
+                type="button"
+                class="cie-chip"
+                :class="{ active: store.normalizeYearInput(cieYearInput) === y }"
+                @click="onPickYear(displayYearLabel(y))"
+              >
+                {{ displayYearLabel(y) }}
               </button>
             </div>
           </div>
@@ -228,6 +334,39 @@ watch(cieImportOpen, (open) => {
               <span class="cie-badge cie-badge--other">{{ t('cieImport.other') }}</span>
               <span v-if="paper.exists" class="cie-badge cie-badge--exists">{{ t('cieImport.imported') }}</span>
             </label>
+          </div>
+
+          <!-- Import progress -->
+          <div v-if="showProgress" class="cie-progress">
+            <div class="cie-progress-header">
+              <span class="cie-progress-title">{{ t('cieImport.progressTitle') }}</span>
+              <span class="cie-progress-meta">
+                {{ cieImportCurrent }}/{{ cieImportTotal || '—' }}
+                · {{ Math.round(progressPercent) }}%
+                <template v-if="cieImportPhase === 'running'"> · {{ t('cieImport.parallel') }}</template>
+              </span>
+            </div>
+            <div class="cie-progress-bar">
+              <div
+                class="cie-progress-fill"
+                :class="{ 'is-error': cieImportPhase === 'error' }"
+                :style="{ width: progressPercent + '%' }"
+              />
+            </div>
+            <div class="cie-progress-steps">
+              <div
+                v-for="s in stepList"
+                :key="s.key"
+                class="cie-step"
+                :class="stepState(s.key)"
+              >
+                <span class="cie-step-dot" />
+                <span class="cie-step-label">{{ t(s.labelKey) }}</span>
+              </div>
+            </div>
+            <div v-if="cieImportFilename" class="cie-progress-file">
+              {{ cieImportFilename }}
+            </div>
           </div>
 
           <!-- Footer actions -->
@@ -649,6 +788,150 @@ watch(cieImportOpen, (open) => {
   font-size: 12.5px;
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+/* History chips */
+.cie-history {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cie-history-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cie-history-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  min-width: 48px;
+}
+
+.cie-chip {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.cie-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.cie-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+/* Import progress */
+.cie-progress {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  flex-shrink: 0;
+}
+
+.cie-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.cie-progress-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.cie-progress-meta {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cie-progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.cie-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 250ms ease;
+}
+
+.cie-progress-fill.is-error {
+  background: var(--danger);
+}
+
+.cie-progress-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 10px;
+}
+
+.cie-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.cie-step-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  flex-shrink: 0;
+}
+
+.cie-step.done {
+  color: var(--success);
+}
+
+.cie-step.done .cie-step-dot {
+  background: var(--success);
+}
+
+.cie-step.active {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.cie-step.active .cie-step-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.cie-progress-file {
+  margin-top: 8px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Spinner animation */

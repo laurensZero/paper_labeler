@@ -84,36 +84,61 @@ def page_image_url_suffix(pages_dir: Path, page_num: int) -> tuple[str, Path | N
 
 
 def _auto_grayscale(img: "Image.Image") -> "Image.Image":
-    """自动检测：无彩色内容的页面转灰度，有彩色的保留 RGB。"""
+    """自动检测：无彩色内容的页面转灰度，有彩色的保留 RGB。
+
+    Uses a tiny thumbnail sample so 4x pages don't pay full ImageStat cost.
+    """
     if img.mode in ("L", "LA", "1"):
         return img.convert("L")
-    if img.mode not in ("RGB", "RGBA"):
+    if img.mode != "RGB":
         img = img.convert("RGB")
-    from PIL import ImageStat
-    r, g, b = img.split()[:3]
-    sr, sg, sb = ImageStat.Stat(r), ImageStat.Stat(g), ImageStat.Stat(b)
-    # 三通道均值和标准差都接近 → 无彩色信息
-    mean_diff = max(abs(sr.mean[0] - sg.mean[0]), abs(sr.mean[0] - sb.mean[0]), abs(sg.mean[0] - sb.mean[0]))
-    std_diff = max(abs(sr.stddev[0] - sg.stddev[0]), abs(sr.stddev[0] - sb.stddev[0]), abs(sg.stddev[0] - sb.stddev[0]))
-    if mean_diff < 3 and std_diff < 3:
-        return img.convert("L")
+    from PIL import Image, ImageStat
+
+    thumb = img.resize((48, 48), Image.Resampling.BILINEAR)
+    try:
+        r, g, b = thumb.split()[:3]
+        sr, sg, sb = ImageStat.Stat(r), ImageStat.Stat(g), ImageStat.Stat(b)
+        # 三通道均值和标准差都接近 → 无彩色信息
+        mean_diff = max(abs(sr.mean[0] - sg.mean[0]), abs(sr.mean[0] - sb.mean[0]), abs(sg.mean[0] - sb.mean[0]))
+        std_diff = max(abs(sr.stddev[0] - sg.stddev[0]), abs(sr.stddev[0] - sb.stddev[0]), abs(sg.stddev[0] - sb.stddev[0]))
+        if mean_diff < 3 and std_diff < 3:
+            return img.convert("L")
+    finally:
+        try:
+            thumb.close()
+        except Exception:
+            pass
     return img
 
 
-def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
-    """Render PDF pages to WebP images (same sharpness as before, faster encode).
+def _save_page_webp(img: "Image.Image", image_path: Path) -> None:
+    out = _auto_grayscale(img)
+    try:
+        # method=3: faster than max-effort, still compact for text pages
+        out.save(str(image_path), "WEBP", quality=90, method=3)
+    finally:
+        try:
+            if out is not img:
+                out.close()
+            img.close()
+        except Exception:
+            pass
 
-    Keeps the historical 4x zoom (~288 DPI) so new pages match existing
-    on-disk quality for deep zoom while labeling. WebP replaces the old
-    PNG optimize/compress_level=9 path, which dominated import time on
-    low-end machines. Important: always clears output_dir first to avoid
-    mixed/stale pages when a paper id is reused.
+
+def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
+    """Render PDF pages to WebP images.
+
+    Keeps historical 4x zoom (~288 DPI) for labeling sharpness, but avoids the
+    old fitz→PNG→PIL round-trip: pixmap samples go straight to PIL. Page
+    encoding runs on a small thread pool so render/encode overlap. Clears
+    output_dir first to avoid mixed/stale pages when a paper id is reused.
 
     Returns the rendered page count.
     """
     import fitz
     from PIL import Image
-    from io import BytesIO
+    from collections import deque
+    from concurrent.futures import ThreadPoolExecutor
 
     try:
         if output_dir.exists() and output_dir.is_dir():
@@ -124,17 +149,25 @@ def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
 
     doc = fitz.open(str(pdf_path))
     try:
-        for page_index in range(len(doc)):
-            page = doc[page_index]
-            matrix = fitz.Matrix(4, 4)  # 4x zoom = 288 DPI — keep labeling sharpness
-            pix = page.get_pixmap(matrix=matrix)
-            png_data = pix.tobytes("png")
-            with Image.open(BytesIO(png_data)) as img:
-                img = _auto_grayscale(img)
+        page_count = len(doc)
+        matrix = fitz.Matrix(4, 4)  # 4x zoom = 288 DPI — keep labeling sharpness
+        # fitz documents are not thread-safe: rasterize on this thread,
+        # encode WebP on workers.
+        max_pending = 4
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            pending: deque = deque()
+            for page_index in range(page_count):
+                page = doc[page_index]
+                pix = page.get_pixmap(matrix=matrix, alpha=False)
+                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                del pix
                 image_path = output_dir / f"page_{page_index + 1}.webp"
-                # quality 90 keeps text crisp; method=4 avoids max-effort encode cost
-                img.save(str(image_path), "WEBP", quality=90, method=4)
-        return len(doc)
+                pending.append(pool.submit(_save_page_webp, img, image_path))
+                if len(pending) >= max_pending:
+                    pending.popleft().result()
+            while pending:
+                pending.popleft().result()
+        return page_count
     finally:
         doc.close()
 

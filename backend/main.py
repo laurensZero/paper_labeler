@@ -134,6 +134,9 @@ def _rate_limit_exempt(path: str) -> bool:
         return True
     if path.startswith("/export/questions_pdf_job/"):
         return True
+    # CIE subject combo / import job polling is small and user-facing
+    if path.startswith("/cie_import/subject_combo") or path.startswith("/cie_import/import_job"):
+        return True
     return False
 
 

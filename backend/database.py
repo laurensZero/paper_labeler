@@ -13,7 +13,11 @@ Base = declarative_base()
 def _build_engine():
     db_path = (DATA_DIR / "app.db").resolve()
     url = f"sqlite:///{db_path.as_posix()}"
-    return create_engine(url, connect_args={"check_same_thread": False})
+    # busy_timeout: parallel CIE imports won't fail the whole batch on lock contention
+    return create_engine(
+        url,
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
 
 
 engine = _build_engine()
