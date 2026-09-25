@@ -40,6 +40,62 @@ const {
   groupedItems,
 } = storeToRefs(composeStore)
 
+/* ── Cover page info lines (name / score / time …) ── */
+const coverLinesList = computed<string[]>(() => current.value?.cover_lines || [])
+let coverLinesSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+const showCoverPreview = computed(() => {
+  if (!current.value) return false
+  return Boolean(
+    current.value.title ||
+    current.value.header_text ||
+    (current.value.cover_lines && current.value.cover_lines.length > 0)
+  )
+})
+
+const coverLinePresets = computed(() => [
+  { key: 'name', label: t('compose.presetName'), template: t('compose.presetNameTemplate') },
+  { key: 'class', label: t('compose.presetClass'), template: t('compose.presetClassTemplate') },
+  { key: 'score', label: t('compose.presetScore'), template: t('compose.presetScoreTemplate') },
+  { key: 'time', label: t('compose.presetTime'), template: t('compose.presetTimeTemplate') },
+])
+
+function setCoverLines(lines: string[], immediate = true) {
+  if (current.value) {
+    current.value.cover_lines = lines
+  }
+  if (coverLinesSaveTimer) {
+    clearTimeout(coverLinesSaveTimer)
+    coverLinesSaveTimer = null
+  }
+  if (immediate) {
+    composeStore.updateComposition({ cover_lines: [...lines] })
+  } else {
+    coverLinesSaveTimer = setTimeout(() => {
+      coverLinesSaveTimer = null
+      if (current.value) {
+        composeStore.updateComposition({ cover_lines: [...(current.value.cover_lines || [])] })
+      }
+    }, 400)
+  }
+}
+
+function addCoverLine(text = '') {
+  setCoverLines([...coverLinesList.value, text])
+}
+
+function removeCoverLine(idx: number) {
+  const next = coverLinesList.value.slice()
+  next.splice(idx, 1)
+  setCoverLines(next)
+}
+
+function updateCoverLine(idx: number, value: string) {
+  const next = coverLinesList.value.slice()
+  next[idx] = value
+  setCoverLines(next, false)
+}
+
 /* ── Question bank filter state ── */
 const bankSection = ref('')
 const bankYearMulti = ref<string[]>([])
@@ -330,6 +386,14 @@ function onDragEnd() {
 const exportBusy = ref(false)
 
 async function exportComposition() {
+  // Persist any pending cover-line edits before export
+  if (coverLinesSaveTimer) {
+    clearTimeout(coverLinesSaveTimer)
+    coverLinesSaveTimer = null
+    if (current.value) {
+      await composeStore.updateComposition({ cover_lines: [...(current.value.cover_lines || [])] })
+    }
+  }
   if (!current.value || !items.value.length) {
     appStore.setStatus('没有可导出的题目', 'err')
     return
@@ -389,6 +453,7 @@ async function exportComposition() {
           title: current.value.title || null,
           header_text: current.value.header_text || null,
           footer_text: current.value.footer_text || null,
+          cover_lines: [...(current.value.cover_lines || [])],
           blank_pages_per_question: blankPages,
           show_page_numbers: current.value.show_page_numbers,
           filename: current.value.name,
@@ -630,7 +695,20 @@ async function exportComposition() {
             </div>
           </div>
           <div class="preview-scroll">
-            <div v-if="!items.length" class="preview-empty">
+            <!-- Cover / title page preview -->
+            <div v-if="showCoverPreview" class="preview-page preview-cover">
+              <div class="preview-cover-frame">
+                <div v-if="current?.title" class="preview-cover-title">{{ current.title }}</div>
+                <div v-if="current?.header_text" class="preview-cover-header">{{ current.header_text }}</div>
+                <div v-if="coverLinesList.length" class="preview-cover-lines">
+                  <div v-for="(line, idx) in coverLinesList" :key="idx" class="preview-cover-line">
+                    {{ line || t('compose.coverLinePlaceholder') }}
+                  </div>
+                </div>
+                <div class="preview-cover-label">{{ t('compose.coverPreview') }}</div>
+              </div>
+            </div>
+            <div v-if="!items.length && !showCoverPreview" class="preview-empty">
               {{ t('compose.empty') }}
             </div>
             <template v-else>
@@ -792,6 +870,45 @@ async function exportComposition() {
                 :value="current.header_text || ''"
                 @input="composeStore.updateComposition({ header_text: ($event.target as HTMLInputElement).value || null })"
               />
+            </div>
+
+            <!-- Cover page multi-line info (name / score / time …) -->
+            <div class="prop-field">
+              <label class="prop-label">{{ t('compose.coverLines') }}</label>
+              <div class="cover-lines">
+                <div
+                  v-for="(line, idx) in coverLinesList"
+                  :key="idx"
+                  class="cover-line-row"
+                >
+                  <input
+                    class="prop-input cover-line-input"
+                    :value="line"
+                    :placeholder="t('compose.coverLinePlaceholder')"
+                    @input="updateCoverLine(idx, ($event.target as HTMLInputElement).value)"
+                  />
+                  <button
+                    class="cover-line-remove"
+                    type="button"
+                    :title="t('compose.coverLineRemove')"
+                    @click="removeCoverLine(idx)"
+                  >×</button>
+                </div>
+                <div class="cover-line-actions">
+                  <button class="btn-secondary btn-sm" type="button" @click="addCoverLine()">
+                    {{ t('compose.coverLineAdd') }}
+                  </button>
+                </div>
+                <div class="cover-line-presets">
+                  <button
+                    v-for="p in coverLinePresets"
+                    :key="p.key"
+                    class="cover-preset-btn"
+                    type="button"
+                    @click="addCoverLine(p.template)"
+                  >{{ p.label }}</button>
+                </div>
+              </div>
             </div>
 
             <div class="prop-field">
@@ -1584,6 +1701,137 @@ async function exportComposition() {
 
 .prop-input:focus {
   border-color: var(--border-accent);
+}
+
+/* ── Cover info lines ── */
+.preview-cover {
+  margin-bottom: 10px;
+}
+
+.preview-cover-frame {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: #fff;
+  color: #111;
+  padding: 28px 22px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.preview-cover-title {
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  margin-top: 12px;
+  line-height: 1.3;
+}
+
+.preview-cover-header {
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+  margin-top: 8px;
+  font-style: italic;
+}
+
+.preview-cover-lines {
+  width: 100%;
+  margin-top: 36px;
+  padding: 0 18px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.preview-cover-line {
+  font-size: 13px;
+  color: #222;
+  text-align: center;
+  min-height: 18px;
+  line-height: 18px;
+}
+
+.preview-cover-label {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  font-size: 10px;
+  color: #999;
+  letter-spacing: 0.02em;
+}
+
+.cover-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.cover-line-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cover-line-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.cover-line-remove {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cover-line-remove:hover {
+  border-color: var(--danger, #e25555);
+  color: var(--danger, #e25555);
+}
+
+.cover-line-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.cover-line-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.cover-preset-btn {
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.cover-preset-btn:hover {
+  border-color: var(--border-accent);
+  color: var(--text);
 }
 
 .prop-checkbox {

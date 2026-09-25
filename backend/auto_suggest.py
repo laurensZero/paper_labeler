@@ -1014,13 +1014,17 @@ def _normalize_and_dedupe_questions(questions: list[dict]) -> list[dict]:
             boxes = list(q.get("boxes") or [])
             if not boxes:
                 continue
-            boxes.sort(
-                key=lambda bb: (
-                    int(bb.get("page", 0)),
-                    float((bb.get("bbox") or [0, 0, 0, 0])[1]),
-                    float((bb.get("bbox") or [0, 0, 0, 0])[3]),
-                )
-            )
+            def _sort_key(bb: dict) -> tuple:
+                page = int(bb.get("page", 0))
+                bx = bb.get("bbox") or []
+                if not (isinstance(bx, (list, tuple)) and len(bx) == 4):
+                    return (page, 0.0, 0.0)
+                try:
+                    return (page, float(bx[1]), float(bx[3]))
+                except Exception:
+                    return (page, 0.0, 0.0)
+
+            boxes.sort(key=_sort_key)
             ded: list[dict] = []
             last_key = None
             for bb in boxes:

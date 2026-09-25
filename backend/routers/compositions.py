@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -29,6 +31,34 @@ from backend.services.question_preview import question_preview_version
 router = APIRouter(tags=["compositions"])
 
 
+def _parse_cover_lines(raw) -> list[str]:
+    """Normalize cover_lines stored as JSON text or list into a list of strings.
+
+    Empty strings are preserved so a just-added blank row is not dropped
+    before the user has a chance to type into it.
+    """
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, list):
+        return ["" if x is None else str(x) for x in raw]
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        return []
+    if isinstance(data, list):
+        return ["" if x is None else str(x) for x in data]
+    return []
+
+
+def _dump_cover_lines(lines: list[str] | None) -> str | None:
+    if lines is None:
+        return None
+    cleaned = ["" if x is None else str(x) for x in lines]
+    if not cleaned:
+        return None
+    return json.dumps(cleaned, ensure_ascii=False)
+
+
 def _composition_to_dict(comp: Composition, item_count: int = 0) -> dict:
     return {
         "id": comp.id,
@@ -36,6 +66,7 @@ def _composition_to_dict(comp: Composition, item_count: int = 0) -> dict:
         "title": comp.title,
         "header_text": comp.header_text,
         "footer_text": comp.footer_text,
+        "cover_lines": _parse_cover_lines(comp.cover_lines),
         "include_answers": comp.include_answers,
         "answers_placement": comp.answers_placement,
         "group_by_section": comp.group_by_section,
@@ -141,6 +172,7 @@ def create_composition(body: CompositionCreate, db: Session = Depends(get_db)):
         title=body.title,
         header_text=body.header_text,
         footer_text=body.footer_text,
+        cover_lines=_dump_cover_lines(body.cover_lines),
         include_answers=body.include_answers,
         answers_placement=body.answers_placement,
         group_by_section=body.group_by_section,
@@ -204,7 +236,10 @@ def update_composition(comp_id: int, body: CompositionUpdate, db: Session = Depe
             raise HTTPException(status_code=409, detail="方案名已存在")
 
     for field, value in update_data.items():
-        setattr(comp, field, value)
+        if field == "cover_lines":
+            comp.cover_lines = _dump_cover_lines(value)
+        else:
+            setattr(comp, field, value)
 
     db.commit()
     db.refresh(comp)
@@ -240,6 +275,7 @@ def duplicate_composition(comp_id: int, db: Session = Depends(get_db)):
         title=comp.title,
         header_text=comp.header_text,
         footer_text=comp.footer_text,
+        cover_lines=comp.cover_lines,
         include_answers=comp.include_answers,
         answers_placement=comp.answers_placement,
         group_by_section=comp.group_by_section,

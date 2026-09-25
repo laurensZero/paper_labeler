@@ -44,7 +44,7 @@ def create_section_def(payload: SectionDefCreate, db: Session = Depends(get_db))
 
     exists = db.query(SectionDef).filter(SectionDef.name == name).one_or_none()
     if exists is not None:
-        raise HTTPException(status_code=409, detail="section name exists")
+        raise HTTPException(status_code=409, detail="模块名称已存在")
     row = SectionDef(name=name, content=payload.content, color=payload.color)
     db.add(row)
     db.commit()
@@ -73,7 +73,7 @@ def update_section_def(section_id: int, payload: SectionDefUpdate, db: Session =
             raise HTTPException(status_code=400, detail="name required")
         other = db.query(SectionDef).filter(SectionDef.name == new_name, SectionDef.id != row.id).one_or_none()
         if other is not None:
-            raise HTTPException(status_code=409, detail="section name exists")
+            raise HTTPException(status_code=409, detail="模块名称已存在")
         row.name = new_name
         renamed_to = new_name
     if "content" in data:
@@ -182,7 +182,7 @@ def create_section_group(payload: SectionGroupCreate, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="name required")
     exists = db.query(SectionGroup).filter(SectionGroup.name == name).one_or_none()
     if exists is not None:
-        raise HTTPException(status_code=409, detail="group name exists")
+        raise HTTPException(status_code=409, detail="分类名称已存在")
     row = SectionGroup(name=name, show_in_filter=payload.show_in_filter if payload.show_in_filter is not None else True)
     db.add(row)
     db.commit()
@@ -202,7 +202,7 @@ def update_section_group(group_id: int, payload: SectionGroupUpdate, db: Session
             raise HTTPException(status_code=400, detail="name required")
         other = db.query(SectionGroup).filter(SectionGroup.name == new_name, SectionGroup.id != row.id).one_or_none()
         if other is not None:
-            raise HTTPException(status_code=409, detail="group name exists")
+            raise HTTPException(status_code=409, detail="分类名称已存在")
         row.name = new_name
     if "show_in_filter" in data and data["show_in_filter"] is not None:
         row.show_in_filter = bool(data["show_in_filter"])

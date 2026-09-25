@@ -149,6 +149,7 @@ export const useExportStore = defineStore('export', () => {
     title: string | null
     headerText: string | null
     footerText: string | null
+    coverLines: string[] | null
     blankPagesPerQuestion: number[] | null
     showPageNumbers: boolean
   } | null>(null)
@@ -1063,6 +1064,7 @@ export const useExportStore = defineStore('export', () => {
         options.title = composeMeta.title || null
         options.header_text = composeMeta.headerText || null
         options.footer_text = composeMeta.footerText || null
+        options.cover_lines = composeMeta.coverLines || null
         options.blank_pages_per_question = composeMeta.blankPagesPerQuestion || null
         options.show_page_numbers = composeMeta.showPageNumbers !== false
         composeExportMeta.value = null

@@ -19,6 +19,7 @@ export interface ExportOptions {
   title?: string | null
   headerText?: string | null
   footerText?: string | null
+  coverLines?: string[] | null
   blankPagesPerQuestion?: number[] | null
   showPageNumbers?: boolean
 }

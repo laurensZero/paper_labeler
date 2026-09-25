@@ -36,6 +36,7 @@ class ExportOptions(BaseModel):
     title: Optional[str] = None  # 试卷标题
     header_text: Optional[str] = None  # 页眉
     footer_text: Optional[str] = None  # 页脚
+    cover_lines: Optional[List[str]] = None  # 首页多行信息（姓名/分数/时间等）
     blank_pages_per_question: Optional[List[int]] = None  # 每题后的空白页数，与ids一一对应
     show_page_numbers: bool = True
 
@@ -500,15 +501,17 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
         comp_title = str(options.title or "").strip() if options else ""
         comp_header_text = str(options.header_text or "").strip() if options else ""
         comp_footer_text = str(options.footer_text or "").strip() if options else ""
+        cover_lines = [str(x) for x in (options.cover_lines or [])] if options else []
         blank_pages_map: dict[int, int] = {}
         if options and options.blank_pages_per_question:
             for i, qid in enumerate(ids):
                 if i < len(options.blank_pages_per_question):
                     blank_pages_map[qid] = max(0, int(options.blank_pages_per_question[i] or 0))
         show_page_numbers = options.show_page_numbers if options else True
-            
+
         pdf = PDFWithPageNumbers()  # Use custom PDF class with page numbers
-        extra_front_pages = (1 if include_filter_summary else 0) + (1 if comp_title else 0)
+        has_title_page = bool(comp_title or cover_lines)
+        extra_front_pages = (1 if include_filter_summary else 0) + (1 if has_title_page else 0)
         pdf.page_number_offset = extra_front_pages
         pdf.page_number_enabled = show_page_numbers
         pdf.set_auto_page_break(auto=False, margin=15)
@@ -536,6 +539,26 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
                 return text.encode("latin-1", "replace").decode("latin-1")
             except Exception:
                 return text
+
+        def _load_cjk_font(pdf_obj) -> str | None:
+            """Register a CJK-capable font so Chinese cover/title text renders correctly."""
+            candidates = [
+                (r"C:\Windows\Fonts\msyh.ttc", r"C:\Windows\Fonts\msyhbd.ttc", "YaHei"),
+                (r"C:\Windows\Fonts\simhei.ttf", r"C:\Windows\Fonts\simhei.ttf", "SimHei"),
+                (r"C:\Windows\Fonts\simsun.ttc", r"C:\Windows\Fonts\simsun.ttc", "SimSun"),
+            ]
+            for regular, bold, family in candidates:
+                if not Path(regular).exists():
+                    continue
+                try:
+                    pdf_obj.add_font(family, "", regular)
+                    pdf_obj.add_font(family, "B", bold if Path(bold).exists() else regular)
+                    return family
+                except Exception:
+                    continue
+            return None
+
+        cjk_font = _load_cjk_font(pdf)
 
         total_units = len(questions) + (len(questions) if include_answers else 0) + 1
         done_units = 0
@@ -830,8 +853,8 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
             finish_answer_page()
             pdf.set_y(current_y)
         
-        def render_title_page(title_text):
-            """Render a title page."""
+        def render_title_page(title_text, info_lines):
+            """Render a title / cover page. All text is horizontally centered (like the legacy layout)."""
             pdf.add_page()
             page_h = pdf.h
             box_x = 13
@@ -839,18 +862,47 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
             box_w = 184
             box_h = page_h - 20
             pdf.rect(box_x, box_y, box_w, box_h)
-            # Title centered vertically
-            title_y = box_y + box_h / 2 - 20
-            pdf.set_y(title_y)
-            pdf.set_font("Arial", 'B', size=24)
-            pdf.cell(0, 14, _pdf_text(title_text), ln=True, align="C")
-            # Subtitle / header text below
+
+            title_font = cjk_font or "Arial"
+            info_font = cjk_font or "Arial"
+
+            def _draw(value: str) -> str:
+                return value if cjk_font else _pdf_text(value)
+
+            # (font, style, size, text, line_height, gap_before)
+            rows: list[tuple[str, str, int, str, float, float]] = []
+            if title_text:
+                rows.append((title_font, "B", 24, title_text, 16, 0))
             if comp_header_text:
-                pdf.ln(8)
-                pdf.set_font("Arial", 'I', 12)
-                pdf.set_text_color(100, 100, 100)
-                pdf.cell(0, 10, _pdf_text(comp_header_text), ln=True, align="C")
-                pdf.set_text_color(0, 0, 0)
+                rows.append((info_font, "", 12, comp_header_text, 12, 8))
+            for i, line in enumerate(info_lines):
+                gap = 16 if i == 0 else 4
+                rows.append((info_font, "", 13, line, 14, gap))
+
+            if not rows:
+                return
+
+            total_h = sum(h + gap for _, _, _, _, h, gap in rows)
+            # Center the whole block vertically (legacy title sat near the middle)
+            start_y = box_y + max(10, (box_h - total_h) / 2)
+            if start_y + total_h > box_y + box_h - 10:
+                start_y = box_y + max(8, box_h - 10 - total_h)
+
+            cur_y = start_y
+            for font, style, size, text, h, gap in rows:
+                cur_y += gap
+                pdf.set_font(font, style, size)
+                pdf.set_xy(box_x, cur_y)
+                pdf.cell(
+                    box_w,
+                    h,
+                    _draw(text),
+                    new_x="LMARGIN",
+                    new_y="NEXT",
+                    align="C",
+                )
+                cur_y = pdf.get_y()
+            pdf.set_text_color(0, 0, 0)
 
         def render_blank_pages(count):
             """Render N blank pages for writing space."""
@@ -865,8 +917,8 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
         if include_filter_summary:
             render_filter_summary_page(filter_summary_lines)
 
-        if comp_title:
-            render_title_page(comp_title)
+        if has_title_page:
+            render_title_page(comp_title, cover_lines)
 
         if answers_placement == "interleaved" and include_answers:
             # One question, then its answer, repeat

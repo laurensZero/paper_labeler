@@ -473,6 +473,7 @@ export const exportApi = {
               title: params.options.title,
               header_text: params.options.headerText,
               footer_text: params.options.footerText,
+              cover_lines: params.options.coverLines,
               blank_pages_per_question: params.options.blankPagesPerQuestion,
               show_page_numbers: params.options.showPageNumbers,
             }
@@ -616,6 +617,7 @@ export const compositionsApi = {
         title: params.title,
         header_text: params.header_text,
         footer_text: params.footer_text,
+        cover_lines: params.cover_lines,
         include_answers: params.include_answers ?? false,
         answers_placement: params.answers_placement ?? 'end',
         group_by_section: params.group_by_section ?? true,
@@ -633,6 +635,7 @@ export const compositionsApi = {
     if (params.title !== undefined) body.title = params.title
     if (params.header_text !== undefined) body.header_text = params.header_text
     if (params.footer_text !== undefined) body.footer_text = params.footer_text
+    if (params.cover_lines !== undefined) body.cover_lines = params.cover_lines
     if (params.include_answers !== undefined) body.include_answers = params.include_answers
     if (params.answers_placement !== undefined) body.answers_placement = params.answers_placement
     if (params.group_by_section !== undefined) body.group_by_section = params.group_by_section

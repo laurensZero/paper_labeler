@@ -65,6 +65,33 @@ export const useSectionsStore = defineStore('sections', () => {
     return map
   })
 
+  // --- helpers ---
+  function isDuplicateNameError(e: unknown): boolean {
+    const status = (e as { status?: number })?.status
+    if (status === 409) return true
+    const body = String((e as { body?: string })?.body ?? e ?? '')
+    return body.includes('已存在') || body.toLowerCase().includes('exists')
+  }
+
+  function duplicateNameMessage(kind: '分类' | '模块', name: string): string {
+    return `${kind}「${name}」已存在，请换一个名称`
+  }
+
+  function formatApiError(e: unknown): string {
+    const body = String((e as { body?: string })?.body ?? '')
+    if (body) {
+      try {
+        const parsed = JSON.parse(body)
+        if (parsed?.detail) return String(parsed.detail)
+      } catch {
+        // not JSON — fall through
+      }
+    }
+    const status = (e as { status?: number })?.status
+    if (status === 429) return '请求过于频繁，请稍后再试'
+    return String(e)
+  }
+
   // --- actions ---
   async function refreshSectionDefs() {
     try {
@@ -175,7 +202,12 @@ export const useSectionsStore = defineStore('sections', () => {
 
   async function createSectionDef(name: string, content = '', groupId: number | null = null, color: string | null = null) {
     const appStore = useAppStore()
-    if (!name) return
+    const trimmed = name.trim()
+    if (!trimmed) return
+    if (sectionDefs.value.some(s => s.name.trim() === trimmed)) {
+      appStore.setStatus(duplicateNameMessage('模块', trimmed), 'err')
+      return
+    }
     // Auto-pick a color if not provided
     if (!color) {
       const usedColors = new Set(sectionDefs.value.map(s => s.color).filter(Boolean))
@@ -195,26 +227,35 @@ export const useSectionsStore = defineStore('sections', () => {
       await api('/section_defs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, content, group_id: groupId, color }),
+        body: JSON.stringify({ name: trimmed, content, group_id: groupId, color }),
       })
       appStore.setStatus('已添加', 'ok')
+      // Keep the selected group so consecutive adds stay in the same category
       newSectionName.value = ''
-      newSectionGroupId.value = null
       await refreshSectionDefs()
     } catch (e) {
-      appStore.setStatus(String(e), 'err')
+      appStore.setStatus(
+        isDuplicateNameError(e) ? duplicateNameMessage('模块', trimmed) : formatApiError(e),
+        'err',
+      )
     }
   }
 
   async function updateSectionDef(s: SectionDef) {
     const appStore = useAppStore()
+    const trimmed = (s.name || '').trim()
+    if (sectionDefs.value.some(x => x.id !== s.id && x.name.trim() === trimmed)) {
+      appStore.setStatus(duplicateNameMessage('模块', trimmed), 'err')
+      await refreshSectionDefs()
+      return
+    }
     try {
       appStore.setStatus(`保存模块 ${s.name} 中...`)
       const gid = s.group_id != null ? Number(s.group_id) : null
       const resp = await api(`/section_defs/${s.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: s.name, content: s.content, group_id: gid, color: s.color }),
+        body: JSON.stringify({ name: trimmed, content: s.content, group_id: gid, color: s.color }),
       })
       const updatedCount = Number(resp?.updated_questions ?? resp?.renamed_count ?? resp?.renamedCount ?? 0)
       if (Number.isFinite(updatedCount) && updatedCount > 0) {
@@ -224,7 +265,11 @@ export const useSectionsStore = defineStore('sections', () => {
       }
       await refreshSectionDefs()
     } catch (e) {
-      appStore.setStatus(String(e), 'err')
+      appStore.setStatus(
+        isDuplicateNameError(e) ? duplicateNameMessage('模块', trimmed) : formatApiError(e),
+        'err',
+      )
+      await refreshSectionDefs()
     }
   }
 
@@ -248,35 +293,53 @@ export const useSectionsStore = defineStore('sections', () => {
 
   async function createSectionGroup(name: string) {
     const appStore = useAppStore()
-    if (!name) return
+    const trimmed = name.trim()
+    if (!trimmed) return
+    if (sectionGroups.value.some(g => g.name.trim() === trimmed)) {
+      appStore.setStatus(duplicateNameMessage('分类', trimmed), 'err')
+      return
+    }
     try {
       appStore.setStatus('添加分类中...')
       await api('/section_groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, show_in_filter: true }),
+        body: JSON.stringify({ name: trimmed, show_in_filter: true }),
       })
       appStore.setStatus('已添加', 'ok')
       newSectionGroupName.value = ''
       await refreshSectionDefs()
     } catch (e) {
-      appStore.setStatus(String(e), 'err')
+      appStore.setStatus(
+        isDuplicateNameError(e) ? duplicateNameMessage('分类', trimmed) : formatApiError(e),
+        'err',
+      )
     }
   }
 
   async function updateSectionGroup(g: SectionGroup) {
     const appStore = useAppStore()
+    const trimmed = (g.name || '').trim()
+    if (sectionGroups.value.some(x => x.id !== g.id && x.name.trim() === trimmed)) {
+      appStore.setStatus(duplicateNameMessage('分类', trimmed), 'err')
+      await refreshSectionDefs()
+      return
+    }
     try {
       appStore.setStatus(`保存分类 ${g.name} 中...`)
       await api(`/section_groups/${g.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: g.name, show_in_filter: g.show_in_filter }),
+        body: JSON.stringify({ name: trimmed, show_in_filter: g.show_in_filter }),
       })
       appStore.setStatus('分类已保存', 'ok')
       await refreshSectionDefs()
     } catch (e) {
-      appStore.setStatus(String(e), 'err')
+      appStore.setStatus(
+        isDuplicateNameError(e) ? duplicateNameMessage('分类', trimmed) : formatApiError(e),
+        'err',
+      )
+      await refreshSectionDefs()
     }
   }
 

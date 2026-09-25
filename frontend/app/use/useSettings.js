@@ -1,4 +1,4 @@
-﻿import { useAppContext } from "./useAppContext.js";
+import { useAppContext } from "./useAppContext.js";
 import { api } from "../../modules/api.js";
 import * as Settings from "../../modules/settings.js";
 
@@ -357,8 +357,34 @@ export const settingsMethods = {
   },
 
   // -------- OCR draft --------
+  _isDuplicateNameError(e) {
+    const msg = String(e?.message ?? e ?? "");
+    return /\b409\b/.test(msg) || msg.includes("已存在") || /exists/i.test(msg);
+  },
+  _duplicateNameMessage(kind, name) {
+    return `${kind}「${name}」已存在，请换一个名称`;
+  },
+  _formatApiError(e) {
+    const msg = String(e?.message ?? e ?? "");
+    const m = msg.match(/\{[\s\S]*\}/);
+    if (m) {
+      try {
+        const parsed = JSON.parse(m[0]);
+        if (parsed?.detail) return String(parsed.detail);
+      } catch {
+        // not JSON
+      }
+    }
+    if (/\b429\b/.test(msg)) return "请求过于频繁，请稍后再试";
+    return msg;
+  },
   async addSectionDef() {
-    if (!this.newSectionName) return;
+    const trimmed = String(this.newSectionName || "").trim();
+    if (!trimmed) return;
+    if ((this.sectionDefs || []).some((s) => String(s?.name || "").trim() === trimmed)) {
+      this.setStatus(this._duplicateNameMessage("模块", trimmed), "err");
+      return;
+    }
     try {
       this.setStatus("添加模块中…");
       const gid = this.newSectionGroupId != null && this.newSectionGroupId !== ""
@@ -367,24 +393,33 @@ export const settingsMethods = {
       await api("/section_defs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: this.newSectionName, content: "", group_id: gid }),
+        body: JSON.stringify({ name: trimmed, content: "", group_id: gid }),
       });
       this.setStatus("已添加", "ok");
+      // Keep the selected group so consecutive adds stay in the same category
       this.newSectionName = "";
-      this.newSectionGroupId = null;
       await this.refreshSectionDefsIntoUI();
     } catch (e) {
-      this.setStatus(String(e), "err");
+      this.setStatus(
+        this._isDuplicateNameError(e) ? this._duplicateNameMessage("模块", trimmed) : this._formatApiError(e),
+        "err"
+      );
     }
   },
   async saveSectionDef(s) {
+    const trimmed = String(s?.name || "").trim();
+    if ((this.sectionDefs || []).some((x) => x?.id !== s.id && String(x?.name || "").trim() === trimmed)) {
+      this.setStatus(this._duplicateNameMessage("模块", trimmed), "err");
+      await this.refreshSectionDefsIntoUI();
+      return;
+    }
     try {
       this.setStatus(`保存模块 ${s.name} 中…`);
       const gid = s.group_id != null && s.group_id !== "" ? Number(s.group_id) : null;
       const resp = await api(`/section_defs/${s.id}` , {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: s.name, content: s.content, group_id: gid }),
+        body: JSON.stringify({ name: trimmed, content: s.content, group_id: gid }),
       });
       if (resp && resp.renamed_count != null && resp.renamed_count > 0) {
         this.setStatus(`已保存（同步更新 ${resp.renamed_count} 题）`, "ok");
@@ -408,19 +443,27 @@ export const settingsMethods = {
     }
   },
   async addSectionGroup() {
-    if (!this.newSectionGroupName) return;
+    const trimmed = String(this.newSectionGroupName || "").trim();
+    if (!trimmed) return;
+    if ((this.sectionGroups || []).some((g) => String(g?.name || "").trim() === trimmed)) {
+      this.setStatus(this._duplicateNameMessage("分类", trimmed), "err");
+      return;
+    }
     try {
       this.setStatus("添加分类中…");
       await api("/section_groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: this.newSectionGroupName, show_in_filter: true }),
+        body: JSON.stringify({ name: trimmed, show_in_filter: true }),
       });
       this.setStatus("已添加", "ok");
       this.newSectionGroupName = "";
       await this.refreshSectionDefsIntoUI();
     } catch (e) {
-      this.setStatus(String(e), "err");
+      this.setStatus(
+        this._isDuplicateNameError(e) ? this._duplicateNameMessage("分类", trimmed) : this._formatApiError(e),
+        "err"
+      );
     }
   },
   async autoSaveSectionDef(s) {
@@ -444,17 +487,27 @@ export const settingsMethods = {
     await this.autoSaveSectionDef(s);
   },
   async saveSectionGroup(g) {
+    const trimmed = String(g?.name || "").trim();
+    if ((this.sectionGroups || []).some((x) => x?.id !== g.id && String(x?.name || "").trim() === trimmed)) {
+      this.setStatus(this._duplicateNameMessage("分类", trimmed), "err");
+      await this.refreshSectionDefsIntoUI();
+      return;
+    }
     try {
       this.setStatus(`保存分类 ${g.name} 中…`);
       await api(`/section_groups/${g.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: g.name, show_in_filter: g.show_in_filter }),
+        body: JSON.stringify({ name: trimmed, show_in_filter: g.show_in_filter }),
       });
       this.setStatus("分类已保存", "ok");
       await this.refreshSectionDefsIntoUI();
     } catch (e) {
-      this.setStatus(String(e), "err");
+      this.setStatus(
+        this._isDuplicateNameError(e) ? this._duplicateNameMessage("分类", trimmed) : this._formatApiError(e),
+        "err"
+      );
+      await this.refreshSectionDefsIntoUI();
     }
   },
   async autoSaveSectionGroup(g) {

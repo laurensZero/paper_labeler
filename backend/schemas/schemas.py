@@ -109,6 +109,7 @@ class CompositionCreate(BaseModel):
     title: str | None = None
     header_text: str | None = None
     footer_text: str | None = None
+    cover_lines: list[str] | None = None
     include_answers: bool = False
     answers_placement: Literal["end", "interleaved"] = "end"
     group_by_section: bool = True
@@ -122,6 +123,7 @@ class CompositionUpdate(BaseModel):
     title: str | None = None
     header_text: str | None = None
     footer_text: str | None = None
+    cover_lines: list[str] | None = None
     include_answers: bool | None = None
     answers_placement: Literal["end", "interleaved"] | None = None
     group_by_section: bool | None = None

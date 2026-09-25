@@ -5,6 +5,8 @@ export interface Composition {
   title: string | null
   header_text: string | null
   footer_text: string | null
+  /** Cover-page info lines (name / score / time …) */
+  cover_lines: string[] | null
   include_answers: boolean
   answers_placement: 'end' | 'interleaved'
   group_by_section: boolean
@@ -50,6 +52,7 @@ export interface CompositionCreateParams {
   title?: string | null
   header_text?: string | null
   footer_text?: string | null
+  cover_lines?: string[] | null
   include_answers?: boolean
   answers_placement?: 'end' | 'interleaved'
   group_by_section?: boolean
@@ -64,6 +67,7 @@ export interface CompositionUpdateParams {
   title?: string | null
   header_text?: string | null
   footer_text?: string | null
+  cover_lines?: string[] | null
   include_answers?: boolean
   answers_placement?: 'end' | 'interleaved'
   group_by_section?: boolean

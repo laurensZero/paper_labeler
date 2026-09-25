@@ -1,7 +1,7 @@
 from __future__ import annotations
 import logging
 from datetime import datetime
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine, Column, Boolean, Float, text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, Column, Boolean, Float, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from backend.config import DATA_DIR
 
@@ -133,6 +133,8 @@ class Composition(Base):
     title = Column(String, nullable=True)
     header_text = Column(String, nullable=True)
     footer_text = Column(String, nullable=True)
+    # JSON array of cover-page info lines (e.g. 姓名/分数/时间). Stored as text.
+    cover_lines = Column(Text, nullable=True)
     include_answers = Column(Boolean, nullable=False, default=False)
     answers_placement = Column(String, nullable=False, default="end")
     group_by_section = Column(Boolean, nullable=False, default=True)
@@ -168,6 +170,13 @@ def init_db():
                 conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN year_token VARCHAR")
             if "season_token" not in cols:
                 conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN season_token VARCHAR")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
+            cols = {str(r[1]) for r in conn.exec_driver_sql("PRAGMA table_info(compositions)").fetchall()}
+            if "cover_lines" not in cols:
+                conn.exec_driver_sql("ALTER TABLE compositions ADD COLUMN cover_lines TEXT")
     except Exception:
         pass
     try:
