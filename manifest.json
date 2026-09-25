@@ -1,7 +1,7 @@
 {
-  "version": "20260727.1",
-  "url": "bundle-20260727.1.zip",
-  "hash": "sha256:30af6481c104ee3de514eb9fa646a81b0373206cbc4c1f883288e5e080b7f661",
-  "notes": "34b133b Refactor composition handling and improve performance ",
-  "publishedAt": "2026-07-27T01:56:15Z"
+  "version": "20260925.1",
+  "url": "bundle-20260925.1.zip",
+  "hash": "sha256:6fdc40779ab1f7616367b94aa49867899532fff18ff7fc336f4b62b2bb984453",
+  "notes": "8d94982 feat: enhance settings management with duplicate name checks and error handling ",
+  "publishedAt": "2026-09-25T07:07:42Z"
 }
