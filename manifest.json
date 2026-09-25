@@ -1,7 +1,7 @@
 {
-  "version": "20260925.2",
-  "url": "bundle-20260925.2.zip",
-  "hash": "sha256:525c21cef88d4db90632cd64640109e218e4a6bd0e2f39b1b67d5c353f6a0c44",
-  "notes": "e4a2599 优化启动速度 ",
-  "publishedAt": "2026-09-25T07:35:13Z"
+  "version": "20260925.3",
+  "url": "bundle-20260925.3.zip",
+  "hash": "sha256:10deac0497a84c354c80f93369462b98887cbe569846dcd8ad213a7cff7322d9",
+  "notes": "426701e 全量放开ocr ",
+  "publishedAt": "2026-09-25T07:39:52Z"
 }
