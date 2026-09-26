@@ -6,11 +6,71 @@ from backend.auto_suggest import (
     _normalize_and_dedupe_questions,
     _q_values_coherent,
     detect_problematic_control_chars,
+    suggest_question_boxes_from_pdf,
 )
 
 
 def _line(text: str, *, x0: float = 40.0, y0: float = 100.0) -> TextLine:
     return TextLine(x0=x0, y0=y0, x1=x0 + 200, y1=y0 + 14, text=text)
+
+
+class TestFailFastNoPageBoxes:
+    """Garbled / unrecognized papers must not invent one-box-per-page drafts."""
+
+    def test_garbled_returns_empty_with_warning(self, monkeypatch, tmp_path):
+        pdf = tmp_path / "garbled.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+        monkeypatch.setattr(
+            "backend.auto_suggest._assess_pdf_text_quality",
+            lambda *a, **k: ("garbled", "题号自动识别失败：PDF 可复制文本为乱码/自定义字体编码，无法解析题号。请手动标注。"),
+        )
+        questions, warn = suggest_question_boxes_from_pdf(pdf, 20)
+        assert questions == []
+        assert warn and "识别失败" in warn
+        assert "按页" not in (warn or "")
+
+    def test_no_markers_returns_empty_with_warning(self, monkeypatch, tmp_path):
+        pdf = tmp_path / "empty.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+        monkeypatch.setattr(
+            "backend.auto_suggest._assess_pdf_text_quality",
+            lambda *a, **k: ("ok", None),
+        )
+        monkeypatch.setattr(
+            "backend.auto_suggest._get_fitz",
+            lambda: type("F", (), {"open": staticmethod(lambda p: _EmptyDoc())})(),
+        )
+        questions, warn = suggest_question_boxes_from_pdf(pdf, 12)
+        assert questions == []
+        assert warn and "识别失败" in warn
+
+
+class _EmptyPage:
+    rect = type("R", (), {"width": 612.0, "height": 792.0})()
+
+    def get_text(self, *a, **k):
+        return ""
+
+    def get_drawings(self):
+        return []
+
+    def get_fonts(self, full=False):
+        return []
+
+
+class _EmptyDoc:
+    page_count = 12
+
+    def __init__(self):
+        self._pages = [_EmptyPage() for _ in range(12)]
+
+    def __getitem__(self, i):
+        return self._pages[i]
+
+    def close(self):
+        pass
 
 
 class TestNormParams:

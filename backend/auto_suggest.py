@@ -456,7 +456,7 @@ def _assess_pdf_text_quality(pdf_path: Path, *, sample_pages: int = 4, max_chars
     if repl > 0 or pu_ratio > 0.01 or (weird_ratio > 0.03 and ld_ratio < 0.08):
         return (
             "garbled",
-            "检测到 PDF 可复制文本疑似乱码/不可用（包含大量不可见或私用字符）。已跳过题号自动识别，改为按页生成建议框。",
+            "题号自动识别失败：PDF 可复制文本为乱码/自定义字体编码，无法解析题号。请手动标注。",
         )
 
     return "ok", None
@@ -653,13 +653,10 @@ def suggest_question_boxes_from_pdf(
         return [], None
 
     # Decide whether marker-based extraction is worth attempting.
-    # If the editable text layer is likely garbled, skip marker parsing to avoid random matches.
+    # If the editable text layer is likely garbled, fail fast — never invent page-sized boxes.
     quality, quality_warn = _assess_pdf_text_quality(pdf_path)
     if quality == "garbled":
-        fallback_g: list[dict] = []
-        for page_num in range(2, int(page_count or 0) + 1):
-            fallback_g.append({"label": None, "boxes": [{"page": int(page_num), "bbox": [float(BOX_X0), 0.16, float(BOX_X1), 0.98]}]})
-        return fallback_g, quality_warn
+        return [], (quality_warn or "题号自动识别失败：PDF 文本层不可用，请手动标注。")
 
     fitz = _get_fitz()
 
@@ -757,10 +754,7 @@ def suggest_question_boxes_from_pdf(
     warn: str | None = quality_warn
 
     if not markers:
-        fallback: list[dict] = []
-        for page_num in range(2, int(page_count or 0) + 1):
-            fallback.append({"label": None, "boxes": [{"page": int(page_num), "bbox": [float(BOX_X0), 0.16, float(BOX_X1), 0.98]}]})
-        return fallback, (warn or "未识别到题号，已按每页一题生成建议框")
+        return [], (warn or "题号自动识别失败：未在文本层找到题号标记。请手动标注。")
 
     # Sort and de-dup near duplicates.
     markers.sort(key=lambda m: (int(m.page), float(m.y)))
@@ -1011,10 +1005,7 @@ def suggest_question_boxes_from_pdf(
 
     questions = _normalize_and_dedupe_questions([q for q in questions if q.get("boxes")])
     if not questions:
-        fallback2: list[dict] = []
-        for page_num in range(2, int(page_count or 0) + 1):
-            fallback2.append({"label": None, "boxes": [{"page": int(page_num), "bbox": [float(BOX_X0), 0.16, float(BOX_X1), 0.98]}]})
-        return fallback2, "题号识别不足，已按每页一题生成建议框"
+        return [], "题号自动识别失败：未能生成有效题目框。请手动标注。"
 
     return questions, warn
 
