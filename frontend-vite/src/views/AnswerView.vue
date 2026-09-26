@@ -273,6 +273,30 @@ function redrawAllOverlays() {
   }
 }
 
+// Coalesce pointermove redraws to one paint per frame — unthrottled
+// full-canvas redraws during drag freeze low-end machines.
+let _answerMoveRaf = 0
+let _answerMovePending: { page: number; temp: BoundingBox | null; full: boolean } | null = null
+
+function flushAnswerMoveDraw() {
+  _answerMoveRaf = 0
+  const pending = _answerMovePending
+  _answerMovePending = null
+  if (!pending) return
+  if (pending.full) redrawAllOverlays()
+  else drawAnswerOverlayForPage(pending.page, pending.temp)
+}
+
+function scheduleAnswerDraw(pageNum: number, opts: { temp?: BoundingBox | null; full?: boolean } = {}) {
+  _answerMovePending = {
+    page: pageNum,
+    temp: opts.temp ?? null,
+    full: !!opts.full,
+  }
+  if (_answerMoveRaf) return
+  _answerMoveRaf = requestAnimationFrame(flushAnswerMoveDraw)
+}
+
 // --- pointer event helpers ---
 function canvasPointToNorm(evt: PointerEvent, canvas: HTMLCanvasElement): [number, number] {
   const rect = canvas.getBoundingClientRect()
@@ -326,6 +350,7 @@ function onAnswerPointerDown(pageNum: number, evt: PointerEvent) {
   if (!canvas) return
   evt.preventDefault()
   canvas.setPointerCapture?.(evt.pointerId)
+  _answerGestureActive = true
 
   const [x, y] = canvasPointToNorm(evt, canvas)
   const hit = hitTestNewBoxes(pageNum, x, y)
@@ -385,12 +410,14 @@ function onAnswerPointerMove(pageNum: number, evt: PointerEvent) {
     b.bbox = answerStore.alignAnswerBBoxToCurrentBounds(b.bbox)
     const bounds = op.idx === 0 ? answerStore.getAnswerAlignBounds() : null
     if (bounds) {
+      // Sync other boxes to the reference X bounds, but only repaint the
+      // active page each frame (full sweep runs once on pointerup).
       for (const box of answerNewBoxes.value) {
         box.bbox = alignAnswerBBoxToBoundsX(box.bbox, bounds) as BoundingBox
       }
-      redrawAllOverlays()
+      scheduleAnswerDraw(pageNum)
     } else {
-      drawAnswerOverlayForPage(pageNum)
+      scheduleAnswerDraw(pageNum)
     }
     return
   }
@@ -401,7 +428,7 @@ function onAnswerPointerMove(pageNum: number, evt: PointerEvent) {
     const temp = answerStore.alignAnswerBBoxToCurrentBounds(
       normalizeBox([drawing.startX, drawing.startY, x, y]),
     )
-    drawAnswerOverlayForPage(pageNum, temp)
+    scheduleAnswerDraw(pageNum, { temp })
   }
 }
 
@@ -430,16 +457,20 @@ function onAnswerPointerUp(pageNum: number, evt: PointerEvent) {
 
   if (dragOp?.box?.bbox) {
     dragOp.box.bbox = answerStore.alignAnswerBBoxToCurrentBounds(dragOp.box.bbox)
-    drawAnswerOverlayForPage(pageNum)
+    // One full sweep after the gesture — other pages stay in sync without
+    // redrawing them on every pointermove.
+    redrawAllOverlays()
   }
 
   answerDrawing.value = null
   dragAnswerOp.value = null
   answerPendingSnapshot.value = null
+  _answerGestureActive = false
   if (pendingSnapshot) answerStore.commitAnswerHistory(pendingSnapshot)
 }
 
 function onAnswerPointerCancel() {
+  _answerGestureActive = false
   if (answerDrawing.value) {
     answerDrawing.value = null
     redrawAllOverlays()
@@ -676,9 +707,22 @@ function onKeyDown(evt: KeyboardEvent) {
 }
 
 // --- watch for store changes to redraw ---
-watch(answerExistingBoxes, () => nextTick(() => redrawAllOverlays()), { deep: true })
-watch(answerNewBoxes, () => nextTick(() => redrawAllOverlays()), { deep: true })
-watch(selectedAnswerNew, () => nextTick(() => redrawAllOverlays()))
+// Deep watchers fire for every bbox mutation during drag; suppress them and
+// rely on scheduleAnswerDraw / pointerup full sweep instead.
+let _answerGestureActive = false
+
+watch(answerExistingBoxes, () => {
+  if (_answerGestureActive) return
+  nextTick(() => scheduleAnswerDraw(0, { full: true }))
+}, { deep: true })
+watch(answerNewBoxes, () => {
+  if (_answerGestureActive) return
+  nextTick(() => scheduleAnswerDraw(0, { full: true }))
+}, { deep: true })
+watch(selectedAnswerNew, () => {
+  if (_answerGestureActive) return
+  nextTick(() => scheduleAnswerDraw(0, { full: true }))
+})
 
 watch(msPages, () => {
   msCanvasByPage.value.clear()
@@ -782,12 +826,18 @@ onDeactivated(() => {
   detachKeyListener()
   answerStore.setAnswerViewBridge(null)
   detachMsScrollRenderListener()
+  if (_answerMoveRaf) cancelAnimationFrame(_answerMoveRaf)
+  _answerMoveRaf = 0
+  _answerMovePending = null
 })
 
 onBeforeUnmount(() => {
   detachKeyListener()
   answerStore.setAnswerViewBridge(null)
   disposeMsPageWindow()
+  if (_answerMoveRaf) cancelAnimationFrame(_answerMoveRaf)
+  _answerMoveRaf = 0
+  _answerMovePending = null
 })
 
 // --- format helpers ---

@@ -9,6 +9,7 @@ import { usePapersStore } from '@/stores/papers'
 import { useAppStore } from '@/stores/app'
 import { useDialogStore } from '@/stores/dialog'
 import { useExportStore } from '@/stores/export'
+import { useSettingsStore } from '@/stores/settings'
 import { api } from '@/api/client'
 import { questionsApi, compositionsApi } from '@/api/endpoints'
 import MultiSelect from '@/components/ui/MultiSelect.vue'
@@ -26,6 +27,7 @@ const papersStore = usePapersStore()
 const appStore = useAppStore()
 const dialogStore = useDialogStore()
 const exportStore = useExportStore()
+const settingsStore = useSettingsStore()
 
 const {
   compositions,
@@ -43,6 +45,20 @@ const {
 /* ── Cover page info lines (name / score / time …) ── */
 const coverLinesList = computed<string[]>(() => current.value?.cover_lines || [])
 let coverLinesSaveTimer: ReturnType<typeof setTimeout> | null = null
+let fieldSaveTimer: ReturnType<typeof setTimeout> | null = null
+let pendingFieldPatch: Record<string, unknown> = {}
+
+/** Debounce title/header/footer PATCH — typing must not hit the API per keystroke. */
+function queueFieldUpdate(patch: Record<string, unknown>) {
+  pendingFieldPatch = { ...pendingFieldPatch, ...patch }
+  if (fieldSaveTimer) clearTimeout(fieldSaveTimer)
+  fieldSaveTimer = setTimeout(() => {
+    fieldSaveTimer = null
+    const payload = pendingFieldPatch
+    pendingFieldPatch = {}
+    if (Object.keys(payload).length) void composeStore.updateComposition(payload as never)
+  }, 400)
+}
 
 const showCoverPreview = computed(() => {
   if (!current.value) return false
@@ -121,6 +137,8 @@ function onBankItemDblClick(q: Question, e: MouseEvent) {
 }
 
 function getSectionDotColor(q: Question): string {
+  // 与题库条共用同一个「分类颜色圆点」开关
+  if (!settingsStore.filmStripSectionDots) return ''
   const map = sectionsStore.sectionColorMap
   if (!map || !q.sections?.length) return ''
   for (const s of q.sections) {
@@ -859,7 +877,7 @@ async function exportComposition() {
               <input
                 class="prop-input"
                 :value="current.title || ''"
-                @input="composeStore.updateComposition({ title: ($event.target as HTMLInputElement).value || null })"
+                @input="queueFieldUpdate({ title: ($event.target as HTMLInputElement).value || null })"
               />
             </div>
 
@@ -868,7 +886,7 @@ async function exportComposition() {
               <input
                 class="prop-input"
                 :value="current.header_text || ''"
-                @input="composeStore.updateComposition({ header_text: ($event.target as HTMLInputElement).value || null })"
+                @input="queueFieldUpdate({ header_text: ($event.target as HTMLInputElement).value || null })"
               />
             </div>
 
@@ -916,7 +934,7 @@ async function exportComposition() {
               <input
                 class="prop-input"
                 :value="current.footer_text || ''"
-                @input="composeStore.updateComposition({ footer_text: ($event.target as HTMLInputElement).value || null })"
+                @input="queueFieldUpdate({ footer_text: ($event.target as HTMLInputElement).value || null })"
               />
             </div>
 

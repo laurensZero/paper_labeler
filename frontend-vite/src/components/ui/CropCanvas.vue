@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useLazyCanvasDraw } from '@/composables/useLazyCanvasDraw'
 
 defineOptions({ name: 'CropCanvas' })
@@ -114,9 +114,21 @@ const { resolveContainerWidth } = useLazyCanvasDraw({
   resetDrawnCssWidth: () => { lastDrawCssWidth = 0 },
 })
 
+// Debounce bbox-driven redraws: dragging a live box mutates bbox every
+// pointermove, and redrawing every crop panel freezes low-end machines.
+let cropWatchTimer = 0
 watch(() => [props.imageUrl, props.bbox], () => {
-  nextTick(drawCrop)
+  if (cropWatchTimer) clearTimeout(cropWatchTimer)
+  cropWatchTimer = window.setTimeout(() => {
+    cropWatchTimer = 0
+    nextTick(drawCrop)
+  }, 120)
 }, { deep: true })
+
+onBeforeUnmount(() => {
+  if (cropWatchTimer) clearTimeout(cropWatchTimer)
+  cropWatchTimer = 0
+})
 </script>
 
 <template>

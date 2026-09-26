@@ -83,11 +83,16 @@ export function useMarkCanvas(options: UseMarkCanvasOptions) {
     })
   }
 
-  function queueOverlayDraw() {
+  let pendingDrawTemp: BoundingBox | null = null
+
+  function queueOverlayDraw(tempBox: BoundingBox | null = null) {
+    pendingDrawTemp = tempBox
     if (overlayDrawFrame) return
     overlayDrawFrame = requestAnimationFrame(() => {
       overlayDrawFrame = 0
-      drawOverlay()
+      const temp = pendingDrawTemp
+      pendingDrawTemp = null
+      drawOverlay(temp)
     })
   }
 
@@ -347,7 +352,7 @@ export function useMarkCanvas(options: UseMarkCanvasOptions) {
       if (bounds && op.kind !== 'resize') {
         b.bbox = alignMarkBBoxToBoundsX(b.bbox, bounds)
       }
-      drawOverlay()
+      queueOverlayDraw()
       return
     }
 
@@ -356,7 +361,7 @@ export function useMarkCanvas(options: UseMarkCanvasOptions) {
       let temp = normalizeBox([sx, sy, x, y])
       const bounds = getMarkAlignBoundsForBox(null, true)
       if (bounds) temp = alignMarkBBoxToBoundsX(temp, bounds)
-      drawOverlay(temp)
+      queueOverlayDraw(temp)
     }
   }
 
