@@ -1,0 +1,254 @@
+{
+  "cascade": {
+    "moduleGroup": "Module",
+    "unsectioned": "Unsectioned",
+    "ungrouped": "(Unsectioned)",
+    "noSections": "No sections"
+  },
+  "ms": {
+    "search": "Search...",
+    "allSelected": "All selected",
+    "selectAll": "Select all",
+    "clear": "Clear",
+    "noMatch": "No matches",
+    "selectedCount": "{n} selected"
+  },
+  "pcms": {
+    "placeholder": "Select papers...",
+    "searchPh": "Search papers, subjects, years...",
+    "unknownYear": "Unknown year",
+    "unknownSubject": "(Unknown subject)",
+    "selectedCount": "{n} selected",
+    "selectAllCur": "Select all here",
+    "clearCur": "Clear here",
+    "clearAll": "Clear all",
+    "colSubject": "Subject",
+    "colYear": "Year",
+    "colSeason": "Season",
+    "papers": "Papers",
+    "seasonSelectAll": "Select season",
+    "seasonClear": "Clear season",
+    "emptyPapers": "No papers",
+    "noMatch": "No matches",
+    "season": {
+      "m": "Spr m",
+      "s": "Sum s",
+      "w": "Win w",
+      "unknown": "Unknown"
+    }
+  },
+  "exportDialog": {
+    "title": "Export PDF",
+    "modeFilter": "By filter",
+    "modeRandom": "Random pick",
+    "cancel": "Cancel export",
+    "cancelled": "Export cancelled",
+    "answers": "Include answers",
+    "placement": "Answer placement",
+    "placementEnd": "All at the end",
+    "placementInterleaved": "Right after each question",
+    "headerFields": "Question info (header)",
+    "fQno": "QNo",
+    "fSection": "Section",
+    "fPaper": "Paper source",
+    "fOriginalQno": "Original QNo",
+    "fNotes": "Notes",
+    "summary": "Filter summary page",
+    "summaryFields": "Fields",
+    "sfSection": "Section",
+    "sfPaper": "Paper",
+    "sfYear": "Year",
+    "sfSeason": "Season",
+    "sfCount": "Count",
+    "showPageNumbers": "Show page numbers",
+    "filename": "File name",
+    "start": "Start export",
+    "exporting": "Exporting…",
+    "close": "Close",
+    "done": "Done · {pages} pages, download started",
+    "itemCount": "{n} questions to export",
+    "failed": "Export failed: {error}",
+    "phase": {
+      "prepare": "Preparing images",
+      "front": "Summary page",
+      "cover": "Cover page",
+      "question": "Rendering questions",
+      "answer": "Rendering answers",
+      "blank": "Blank pages",
+      "write": "Writing PDF"
+    }
+  },
+  "randomExport": {
+    "title": "Random Export",
+    "desc": "Set a count per section; questions are sampled from the current filter results.",
+    "section": "Section",
+    "stock": "Available",
+    "count": "Pick",
+    "allZero": "Reset all",
+    "favOnly": "Favorites only",
+    "confirm": "Start random export",
+    "noConfig": "Set a count for at least one section",
+    "empty": "No questions to sample from"
+  },
+  "app": {
+    "nav": {
+      "bank": "Question Bank",
+      "compose": "Compose"
+    },
+    "signOut": "Sign out",
+    "langLabel": "Language"
+  },
+  "login": {
+    "tagline": "Bank · Compose · Export",
+    "email": "Email",
+    "password": "Password",
+    "emailPh": "you{'@'}example.com",
+    "passwordPh": "Password",
+    "submit": "Sign in",
+    "signingIn": "Signing in…",
+    "hint": "Accounts are created by an admin in the Supabase dashboard. Contact the admin if you don't have one.",
+    "errRequired": "Please enter email and password",
+    "errInvalid": "Incorrect email or password"
+  },
+  "bank": {
+    "allModules": "All modules",
+    "allPapers": "All papers",
+    "allYears": "All years",
+    "allSeasons": "All seasons",
+    "favOnly": "Favorites only",
+    "multiSelect": "Multi-select",
+    "multiSelectActive": "{count} selected",
+    "batchFavorite": "Favorite",
+    "searchNotes": "Search notes…",
+    "jumpPh": "Go to QNo",
+    "jumpNotFound": "No question {no} under current filters",
+    "loading": "Loading…",
+    "count": "{n} questions",
+    "showAnswers": "Show answers",
+    "hideAnswers": "Hide answers",
+    "noResults": "No matching questions. Try relaxing the filters.",
+    "noBoxes": "This question has no cropped images",
+    "noBoxesShort": "No image",
+    "answers": "Answers",
+    "answersLoading": "Loading…",
+    "answersEmpty": "No answer marked",
+    "infoTitle": "Question info",
+    "qno": "QNo",
+    "status": "Status",
+    "confirmed": "Confirmed",
+    "draft": "Draft",
+    "fav": "Favorite",
+    "favYes": "Favorited",
+    "noValue": "—",
+    "source": "Source",
+    "section": "Module",
+    "uncategorized": "Uncategorized",
+    "notes": "Note",
+    "notePh": "Write a note (only you can see it)…",
+    "favOn": "Favorite (only you can see it)",
+    "favOff": "Unfavorite",
+    "feedback": "Question feedback",
+    "feedbackPh": "Questions or suggestions about this one? The admin will see it…",
+    "feedbackSend": "Submit feedback",
+    "feedbackSending": "Submitting…",
+    "sugStatus": {
+      "open": "Pending",
+      "accepted": "Accepted",
+      "rejected": "Dismissed"
+    },
+    "hint": "← / → to switch questions; favorites and notes are per-account. Edit question content in the labeler app.",
+    "unknownPaper": "Unknown paper",
+    "favTitle": "Favorited"
+  },
+  "compose": {
+    "empty": {
+      "title": "Compose",
+      "desc": "Open an existing composition, or create a new one",
+      "open": "Open composition",
+      "new": "New composition"
+    },
+    "toolbar": {
+      "open": "Open composition",
+      "copy": "Duplicate",
+      "delete": "Delete",
+      "export": "Export PDF",
+      "exportHint": "Coming in the next phase",
+      "shared": "Shared",
+      "readonly": "Read-only (shared by others)"
+    },
+    "panelBank": "Question bank",
+    "filters": {
+      "allModules": "All modules",
+      "allPapers": "All papers",
+      "favOnly": "★ Favorites only"
+    },
+    "loading": "Loading…",
+    "pager": "{page} / {total}",
+    "grouped": "Group by section",
+    "free": "Free order",
+    "statsLine": "{q} questions · ~{p} pages",
+    "preview": {
+      "empty": "No questions yet. Add some from the left panel.",
+      "coverLabel": "Cover preview",
+      "ungrouped": "Section",
+      "blank": "Blank page",
+      "noImage": "No cropped image"
+    },
+    "modal": {
+      "title": "Open composition",
+      "namePh": "Composition name, e.g. 2024 Mock",
+      "create": "Create",
+      "empty": "No compositions yet"
+    },
+    "meta": "{n} questions · {v}",
+    "vis": {
+      "shared": "Shared",
+      "private": "Private"
+    },
+    "stats": {
+      "title": "Stats",
+      "questions": "Questions",
+      "blanks": "Blank pages",
+      "pages": "Est. pages"
+    },
+    "settings": {
+      "title": "Paper settings",
+      "titleLabel": "Exam title",
+      "titlePh": "e.g. 2024 Spring Mock",
+      "header": "Header text",
+      "coverLines": "Cover info lines",
+      "footer": "Footer text",
+      "includeAnswers": "Include answers",
+      "answersPlacement": "Answer placement",
+      "placementEnd": "All at the end",
+      "placementInterleaved": "Right after each question",
+      "showInfo": "Show question info",
+      "showSectionHeaders": "Show section headers",
+      "showPageNumbers": "Show page numbers",
+      "share": "Share with colleagues",
+      "coverLinePh": "e.g. Name:",
+      "addLine": "+ line",
+      "presets": {
+        "name": "Name",
+        "class": "Class",
+        "score": "Score",
+        "time": "Time"
+      }
+    },
+    "selected": {
+      "title": "Selected item",
+      "qno": "QNo",
+      "source": "Source",
+      "section": "Section",
+      "blankPages": "Attached blank pages",
+      "remove": "Remove item",
+      "insertBlank": "Insert blank page after"
+    },
+    "confirmDelete": "Delete composition \"{name}\"? Its question references will be removed too.",
+    "copySuffix": "copy",
+    "errors": {
+      "notFound": "Composition not found or access denied",
+      "copyFailed": "Duplicate failed"
+    }
+  }
+}

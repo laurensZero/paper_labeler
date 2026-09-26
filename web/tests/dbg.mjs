@@ -1,0 +1,10 @@
+﻿import { chromium } from "@playwright/test";
+const b = await (async () => { try { return await chromium.launch({ channel: "chrome" }) } catch { return await chromium.launch() } })();
+const p = await b.newPage();
+p.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") console.log("[console]", m.type(), m.text().slice(0, 400)); });
+p.on("pageerror", (e) => console.log("[pageerror]", String(e).slice(0, 600)));
+const r = await p.goto("http://localhost:4173/login", { waitUntil: "networkidle" });
+console.log("status:", r?.status());
+console.log("has #email:", await p.locator("#email").count());
+console.log("body snippet:", (await p.locator("#app").innerHTML()).slice(0, 300));
+await b.close();

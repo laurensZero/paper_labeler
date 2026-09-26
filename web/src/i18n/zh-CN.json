@@ -1,0 +1,254 @@
+{
+  "cascade": {
+    "moduleGroup": "模块",
+    "unsectioned": "未分类",
+    "ungrouped": "(未分类)",
+    "noSections": "暂无分类"
+  },
+  "ms": {
+    "search": "搜索...",
+    "allSelected": "已全选",
+    "selectAll": "全选",
+    "clear": "清除",
+    "noMatch": "无匹配项",
+    "selectedCount": "已选 {n} 项"
+  },
+  "pcms": {
+    "placeholder": "选择试卷...",
+    "searchPh": "搜索试卷、科目、年份...",
+    "unknownYear": "未知年份",
+    "unknownSubject": "(未识别科目)",
+    "selectedCount": "已选 {n} 项",
+    "selectAllCur": "全选当前",
+    "clearCur": "清除当前",
+    "clearAll": "清空",
+    "colSubject": "科目",
+    "colYear": "年份",
+    "colSeason": "季节",
+    "papers": "试卷",
+    "seasonSelectAll": "本季全选",
+    "seasonClear": "本季清空",
+    "emptyPapers": "暂无试卷",
+    "noMatch": "无匹配项",
+    "season": {
+      "m": "春 m",
+      "s": "夏 s",
+      "w": "冬 w",
+      "unknown": "未知季节"
+    }
+  },
+  "exportDialog": {
+    "title": "导出 PDF",
+    "modeFilter": "按筛选导出",
+    "modeRandom": "随机抽题",
+    "cancel": "取消导出",
+    "cancelled": "已取消导出",
+    "answers": "包含答案",
+    "placement": "答案位置",
+    "placementEnd": "全部在末尾",
+    "placementInterleaved": "紧跟题目",
+    "headerFields": "题目信息（页眉）",
+    "fQno": "题号",
+    "fSection": "模块",
+    "fPaper": "试卷来源",
+    "fOriginalQno": "原题号",
+    "fNotes": "备注",
+    "summary": "首页筛选信息",
+    "summaryFields": "显示字段",
+    "sfSection": "模块",
+    "sfPaper": "试卷",
+    "sfYear": "年份",
+    "sfSeason": "季度",
+    "sfCount": "题目数量",
+    "showPageNumbers": "显示页码",
+    "filename": "文件名",
+    "start": "开始导出",
+    "exporting": "导出中…",
+    "close": "关闭",
+    "done": "完成 · {pages} 页，已开始下载",
+    "itemCount": "将导出 {n} 题",
+    "failed": "导出失败：{error}",
+    "phase": {
+      "prepare": "准备图片",
+      "front": "生成首页",
+      "cover": "生成封面",
+      "question": "渲染题目",
+      "answer": "渲染答案",
+      "blank": "插入空白页",
+      "write": "写入 PDF"
+    }
+  },
+  "randomExport": {
+    "title": "随机导出",
+    "desc": "为每个分类设置抽取题量，将从当前筛选结果中随机抽题并导出。",
+    "section": "分类",
+    "stock": "库存",
+    "count": "抽取",
+    "allZero": "全部清零",
+    "favOnly": "仅从收藏中抽",
+    "confirm": "开始随机导出",
+    "noConfig": "请至少给一个分类设置题量",
+    "empty": "没有可抽取的题目"
+  },
+  "app": {
+    "nav": {
+      "bank": "题库",
+      "compose": "组卷"
+    },
+    "signOut": "退出",
+    "langLabel": "语言"
+  },
+  "login": {
+    "tagline": "题库 · 组卷 · 导出",
+    "email": "邮箱",
+    "password": "密码",
+    "emailPh": "you{'@'}example.com",
+    "passwordPh": "密码",
+    "submit": "登录",
+    "signingIn": "登录中…",
+    "hint": "账号由管理员在 Supabase 后台创建；没有账号请联系管理员。",
+    "errRequired": "请输入邮箱和密码",
+    "errInvalid": "邮箱或密码不正确"
+  },
+  "bank": {
+    "allModules": "全部模块",
+    "allPapers": "全部试卷",
+    "allYears": "全部年份",
+    "allSeasons": "全部季度",
+    "favOnly": "仅收藏",
+    "multiSelect": "多选",
+    "multiSelectActive": "已选 {count}",
+    "batchFavorite": "批量收藏",
+    "searchNotes": "搜索备注…",
+    "jumpPh": "题号跳转",
+    "jumpNotFound": "当前筛选下没有题号 {no}",
+    "loading": "加载中…",
+    "count": "{n} 题",
+    "showAnswers": "显示答案",
+    "hideAnswers": "隐藏答案",
+    "noResults": "没有匹配的题目，试试放宽筛选条件。",
+    "noBoxes": "该题没有裁剪图",
+    "noBoxesShort": "无裁剪图",
+    "answers": "答案",
+    "answersLoading": "加载中…",
+    "answersEmpty": "未标注答案",
+    "infoTitle": "题目信息",
+    "qno": "题号",
+    "status": "状态",
+    "confirmed": "已确认",
+    "draft": "草稿",
+    "fav": "收藏",
+    "favYes": "已收藏",
+    "noValue": "—",
+    "source": "来源",
+    "section": "模块",
+    "uncategorized": "未分类",
+    "notes": "备注",
+    "notePh": "写点备注（仅自己可见）…",
+    "favOn": "收藏（仅自己可见）",
+    "favOff": "取消收藏",
+    "feedback": "题目反馈",
+    "feedbackPh": "对这题有疑问或建议？提交后管理员可见…",
+    "feedbackSend": "提交反馈",
+    "feedbackSending": "提交中…",
+    "sugStatus": {
+      "open": "待处理",
+      "accepted": "已采纳",
+      "rejected": "已忽略"
+    },
+    "hint": "← / → 切换题目；收藏与备注按账号独立保存，题目内容请在标注端修改。",
+    "unknownPaper": "未知试卷",
+    "favTitle": "已收藏"
+  },
+  "compose": {
+    "empty": {
+      "title": "组卷",
+      "desc": "选择已有方案，或新建一个开始组卷",
+      "open": "打开方案",
+      "new": "新建方案"
+    },
+    "toolbar": {
+      "open": "打开方案",
+      "copy": "复制",
+      "delete": "删除",
+      "export": "导出 PDF",
+      "exportHint": "下一阶段提供",
+      "shared": "共享中",
+      "readonly": "只读（他人共享）"
+    },
+    "panelBank": "题库",
+    "filters": {
+      "allModules": "全部模块",
+      "allPapers": "全部试卷",
+      "favOnly": "★ 仅收藏"
+    },
+    "loading": "加载中…",
+    "pager": "{page} / {total}",
+    "grouped": "按模块分组",
+    "free": "自由顺序",
+    "statsLine": "{q} 题 · 预估 {p} 页",
+    "preview": {
+      "empty": "还没有添加题目，从左侧面板选择题目加入。",
+      "coverLabel": "首页预览",
+      "ungrouped": "模块",
+      "blank": "空白页",
+      "noImage": "无裁剪图"
+    },
+    "modal": {
+      "title": "打开方案",
+      "namePh": "方案名称，如：2024 模拟卷",
+      "create": "新建",
+      "empty": "暂无方案"
+    },
+    "meta": "{n} 题 · {v}",
+    "vis": {
+      "shared": "共享",
+      "private": "私有"
+    },
+    "stats": {
+      "title": "统计",
+      "questions": "题目",
+      "blanks": "空白页",
+      "pages": "预估页数"
+    },
+    "settings": {
+      "title": "试卷设置",
+      "titleLabel": "试卷标题",
+      "titlePh": "如：2024 春季模拟卷",
+      "header": "页眉文字",
+      "coverLines": "封面信息行",
+      "footer": "页脚文字",
+      "includeAnswers": "包含答案",
+      "answersPlacement": "答案位置",
+      "placementEnd": "全部在末尾",
+      "placementInterleaved": "紧跟题目",
+      "showInfo": "显示题目信息",
+      "showSectionHeaders": "显示模块标题",
+      "showPageNumbers": "显示页码",
+      "share": "共享给同事",
+      "coverLinePh": "如：姓名：",
+      "addLine": "+ 行",
+      "presets": {
+        "name": "姓名",
+        "class": "班级",
+        "score": "分数",
+        "time": "考试时间"
+      }
+    },
+    "selected": {
+      "title": "选中条目",
+      "qno": "题号",
+      "source": "来源",
+      "section": "模块",
+      "blankPages": "附属空白页",
+      "remove": "移除条目",
+      "insertBlank": "在此之后插入空白页"
+    },
+    "confirmDelete": "删除组卷「{name}」？题目引用会一并移除。",
+    "copySuffix": "副本",
+    "errors": {
+      "notFound": "组卷不存在或无权查看",
+      "copyFailed": "复制失败"
+    }
+  }
+}

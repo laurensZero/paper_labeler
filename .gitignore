@@ -32,4 +32,10 @@ ios/
 .env.local
 .env.*.local
 
+# Wrangler (contains OAuth token)
+.wrangler/
+
 AGENTS.md
+# 测试/运行产物
+web/preview.log
+web/tests/shots/
