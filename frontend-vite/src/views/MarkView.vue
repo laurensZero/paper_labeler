@@ -141,6 +141,9 @@ const canRedo = computed(() =>
   !markPersistBusy.value &&
   (markRedoStack.value.length > 0 || markSavedRedoStack.value.length > 0)
 )
+const canSave = computed(() =>
+  newBoxes.value.length > 0 && !markPersistBusy.value
+)
 const canReturnToFilter = computed(() => appStore.navStack.some((x) => x.kind === 'filter'))
 
 const sectionTagGroups = computed<TagOptionGroup[]>(() => {
@@ -291,6 +294,7 @@ function getQuestionSectionList(q: Question): string[] {
 
 // --- actions ---
 async function handleSave() {
+  // SAVE event is dispatched inside the store (double-click safe)
   try {
     await markStore.saveQuestion()
     await nextTick()
@@ -325,9 +329,10 @@ async function handleAutoRecognize() {
 }
 
 async function cancelEditQuestion() {
-  markStore.exitEditQuestionMode()
-  await markStore.clearBoxes()
+  await markStore.cancelEditQuestion()
   appStore.setStatus('已取消修改', 'ok')
+  await nextTick()
+  drawOverlay()
 }
 
 async function onCreateSection(name: string, groupId: string | number | null) {
@@ -356,10 +361,13 @@ async function manualRefreshPageQuestions() {
 }
 
 function deleteBoxItem(box: { page: number; bbox: BoundingBox }) {
-  selectedNewBox.value = box
-  nextTick(() => {
-    markStore.deleteSelectedUnsavedBox()
-  })
+  markStore.deleteBox(box as any)
+  nextTick(() => drawOverlay())
+}
+
+function selectBoxItem(box: { page: number; bbox: BoundingBox }) {
+  markStore.selectBox(box as any)
+  nextTick(() => drawOverlay())
 }
 
 async function selectOcrDraft(idx: number) {
@@ -475,7 +483,7 @@ onBeforeUnmount(() => {
               <div class="toolbar-divider"></div>
 
               <!-- Save -->
-              <button class="btn btn-primary" :disabled="!newBoxes.length" @click="handleSave">
+              <button class="btn btn-primary" :disabled="!canSave" @click="handleSave">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                 {{ editingQuestionId == null && hasOcrDraftMode ? '一键保存' : t('mark.save') }}
               </button>
@@ -541,7 +549,7 @@ onBeforeUnmount(() => {
               :group-label="t('sectionEditor.groupSelectLabel')"
               :no-match-label="t('sectionEditor.noMatch')"
               :all-selected-label="t('sectionEditor.allSelected')"
-              @update:model-value="(val: string[]) => { selectedSectionsForNewQuestion = val }"
+              @update:model-value="(val: string[]) => markStore.setSections(val)"
               @create="onCreateSection"
             />
           </div>
@@ -607,7 +615,7 @@ onBeforeUnmount(() => {
                     :group-label="t('sectionEditor.groupSelectLabel')"
                     :no-match-label="t('sectionEditor.noMatch')"
                     :all-selected-label="t('sectionEditor.allSelected')"
-                    @update:model-value="(val: string[]) => { q.sections = val }"
+                    @update:model-value="(val: string[]) => markStore.setOcrDraftSections(idx, val)"
                     @create="(name: string, groupId: string | number | null) => onCreateSectionForOcr(q, name, groupId)"
                   />
                 </div>
@@ -630,7 +638,7 @@ onBeforeUnmount(() => {
                     :key="item.index"
                     class="box-row"
                     :class="{ selected: selectedNewBox === item.box }"
-                    @click="selectedNewBox = item.box; nextTick(() => drawOverlay())"
+                    @click="selectBoxItem(item.box)"
                   >
                     <span class="box-index">#{{ item.index }}</span>
                     <span v-if="item.label" class="box-label">{{ item.label }}</span>

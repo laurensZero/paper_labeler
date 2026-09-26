@@ -10,6 +10,7 @@ import CropPreview from '@/components/ui/CropPreview.vue'
 import { useAnswerMsPageWindow } from '@/composables/useAnswerMsPageWindow'
 import { clamp01, normalizeBox, pointInBox, clampInt } from '@/utils/geometry'
 import { alignAnswerBBoxToBoundsX } from '@/utils/alignment'
+import { nextAnswerIndexAfterSave } from '@/utils/paper'
 import type { BoundingBox } from '@/types/common'
 import type { QuestionBox, PaperDetail } from '@/types'
 
@@ -28,6 +29,7 @@ const {
   answerQIndex,
   answerExistingBoxes,
   answerNewBoxes,
+  answerRemovedExistingIds,
   answerDrawing,
   selectedAnswerNew,
   dragAnswerOp,
@@ -53,6 +55,7 @@ const msPaperName = ref('')
 const msPageCount = ref(0)
 const msPageAspectRatio = ref('1.294 / 1')
 let answerEnsuring = false
+let answerEnsurePending = false
 
 interface MsScrollTarget {
   page: number
@@ -62,7 +65,7 @@ interface MsScrollTarget {
 // --- computed ---
 const canUndo = computed(() => answerUndoStack.value.length > 0)
 const canRedo = computed(() => answerRedoStack.value.length > 0)
-const hasNewBoxes = computed(() => answerNewBoxes.value.length > 0)
+const hasNewBoxes = computed(() => answerNewBoxes.value.length > 0 || answerRemovedExistingIds.value.size > 0)
 const answerNeedsSave = computed(() => answerStore.answerNeedsSave())
 const answerEmptyText = computed(() => answerOpening.value ? '正在加载答案卷...' : (t('answer.empty') || '请先打开试卷'))
 const noMsPagesText = computed(() => answerOpening.value ? '正在加载答案卷页面...' : (t('answer.noMsPages') || '暂无答案卷页面'))
@@ -449,7 +452,9 @@ function onAnswerPointerUp(pageNum: number, evt: PointerEvent) {
     const minW = 0.005
     const minH = 0.0015
     if (Math.abs(finalBox[2] - finalBox[0]) > minW && Math.abs(finalBox[3] - finalBox[1]) > minH) {
-      answerNewBoxes.value.push({ page: pageNum, bbox: finalBox })
+      const boxId = `new-${Date.now().toString(36)}-${answerNewBoxes.value.length}`
+      answerNewBoxes.value.push({ id: boxId, page: pageNum, bbox: finalBox })
+      answerStore.sendAnswerEvent({ type: 'EDIT' })
     }
     selectedAnswerNew.value = answerNewBoxes.value[answerNewBoxes.value.length - 1] || null
     drawAnswerOverlayForPage(pageNum)
@@ -460,6 +465,7 @@ function onAnswerPointerUp(pageNum: number, evt: PointerEvent) {
     // One full sweep after the gesture — other pages stay in sync without
     // redrawing them on every pointermove.
     redrawAllOverlays()
+    answerStore.sendAnswerEvent({ type: 'EDIT' })
   }
 
   answerDrawing.value = null
@@ -592,6 +598,8 @@ async function answerPrev() {
 }
 
 async function answerNext() {
+  // Machine gate: ignored while saving / opening / replaceReturning.
+  if (!answerStore.sendAnswerEvent({ type: 'NAV_NEXT' })) return
   const isLast = answerQIndex.value >= 0 && answerQIndex.value >= answerQuestions.value.length - 1
   const needSave = answerStore.answerNeedsSave()
   const shouldStopAfterSave = answerReplaceMode.value
@@ -625,13 +633,17 @@ const canNextAction = computed(() => {
 })
 
 async function handleSave() {
+  // Double-click safe: saveAnswer dispatches SAVE and the second click is ignored.
+  const idxBefore = answerQIndex.value
+  const wasReplace = answerReplaceMode.value
   const saved = await answerStore.saveAnswer()
   if (!saved) return
   redrawAllOverlays()
-  // Auto-advance to next question
-  const isLast = answerQIndex.value >= 0 && answerQIndex.value >= answerQuestions.value.length - 1
-  if (!isLast && !answerReplaceMode.value) {
-    await answerStore.loadAnswerQuestion(answerQIndex.value + 1)
+  // After replace-save the store clears replace mode and navigates away —
+  // never auto-advance in that case.
+  const nextIdx = nextAnswerIndexAfterSave(idxBefore, answerQuestions.value.length)
+  if (nextIdx != null && !wasReplace) {
+    await answerStore.loadAnswerQuestion(nextIdx)
     redrawAllOverlays()
   }
 }
@@ -658,6 +670,7 @@ function handleRedo() {
 // --- question list click ---
 async function goToQuestion(idx: number) {
   if (idx === answerQIndex.value) return
+  if (!answerStore.sendAnswerEvent({ type: 'NAV_JUMP', index: idx })) return
   const shouldStopAfterSave = answerReplaceMode.value
   if (answerStore.answerNeedsSave()) {
     answerStore.recordAnswerScrollProgress()
@@ -761,26 +774,35 @@ async function refreshMsPaperInfo() {
 }
 
 async function ensureAnswerReady() {
-  if (route.name !== 'answer' || answerEnsuring) return
+  if (route.name !== 'answer') return
+  if (answerEnsuring) {
+    answerEnsurePending = true
+    return
+  }
   answerEnsuring = true
   try {
-    const paperId = routePaperId()
-    if (paperId && currentPaperId.value !== paperId) {
-      await papersStore.openPaper(paperId)
-      answerReadyPaperId.value = null
-    }
+    do {
+      answerEnsurePending = false
+      const paperId = routePaperId()
+      if (paperId && currentPaperId.value !== paperId) {
+        await papersStore.openPaper(paperId)
+        answerReadyPaperId.value = null
+      }
 
-    const routePaperReady = currentPaperId.value && answerReadyPaperId.value === currentPaperId.value && !!msPaperId.value
-    if (currentPaperId.value && !routePaperReady && !answerReplaceMode.value) {
-      await answerStore.openAnswerForPaper()
-    }
+      const routePaperReady = currentPaperId.value && answerReadyPaperId.value === currentPaperId.value && !!msPaperId.value
+      if (currentPaperId.value && !routePaperReady && !answerReplaceMode.value) {
+        // openAnswerForPaper dispatches OPEN/OPEN_OK/OPEN_FAIL on the machine;
+        // a restart invalidates the previous open via seq.
+        await answerStore.openAnswerForPaper()
+      }
 
-    await refreshMsPaperInfo()
-    await nextTick()
-    attachMsScrollRenderListener()
-    rebuildMsPageObserver()
-    ensureAnswerWorkPagesRendered()
-    redrawAllOverlays()
+      await refreshMsPaperInfo()
+      await nextTick()
+      attachMsScrollRenderListener()
+      rebuildMsPageObserver()
+      ensureAnswerWorkPagesRendered()
+      redrawAllOverlays()
+    } while (answerEnsurePending && route.name === 'answer')
   } finally {
     answerEnsuring = false
   }
@@ -1031,9 +1053,26 @@ function formatBbox(bbox: number[]): string {
                 v-for="(b, idx) in answerExistingBoxes"
                 :key="`ex-${idx}`"
                 class="box-row existing"
+                :class="{ removed: answerRemovedExistingIds.has(b.id ?? `idx:${idx}`) }"
               >
                 <span class="page-label-pill">p{{ b.page }}</span>
                 <span class="box-bbox">[{{ formatBbox(b.bbox) }}]</span>
+                <button
+                  v-if="!answerRemovedExistingIds.has(b.id ?? `idx:${idx}`)"
+                  class="btn btn-ghost btn-icon btn-xs"
+                  :title="t('answer.deleteBox') || '删除'"
+                  @click.stop="answerStore.deleteExistingAnswerBox(idx)"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+                <button
+                  v-else
+                  class="btn btn-ghost btn-icon btn-xs"
+                  :title="t('answer.undoDeleteBox') || '撤销删除'"
+                  @click.stop="answerStore.restoreDeletedExistingAnswerBox(idx)"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                </button>
               </div>
             </div>
 

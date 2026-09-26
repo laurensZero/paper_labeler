@@ -22,6 +22,8 @@ import {
   getPaperAlignBounds,
 } from '@/utils/alignment'
 import type { AlignBounds } from '@/utils/alignment'
+import { createMarkMachine } from '@/utils/markMachine'
+import type { MarkEvent, MarkMachineState } from '@/utils/markMachine'
 
 const MARK_HISTORY_LIMIT = 50
 const MARK_SAVED_HISTORY_LIMIT = 30
@@ -124,31 +126,64 @@ function clonePersistedQuestionPayload(payload: PersistedQuestionPayload | null 
 }
 
 export const useMarkStore = defineStore('mark', () => {
+  // --- pure lifecycle machine (phase/mode/dirty/saving/persistBusy/drawing) ---
+  const markMachine = createMarkMachine()
+  /** Reactive mirror of the pure machine, refreshed on every send. */
+  const markState = ref<MarkMachineState>({ ...markMachine.state })
+
+  function sendMark(event: MarkEvent): boolean {
+    const handled = markMachine.send(event)
+    markState.value = { ...markMachine.state }
+    return handled
+  }
+
   // --- state ---
   const newBoxes = ref<NewBox[]>([])
   const selectedNewBox = ref<NewBox | null>(null)
-  const drawing = ref(false)
   const startPt = ref<[number, number] | null>(null)
   const markUndoStack = ref<MarkSnapshot[]>([])
   const markRedoStack = ref<MarkSnapshot[]>([])
   const markSavedUndoStack = ref<SavedMarkEntry[]>([])
   const markSavedRedoStack = ref<SavedMarkEntry[]>([])
-  const markPersistBusy = ref(false)
   const pageQuestions = ref<any[]>([])
   const suggestedNextNo = ref<number | null>(null)
   const qNotes = ref('')
-  const editingQuestionId = ref<number | null>(null)
   const editingQuestionOriginal = ref<any>(null)
   const isLocalEdit = ref(false)
-  const answerReplaceMode = ref(false)
-  const answerReplaceQuestionId = ref<number | null>(null)
   const selectedSectionsForNewQuestion = ref<string[]>([])
   const qSectionSelectValue = ref('')
   const ocrDraftQuestions = ref<OcrDraftQuestion[]>([])
-  const selectedOcrDraftIdx = ref(0)
   const ocrWarning = ref('')
   const dragNewBoxOp = ref<DragOp | null>(null)
   const markPendingSnapshot = ref<MarkSnapshot | null>(null)
+
+  /** Draw-gesture flag. Writable for useMarkCanvas; routes through the machine. */
+  const drawing = computed({
+    get: () => markState.value.drawing,
+    set: (v: boolean) => {
+      if (v) sendMark({ type: 'EDIT_DRAW_START' })
+      else sendMark({ type: 'EDIT_DRAW_END', changed: false })
+    },
+  })
+
+  /** True while any persist IO is in flight (save or saved undo/redo). */
+  const markPersistBusy = computed(() => markState.value.saving || markState.value.persistBusy)
+  const markSaving = computed(() => markState.value.saving)
+  const markDirty = computed(() => markState.value.dirty)
+  const markMode = computed(() => markState.value.mode)
+  const editingQuestionId = computed(() => markState.value.editingQuestionId)
+
+  /** OCR draft selection; setter clamps via the machine. */
+  const selectedOcrDraftIdx = computed({
+    get: () => markState.value.selectedOcrDraftIdx,
+    set: (v: number) => {
+      sendMark({
+        type: 'OCR_SELECT_DRAFT',
+        index: v,
+        draftCount: ocrDraftQuestions.value.length,
+      })
+    },
+  })
 
   let pageQuestionsRequestSeq = 0
   let pageQuestionsInFlightKey = ''
@@ -186,6 +221,7 @@ export const useMarkStore = defineStore('mark', () => {
     markUndoStack.value = []
     markRedoStack.value = []
     markPendingSnapshot.value = null
+    sendMark({ type: 'UNDO', undoDepth: 0, redoDepth: 0, dirty: false, hasSelection: false })
   }
 
   function captureMarkSnapshot(): MarkSnapshot {
@@ -213,6 +249,7 @@ export const useMarkStore = defineStore('mark', () => {
     drawing.value = false
     startPt.value = null
     dragNewBoxOp.value = null
+    sendMark({ type: 'SELECT', hasSelection: !!selectedNewBox.value })
   }
 
   function pushMarkUndoSnapshot(snapshot: MarkSnapshot) {
@@ -220,12 +257,19 @@ export const useMarkStore = defineStore('mark', () => {
     markUndoStack.value.push(snapshot)
     if (markUndoStack.value.length > MARK_HISTORY_LIMIT) markUndoStack.value.shift()
     markRedoStack.value = []
+    sendMark({
+      type: 'UNDO',
+      undoDepth: markUndoStack.value.length,
+      redoDepth: 0,
+    })
   }
 
   function commitMarkHistory(snapshot: MarkSnapshot) {
     if (!snapshot) return
     if (markBoxesEqual(snapshot.boxes, newBoxes.value)) return
     pushMarkUndoSnapshot(snapshot)
+    // gesture commit is the point where dirty becomes stable-true
+    sendMark({ type: 'EDIT_DRAW_END', changed: true, hasSelection: !!selectedNewBox.value })
   }
 
   function pushSavedMarkUndo(entry: SavedMarkEntry) {
@@ -236,22 +280,34 @@ export const useMarkStore = defineStore('mark', () => {
   }
 
   async function undoMark() {
+    if (!sendMark({ type: 'UNDO' })) return
     if (markUndoStack.value.length) {
       const current = captureMarkSnapshot()
       const prev = markUndoStack.value.pop()!
       markRedoStack.value.push(current)
       restoreMarkSnapshot(prev)
+      sendMark({
+        type: 'UNDO',
+        undoDepth: markUndoStack.value.length,
+        redoDepth: markRedoStack.value.length,
+      })
       return
     }
     await undoSavedMark()
   }
 
   async function redoMark() {
+    if (!sendMark({ type: 'REDO' })) return
     if (markRedoStack.value.length) {
       const current = captureMarkSnapshot()
       const next = markRedoStack.value.pop()!
       markUndoStack.value.push(current)
       restoreMarkSnapshot(next)
+      sendMark({
+        type: 'REDO',
+        undoDepth: markUndoStack.value.length,
+        redoDepth: markRedoStack.value.length,
+      })
       return
     }
     await redoSavedMark()
@@ -284,7 +340,7 @@ export const useMarkStore = defineStore('mark', () => {
       appStore.setStatus('请先打开对应试卷再撤销已保存操作', 'info')
       return
     }
-    markPersistBusy.value = true
+    if (!sendMark({ type: 'PERSIST_BEGIN' })) return
     try {
       appStore.setStatus('撤销已保存操作中...')
       if (entry.type === 'create') {
@@ -302,7 +358,7 @@ export const useMarkStore = defineStore('mark', () => {
     } catch (e) {
       appStore.setStatus(String(e), 'err')
     } finally {
-      markPersistBusy.value = false
+      sendMark({ type: 'PERSIST_END' })
     }
   }
 
@@ -317,7 +373,7 @@ export const useMarkStore = defineStore('mark', () => {
       appStore.setStatus('请先打开对应试卷再重做已保存操作', 'info')
       return
     }
-    markPersistBusy.value = true
+    if (!sendMark({ type: 'PERSIST_BEGIN' })) return
     try {
       appStore.setStatus('重做已保存操作中...')
       if (entry.type === 'create') {
@@ -342,7 +398,7 @@ export const useMarkStore = defineStore('mark', () => {
     } catch (e) {
       appStore.setStatus(String(e), 'err')
     } finally {
-      markPersistBusy.value = false
+      sendMark({ type: 'PERSIST_END' })
     }
   }
 
@@ -459,6 +515,7 @@ export const useMarkStore = defineStore('mark', () => {
     const papersStore = usePapersStore()
     const newIdx = ocrDraftQuestions.value.length
     ocrDraftQuestions.value.push({ label: String(newIdx + 1), sections: [], source: 'manual' })
+    sendMark({ type: 'OCR_SUGGEST', draftCount: ocrDraftQuestions.value.length, dirty: true })
     selectedOcrDraftIdx.value = newIdx
     if (papersStore.currentPaperId != null) {
       pendingOcrDraftSelectedIdxByPaperId.set(papersStore.currentPaperId, newIdx)
@@ -467,8 +524,8 @@ export const useMarkStore = defineStore('mark', () => {
 
   async function selectOcrDraft(idx: number) {
     const papersStore = usePapersStore()
-    const nextIdx = clampInt(idx, 0, Math.max(0, ocrDraftQuestions.value.length - 1))
-    selectedOcrDraftIdx.value = nextIdx
+    sendMark({ type: 'OCR_SELECT_DRAFT', index: idx, draftCount: ocrDraftQuestions.value.length })
+    const nextIdx = selectedOcrDraftIdx.value
     if (papersStore.currentPaperId != null) {
       pendingOcrDraftSelectedIdxByPaperId.set(papersStore.currentPaperId, nextIdx)
     }
@@ -514,17 +571,15 @@ export const useMarkStore = defineStore('mark', () => {
 
   // --- edit question ---
   function enterEditQuestionMode(questionId: number, original: PersistedQuestionPayload | null = null, isLocal = false) {
-    editingQuestionId.value = questionId
+    sendMark({ type: 'SET_MODE', mode: 'edit', editingQuestionId: questionId })
     editingQuestionOriginal.value = original || null
     isLocalEdit.value = !!isLocal
   }
 
   function exitEditQuestionMode() {
-    editingQuestionId.value = null
+    sendMark({ type: 'SET_MODE', mode: 'create', editingQuestionId: null })
     editingQuestionOriginal.value = null
     isLocalEdit.value = false
-    answerReplaceMode.value = false
-    answerReplaceQuestionId.value = null
   }
 
   async function editQuestion(q: Question) {
@@ -673,10 +728,22 @@ export const useMarkStore = defineStore('mark', () => {
   // --- save question ---
   async function saveQuestion() {
     if (editingQuestionId.value == null && hasOcrDraftMode.value) {
-      await saveOcrDraftQuestionsBatch()
+      if (!sendMark({ type: 'SAVE' })) return
+      try {
+        const ok = await saveOcrDraftQuestionsBatch()
+        if (ok) {
+          sendMark({ type: 'SAVE_OK', mode: 'create', editingQuestionId: null, dirty: false })
+        } else {
+          sendMark({ type: 'SAVE_FAIL', error: 'cancelled' })
+        }
+      } catch (e) {
+        sendMark({ type: 'SAVE_FAIL', error: String(e) })
+        throw e
+      }
       return
     }
     if (!newBoxes.value.length) return
+    if (!sendMark({ type: 'SAVE' })) return
     let section = qSectionSelectValue.value || null
     let notes = qNotes.value || null
     const boxesPayload = alignBoxesForSave(newBoxes.value.map((b) => ({ page: b.page, bbox: b.bbox })))
@@ -699,22 +766,34 @@ export const useMarkStore = defineStore('mark', () => {
       if (editingQuestionOriginal.value && notes == null) {
         notes = editingQuestionOriginal.value.notes ?? null
       }
-      await updateExistingQuestion(qid, sectionsToSave, notes, boxesPayload, beforePayload)
+      try {
+        await updateExistingQuestion(qid, sectionsToSave, notes, boxesPayload, beforePayload)
+        sendMark({ type: 'SAVE_OK', mode: 'create', editingQuestionId: null, dirty: false })
+      } catch (e) {
+        sendMark({ type: 'SAVE_FAIL', error: String(e) })
+        throw e
+      }
       return
     }
 
     const sectionsToSave = selectedSectionsForNewQuestion.value.length > 0
       ? selectedSectionsForNewQuestion.value
       : (section ? [section] : [])
-    await createNewQuestion(sectionsToSave, notes, boxesPayload)
+    try {
+      await createNewQuestion(sectionsToSave, notes, boxesPayload)
+      sendMark({ type: 'SAVE_OK', mode: 'create', editingQuestionId: null, dirty: false })
+    } catch (e) {
+      sendMark({ type: 'SAVE_FAIL', error: String(e) })
+      throw e
+    }
   }
 
-  async function saveOcrDraftQuestionsBatch() {
+  async function saveOcrDraftQuestionsBatch(): Promise<boolean> {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
     const sectionsStore = useSectionsStore()
     const settingsStore = useSettingsStore()
-    if (!papersStore.currentPaperId || !hasOcrDraftMode.value) return
+    if (!papersStore.currentPaperId || !hasOcrDraftMode.value) return false
 
     const byIdx = new Map<number, NewBox[]>()
     for (const b of newBoxes.value) {
@@ -730,7 +809,7 @@ export const useMarkStore = defineStore('mark', () => {
     if (!await useDialogStore().confirm(t('mark.saveOcrDraftConfirm', { total }), {
       title: t('mark.saveOcrDraftTitle'),
       confirmText: t('dialog.save'),
-    })) return
+    })) return false
 
     let paperBounds = settingsStore.alignPaperFirstEnabled
       ? getPaperAlignBounds(settingsStore.paperAlignRef, papersStore.currentPaperId)
@@ -793,8 +872,10 @@ export const useMarkStore = defineStore('mark', () => {
       void papersStore.refreshPapers({ silent: true })
       void papersStore.refreshSuggestedNextNo()
       appStore.setStatus('已保存', 'ok')
+      return true
     } catch (e) {
       appStore.setStatus(String(e), 'err')
+      throw e
     }
   }
 
@@ -863,6 +944,11 @@ export const useMarkStore = defineStore('mark', () => {
       }
 
       selectedNewBox.value = newBoxes.value.length ? newBoxes.value[0] : null
+      sendMark({
+        type: 'OCR_SUGGEST',
+        draftCount: ocrDraftQuestions.value.length,
+        dirty: true,
+      })
       if (warn) {
         appStore.setStatus(String(warn), 'err')
       } else {
@@ -926,6 +1012,7 @@ export const useMarkStore = defineStore('mark', () => {
 
   function deleteSelectedUnsavedBox() {
     if (!selectedNewBox.value) return
+    if (!sendMark({ type: 'DELETE_BOX', hasSelection: false })) return
     const snapshot = captureMarkSnapshot()
     const deletedBoxDraftIdx =
       hasOcrDraftMode.value && selectedNewBox.value.source === 'ocr'
@@ -974,6 +1061,7 @@ export const useMarkStore = defineStore('mark', () => {
       confirmText: t('dialog.clear'),
       danger: true,
     })) return
+    if (!sendMark({ type: 'CLEAR_BOXES' })) return
     const snapshot = captureMarkSnapshot()
     newBoxes.value = []
     if (hasOcrDraftMode.value) {
@@ -993,12 +1081,56 @@ export const useMarkStore = defineStore('mark', () => {
     const value = qSectionSelectValue.value
     if (value && !selectedSectionsForNewQuestion.value.includes(value)) {
       selectedSectionsForNewQuestion.value.push(value)
+      sendMark({ type: 'SET_SECTIONS' })
     }
     qSectionSelectValue.value = ''
   }
 
   function removeSelectedSection(section: string) {
     selectedSectionsForNewQuestion.value = selectedSectionsForNewQuestion.value.filter((s) => s !== section)
+    sendMark({ type: 'SET_SECTIONS' })
+  }
+
+  function setSections(sections: string[]) {
+    selectedSectionsForNewQuestion.value = Array.isArray(sections) ? [...sections] : []
+    sendMark({ type: 'SET_SECTIONS' })
+  }
+
+  function setOcrDraftSections(idx: number, sections: string[]) {
+    const q = ocrDraftQuestions.value[idx]
+    if (!q) return
+    q.sections = Array.isArray(sections) ? [...sections] : []
+    sendMark({ type: 'SET_SECTIONS' })
+  }
+
+  // --- selection / edit gestures (events for the view) ---
+  function selectBox(box: NewBox | null) {
+    if (!sendMark({ type: 'SELECT', hasSelection: !!box })) return
+    selectedNewBox.value = box
+  }
+
+  function deleteBox(box: NewBox) {
+    if (selectedNewBox.value !== box) {
+      if (!sendMark({ type: 'SELECT', hasSelection: true })) return
+      selectedNewBox.value = box
+    }
+    deleteSelectedUnsavedBox()
+  }
+
+  async function cancelEditQuestion() {
+    if (!sendMark({ type: 'CLEAR_BOXES' })) return
+    const snapshot = captureMarkSnapshot()
+    newBoxes.value = []
+    selectedNewBox.value = null
+    ocrDraftQuestions.value = []
+    selectedOcrDraftIdx.value = 0
+    commitMarkHistory(snapshot)
+    exitEditQuestionMode()
+  }
+
+  /** Expose the pure machine transition for the view / tests. */
+  function dispatchMark(event: MarkEvent): boolean {
+    return sendMark(event)
   }
 
   return {
@@ -1012,14 +1144,15 @@ export const useMarkStore = defineStore('mark', () => {
     markSavedUndoStack,
     markSavedRedoStack,
     markPersistBusy,
+    markSaving,
+    markDirty,
+    markMode,
     pageQuestions,
     suggestedNextNo,
     qNotes,
     editingQuestionId,
     editingQuestionOriginal,
     isLocalEdit,
-    answerReplaceMode,
-    answerReplaceQuestionId,
     selectedSectionsForNewQuestion,
     qSectionSelectValue,
     ocrDraftQuestions,
@@ -1054,6 +1187,13 @@ export const useMarkStore = defineStore('mark', () => {
     selectOcrDraft,
     deleteSelectedUnsavedBox,
     clearBoxes,
+    // event-style actions for the view
+    selectBox,
+    deleteBox,
+    cancelEditQuestion,
+    setSections,
+    setOcrDraftSections,
+    dispatchMark,
     // drawing helpers
     canvasPointToNorm,
     hitTestNewBoxes,

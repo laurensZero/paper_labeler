@@ -1,6 +1,7 @@
 """API smoke tests: app boots, core routes respond, basic CRUD works."""
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from PIL import Image
@@ -9,7 +10,11 @@ from backend.config import DATA_DIR, PAGE_DIR
 from backend.database import Paper, SessionLocal
 
 
-def _make_paper(db, *, filename: str = "9709_s23_qp_1.pdf", exam_code: str = "9709_s23_qp_1") -> Paper:
+def _make_paper(db, *, filename: str | None = None, exam_code: str | None = None) -> Paper:
+    # filenames are UNIQUE — default names must not collide across tests
+    suffix = uuid.uuid4().hex[:8]
+    filename = filename or f"9709_s23_qp_1_{suffix}.pdf"
+    exam_code = exam_code or Path(filename).stem
     paper = Paper(filename=filename, exam_code=exam_code, page_count=1, done=False)
     db.add(paper)
     db.commit()
@@ -210,6 +215,111 @@ class TestQuestionRoutes:
         deleted = client.delete(f"/questions/{qid}")
         assert deleted.status_code == 200
 
+    def test_create_question_and_update_fields(self, client):
+        db = SessionLocal()
+        try:
+            paper = _make_paper(db)
+        finally:
+            db.close()
+        _make_page_image(paper.id)
+        created = client.post(
+            f"/papers/{paper.id}/questions",
+            json={
+                "boxes": [{"page": 1, "bbox": [0.1, 0.1, 0.4, 0.2]}],
+                "sections": ["Algebra"],
+                "status": "draft",
+                "notes": "n1",
+            },
+        )
+        assert created.status_code == 200
+        qid = created.json()["question"]["id"]
+        assert created.json()["question"]["status"] == "draft"
+
+        updated = client.patch(
+            f"/questions/{qid}",
+            json={"status": "confirmed", "notes": "n2", "sections": ["Mechanics"]},
+        )
+        assert updated.status_code == 200
+        body = updated.json()["question"]
+        assert body["status"] == "confirmed"
+        assert body["notes"] == "n2"
+        assert body["sections"] == ["Mechanics"]
+
+    def test_answer_upsert_replace_and_clear(self, client):
+        db = SessionLocal()
+        try:
+            qp = _make_paper(db, filename=f"9709_s23_qp_1_{uuid.uuid4().hex[:8]}.pdf", exam_code="9709_s23_qp_1")
+            ms = _make_paper(db, filename=f"9709_s23_ms_1_{uuid.uuid4().hex[:8]}.pdf", exam_code="9709_s23_ms_1")
+        finally:
+            db.close()
+        _make_page_image(qp.id)
+        _make_page_image(ms.id)
+        created = client.post(
+            f"/papers/{qp.id}/questions",
+            json={"boxes": [{"page": 1, "bbox": [0.1, 0.1, 0.3, 0.2]}], "status": "confirmed"},
+        )
+        assert created.status_code == 200
+        qid = created.json()["question"]["id"]
+
+        # Save two answer boxes
+        saved = client.post(
+            f"/questions/{qid}/answer",
+            json={
+                "ms_paper_id": ms.id,
+                "boxes": [
+                    {"page": 1, "bbox": [0.1, 0.1, 0.2, 0.15]},
+                    {"page": 1, "bbox": [0.4, 0.1, 0.5, 0.15]},
+                ],
+            },
+        )
+        assert saved.status_code == 200
+        assert len(saved.json()["answer"]["boxes"]) == 2
+
+        # Replace with a single box (delete the mixed one in one save)
+        replaced = client.post(
+            f"/questions/{qid}/answer",
+            json={
+                "ms_paper_id": ms.id,
+                "boxes": [{"page": 1, "bbox": [0.4, 0.1, 0.5, 0.15]}],
+            },
+        )
+        assert replaced.status_code == 200
+        boxes = replaced.json()["answer"]["boxes"]
+        assert len(boxes) == 1
+        assert boxes[0]["bbox"] == [0.4, 0.1, 0.5, 0.15]
+
+        fetched = client.get(f"/questions/{qid}/answer")
+        assert fetched.status_code == 200
+        assert len(fetched.json()["answer"]["boxes"]) == 1
+
+        # Empty boxes clears the answer (used to 400 and force a second save)
+        cleared = client.post(
+            f"/questions/{qid}/answer",
+            json={"ms_paper_id": ms.id, "boxes": []},
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["answer"]["boxes"] == []
+
+    def test_answer_upsert_requires_ms_pages(self, client):
+        db = SessionLocal()
+        try:
+            qp = _make_paper(db, filename=f"9709_s23_qp_9_{uuid.uuid4().hex[:8]}.pdf", exam_code="9709_s23_qp_9")
+            ms = _make_paper(db, filename=f"9709_s23_ms_9_{uuid.uuid4().hex[:8]}.pdf", exam_code="9709_s23_ms_9")
+        finally:
+            db.close()
+        _make_page_image(qp.id)
+        created = client.post(
+            f"/papers/{qp.id}/questions",
+            json={"boxes": [{"page": 1, "bbox": [0.1, 0.1, 0.3, 0.2]}], "status": "confirmed"},
+        )
+        qid = created.json()["question"]["id"]
+        # no MS page images written
+        resp = client.post(
+            f"/questions/{qid}/answer",
+            json={"ms_paper_id": ms.id, "boxes": [{"page": 1, "bbox": [0.1, 0.1, 0.2, 0.2]}]},
+        )
+        assert resp.status_code == 404
+
     def test_batch_update_validation(self, client):
         resp = client.post("/questions/batch_update", json={"ids": []})
         assert resp.status_code == 422
@@ -256,6 +366,34 @@ class TestCieImportJob:
     def test_import_job_rejects_empty_items(self, client):
         resp = client.post("/cie_import/import_job", json={"items": []})
         assert resp.status_code == 400
+
+
+class TestLoggingEndpoints:
+    def test_ingest_and_recent_frontend_logs(self, client):
+        resp = client.post(
+            "/logs",
+            json={
+                "events": [
+                    {"level": "error", "message": "unit-test error", "source": "test", "extra": {"k": 1}},
+                    {"level": "info", "message": "unit-test info", "source": "test"},
+                ]
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["accepted"] == 2
+
+        recent = client.get("/logs/recent?limit=20")
+        assert recent.status_code == 200
+        messages = [e.get("message") for e in recent.json()["events"]]
+        assert "unit-test error" in messages
+        assert "unit-test info" in messages
+
+    def test_log_tail_returns_lines(self, client):
+        resp = client.get("/logs/tail?limit=20")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "path" in body
+        assert isinstance(body.get("lines"), list)
 
 
 class TestExportHelpersViaApi:

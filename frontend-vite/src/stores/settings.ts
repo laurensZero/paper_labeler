@@ -141,6 +141,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function syncInvertClass() {
+    if (typeof document === 'undefined' || !document?.documentElement?.classList) return
     document.documentElement.classList.toggle('img-invert', darkImageInvert.value)
   }
 
@@ -243,6 +244,83 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  // --- cloud management token (sent to /cloud/* write APIs) ---
+  const cloudToken = ref('')
+
+  function loadCloudToken() {
+    try {
+      cloudToken.value = localStorage.getItem('setting:cloudToken') || ''
+    } catch {}
+  }
+
+  function saveCloudToken(v: string) {
+    cloudToken.value = String(v || '').trim()
+    try {
+      if (cloudToken.value) localStorage.setItem('setting:cloudToken', cloudToken.value)
+      else localStorage.removeItem('setting:cloudToken')
+    } catch {}
+    return cloudToken.value
+  }
+
+  // --- settings snapshot export / import (localStorage keys) ---
+  const SNAPSHOT_KEYS = [
+    'theme',
+    'setting:locale',
+    'setting:alignLeftEnabled',
+    'setting:alignPaperFirstEnabled',
+    'setting:answerAlignEnabled',
+    'setting:paperAlignRef',
+    'setting:darkImageInvert',
+    'setting:filmStripSectionDots',
+    'setting:ocrAutoEnabled',
+    'setting:ocrMinHeightPx',
+    'setting:ocrYPaddingPx',
+    'setting:filterVirtualThreshold',
+    'setting:filterVirtualOverscanPx',
+    'setting:filterPageSize',
+    'setting:exportWizardOptions',
+    'setting:exportNameTemplate',
+    'setting:exportNamePrefix',
+    'setting:exportNameSuffix',
+    'setting:exportNameCustom',
+    'setting:exportNameAutoTimestamp',
+    'setting:exportNameSectionStyle',
+    'setting:exportCropWorkers',
+    'setting:exportDefaultSaveDir',
+    'cieImport:recentSubjects',
+    'cieImport:recentYears',
+    'setting:cloudToken',
+    'setting:filterPresets',
+  ]
+
+  function exportSettingsSnapshot(): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const key of SNAPSHOT_KEYS) {
+      try {
+        const v = localStorage.getItem(key)
+        if (v != null) out[key] = v
+      } catch {}
+    }
+    return out
+  }
+
+  function importSettingsSnapshot(snapshot: Record<string, string> | null | undefined): string[] {
+    if (!snapshot || typeof snapshot !== 'object') return []
+    const imported: string[] = []
+    const allowed = new Set(SNAPSHOT_KEYS)
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (!allowed.has(key)) continue
+      try {
+        if (value == null) localStorage.removeItem(key)
+        else localStorage.setItem(key, String(value))
+        imported.push(key)
+      } catch {}
+    }
+    loadFromStorage()
+    loadCloudToken()
+    return imported
+  }
+
   return {
     // alignment
     alignLeftEnabled,
@@ -267,6 +345,13 @@ export const useSettingsStore = defineStore('settings', () => {
     ocrAutoEnabled,
     ocrMinHeightPx,
     ocrYPaddingPx,
+    // cloud token
+    cloudToken,
+    loadCloudToken,
+    saveCloudToken,
+    // snapshot
+    exportSettingsSnapshot,
+    importSettingsSnapshot,
     // actions
     loadFromStorage,
     saveToStorage,

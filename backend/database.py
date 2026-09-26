@@ -35,7 +35,7 @@ def reconnect_db():
 class Paper(Base):
     __tablename__ = "papers"
     id = Column(Integer, primary_key=True, index=True)
-    filename = Column(String, nullable=False)
+    filename = Column(String, nullable=False, unique=True, index=True)
     exam_code = Column(String, nullable=True)
     pdf_path = Column(String, nullable=True)
     pages_dir = Column(String, nullable=True)
@@ -46,6 +46,7 @@ class Paper(Base):
     paired_paper_id = Column(Integer, nullable=True, index=True)
     is_answer = Column(Boolean, nullable=False, default=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Question(Base):
@@ -174,6 +175,15 @@ def init_db():
                 conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN year_token VARCHAR")
             if "season_token" not in cols:
                 conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN season_token VARCHAR")
+            if "updated_at" not in cols:
+                conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN updated_at DATETIME")
+            # Backfill: legacy rows have NULL updated_at, which breaks cloud dirty-check.
+            conn.exec_driver_sql(
+                "UPDATE papers SET updated_at = created_at WHERE updated_at IS NULL"
+            )
+            conn.exec_driver_sql(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_papers_filename ON papers(filename)"
+            )
     except Exception:
         pass
     try:

@@ -180,6 +180,109 @@ export function sortQuestionsByNoAsc<T extends QuestionLike>(qs: T[]): T[] {
 }
 
 /**
+ * Index of the first unanswered question in a question_no-sorted list.
+ * Returns -1 when every question is answered (or the list is empty).
+ *
+ * Critical for answer-mode entry: must scan ascending so a fresh paper
+ * lands on question 1, not the last item.
+ */
+export function findFirstUnansweredIndex(
+  questions: Array<{ id?: number | null } | null | undefined>,
+  answeredIds: Iterable<number | string> | null | undefined,
+): number {
+  const list = Array.isArray(questions) ? questions : []
+  if (!list.length) return -1
+  const answered = new Set(
+    Array.from(answeredIds || []).map((v) => Number(v)).filter((n) => Number.isFinite(n)),
+  )
+  for (let i = 0; i < list.length; i++) {
+    const id = Number(list[i]?.id)
+    if (!Number.isFinite(id) || id <= 0) return i
+    if (!answered.has(id)) return i
+  }
+  return -1
+}
+
+/**
+ * Question index to open after a successful save.
+ * Advances by one from the index that was saved; never invents a jump.
+ * Returns null when there is no next question.
+ */
+export function nextAnswerIndexAfterSave(
+  savedIndex: number,
+  total: number,
+): number | null {
+  if (!Number.isFinite(savedIndex) || savedIndex < 0) return null
+  if (!Number.isFinite(total) || total <= 0) return null
+  if (savedIndex + 1 >= total) return null
+  return savedIndex + 1
+}
+
+/**
+ * Clamp a persisted answer-progress index into the current question list.
+ * Returns 0 when there is no valid saved index and the list is non-empty.
+ */
+export function clampAnswerProgressIndex(
+  saved: number | null | undefined,
+  total: number,
+): number {
+  if (!Number.isFinite(total) || total <= 0) return -1
+  const n = Number(saved)
+  if (!Number.isFinite(n) || n < 0 || n >= total) return 0
+  return Math.floor(n)
+}
+
+/** Minimal box shape used when assembling an answer save payload. */
+export interface AnswerSaveBox {
+  /** Stable identity for soft-delete; never an array index. */
+  id?: string
+  page: number
+  bbox: number[]
+}
+
+/**
+ * Build the box list for POST /questions/:id/answer.
+ *
+ * - replace mode: only the new boxes (existing are discarded)
+ * - normal mode: existing boxes minus removed ones, then new boxes
+ *
+ * Removing an existing box must actually drop it from the payload —
+ * merging the full existing list back is what made "delete then save"
+ * appear to require two attempts.
+ *
+ * Soft-delete identity is a stable `id` string. `removedExistingIndices`
+ * remains supported for callers that still hold indices.
+ */
+export function buildAnswerSaveBoxes(options: {
+  existing: AnswerSaveBox[] | null | undefined
+  newBoxes: AnswerSaveBox[] | null | undefined
+  removedExistingIndices?: Iterable<number> | null
+  removedExistingIds?: Iterable<string> | null
+  isReplace?: boolean
+}): AnswerSaveBox[] {
+  const existing = Array.isArray(options.existing) ? options.existing : []
+  const newBoxes = Array.isArray(options.newBoxes) ? options.newBoxes : []
+  if (options.isReplace) {
+    return newBoxes.map((b) => ({ page: b.page, bbox: [...b.bbox] }))
+  }
+  const removedIdx = new Set(
+    Array.from(options.removedExistingIndices || []).map((n) => Number(n)).filter((n) => Number.isFinite(n)),
+  )
+  const removedIds = new Set(
+    Array.from(options.removedExistingIds || []).map((s) => String(s)).filter((s) => s !== ''),
+  )
+  const keptExisting = existing
+    .map((b, idx) => ({ b, idx }))
+    .filter(({ b, idx }) => {
+      if (removedIdx.has(idx)) return false
+      if (b.id != null && removedIds.has(String(b.id))) return false
+      return true
+    })
+    .map(({ b }) => ({ page: b.page, bbox: [...b.bbox] }))
+  return [...keptExisting, ...newBoxes.map((b) => ({ page: b.page, bbox: [...b.bbox] }))]
+}
+
+/**
  * Extract the two-digit year string from a paper's exam_code + filename.
  * Returns null if no year pattern is found.
  */

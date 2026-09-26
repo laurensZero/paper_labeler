@@ -50,6 +50,8 @@ import type {
   CompositionItemBatchAddParams,
   CompositionItemUpdateParams,
   CompositionReorderParams,
+  CloudConfigInfo,
+  CloudSyncStatus,
 } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -721,4 +723,39 @@ export const compositionsApi = {
     const qs = afterItemId != null ? `?after_item_id=${afterItemId}` : ''
     return api(`/compositions/${compId}/items/insert_blank${qs}`, { method: 'POST' })
   },
+}
+
+// ---------------------------------------------------------------------------
+// Cloud sync
+// ---------------------------------------------------------------------------
+
+export const cloudApi = {
+  /** 云端配置自检（是否开启、缺哪些项） */
+  config(): Promise<CloudConfigInfo> {
+    return api('/cloud/config')
+  },
+
+  /** 启动一次后台同步（需本地管理 token） */
+  startSync(): Promise<{ started: boolean }> {
+    return api('/cloud/sync', {
+      method: 'POST',
+      headers: cloudAuthHeaders(),
+    })
+  },
+
+  /** 同步状态（运行中实时 phase/counts） */
+  syncStatus(): Promise<CloudSyncStatus> {
+    return api('/cloud/sync/status')
+  },
+}
+
+function cloudAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {}
+  try {
+    const token = localStorage.getItem('setting:cloudToken') || ''
+    if (token) headers['X-Paper-Token'] = token
+  } catch {
+    /* ignore */
+  }
+  return headers
 }

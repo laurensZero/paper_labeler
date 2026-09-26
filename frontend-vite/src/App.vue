@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, onErrorCapt
 import { NConfigProvider, darkTheme, lightTheme } from 'naive-ui'
 import AppShell from '@/components/layout/AppShell.vue'
 import AppDialogHost from '@/components/AppDialogHost.vue'
+import { logger } from '@/utils/logger'
 
 // Modal hosts — keep out of the critical first-paint bundle
 const CieImport = defineAsyncComponent(() => import('@/components/CieImport.vue'))
@@ -13,6 +14,10 @@ const fatal = ref<{ error: unknown; info: string } | null>(null)
 
 onErrorCaptured((err, _instance, info) => {
   fatal.value = { error: err, info }
+  logger.error('ErrorBoundary', {
+    error: err instanceof Error ? `${err.message}\n${err.stack || ''}` : String(err),
+    info,
+  })
   console.error('[ErrorBoundary]', err, info)
   return false // prevent propagation
 })

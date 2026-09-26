@@ -1,5 +1,7 @@
 const API_BASE = ''
 
+import { logger } from '@/utils/logger'
+
 /** Convert camelCase keys to snake_case */
 export function convertKeysToSnake(obj: unknown): unknown {
   if (obj == null || typeof obj !== 'object') return obj
@@ -16,12 +18,14 @@ export class ApiError extends Error {
   status: number
   statusText: string
   body: string
+  path: string
 
-  constructor(status: number, statusText: string, body: string) {
+  constructor(status: number, statusText: string, body: string, path = '') {
     super(`API Error ${status}: ${statusText}`)
     this.status = status
     this.statusText = statusText
     this.body = body
+    this.path = path
   }
 }
 
@@ -30,7 +34,13 @@ export async function api<T = any>(path: string, opts?: RequestInit): Promise<T>
   const res = await fetch(`${API_BASE}${path}`, opts)
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new ApiError(res.status, res.statusText, body)
+    logger.warn(`api ${res.status} ${path}`, {
+      status: res.status,
+      statusText: res.statusText,
+      body: body.slice(0, 500),
+      method: opts?.method || 'GET',
+    }, 'api')
+    throw new ApiError(res.status, res.statusText, body, path)
   }
   return res.json()
 }

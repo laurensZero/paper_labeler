@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import router from '@/router'
 import { useAppStore } from './app'
@@ -16,7 +16,12 @@ import {
   alignAnswerBBoxToBoundsX,
 } from '@/utils/alignment'
 import type { AlignBounds } from '@/utils/alignment'
-import { extractCacheBustToken } from '@/utils/paper'
+import { extractCacheBustToken, sortQuestionsByNoAsc, findFirstUnansweredIndex, clampAnswerProgressIndex, buildAnswerSaveBoxes } from '@/utils/paper'
+import {
+  createAnswerMachine,
+  resolveStateName,
+  type AnswerEvent,
+} from '@/utils/answerMachine'
 
 const ANSWER_HISTORY_LIMIT = 50
 
@@ -35,18 +40,6 @@ function findMatchedMsPaper(paperDetail: PaperDetail, papers: AnswerPaperListIte
   const byExam = list.find((p) => String(p.exam_code || '') === msCode)
   if (byExam) return byExam
   return list.find((p) => String(p.filename || '').includes(msCode)) || null
-}
-function sortQuestionsByNoAsc(qs: Question[]) {
-  const arr = Array.from(qs || [])
-  arr.sort((a, b) => {
-    const aNo = a.question_no
-    const bNo = b.question_no
-    const an = aNo != null && String(aNo).trim().match(/^\d+$/) ? parseInt(String(aNo).trim(), 10) : Number.POSITIVE_INFINITY
-    const bn = bNo != null && String(bNo).trim().match(/^\d+$/) ? parseInt(String(bNo).trim(), 10) : Number.POSITIVE_INFINITY
-    if (an !== bn) return an - bn
-    return (a.id || 0) - (b.id || 0)
-  })
-  return arr
 }
 function answerProgressKey(kind: string, qpId: number, qpToken: string | null, msId: number, msToken: string | null) {
   if (!qpId || !msId) return null
@@ -94,6 +87,8 @@ function saveAnswerAlignRef(qpId: number | null | undefined, msId: number | null
 }
 
 export interface AnswerBoxState {
+  /** Stable identity for soft-delete (never an array index). */
+  id?: string
   page: number
   bbox: BoundingBox
 }
@@ -119,10 +114,17 @@ interface AnswerMsScrollTarget {
   bbox?: BoundingBox | null
 }
 
+let _boxIdSeq = 0
+function nextBoxId(prefix: string): string {
+  _boxIdSeq += 1
+  return `${prefix}-${_boxIdSeq}-${Date.now().toString(36)}`
+}
+
 function cloneAnswerBoxes(list: AnswerBoxState[]): AnswerBoxState[] {
   if (!Array.isArray(list)) return []
   return list.map((b) => ({
-    ...b,
+    id: b.id ?? nextBoxId('box'),
+    page: b.page,
     bbox: Array.isArray(b?.bbox) ? ([...b.bbox] as BoundingBox) : [0, 0, 0, 0],
   }))
 }
@@ -145,6 +147,7 @@ function answerBoxesEqual(a: AnswerBoxState[], b: AnswerBoxState[]): boolean {
 function alignAnswerBoxStatesToBoundsX(boxes: AnswerBoxState[], bounds: AlignBounds | null | undefined): AnswerBoxState[] {
   if (!bounds) return boxes
   return boxes.map((b) => ({
+    id: b.id,
     page: b.page,
     bbox: alignAnswerBBoxToBoundsX(b.bbox, bounds) as BoundingBox,
   }))
@@ -167,13 +170,29 @@ export const useAnswerStore = defineStore('answer', () => {
   const answerAlignRef = ref<[number, number] | null>(null)
   const answerPendingSnapshot = ref<AnswerSnapshot | null>(null)
   const answerPaperList = ref<AnswerPaperListItem[]>([])
-  const answerReplaceMode = ref(false)
-  const answerReplaceQuestionId = ref<number | null>(null)
   const answerReadyPaperId = ref<number | null>(null)
-  const answerOpening = ref(false)
   let _getVisibleMsPageNum: (() => number | null) | null = null
   let _scrollToMsTarget: ((target: AnswerMsScrollTarget) => void) | null = null
   let _pendingMsScrollTarget: AnswerMsScrollTarget | null = null
+
+  // --- answer state machine (single source of truth for phase/seq/dirty/replace) ---
+  const machine = createAnswerMachine()
+  const machineState = shallowRef(machine.getState())
+
+  function dispatch(event: AnswerEvent): boolean {
+    const ok = machine.send(event)
+    // Always refresh the reactive snapshot so computed state stays in sync
+    // even when the event was ignored (snapshot identity is cheap).
+    machineState.value = machine.getState()
+    return ok
+  }
+
+  /** Stable-id set of soft-deleted existing boxes (never array indices). */
+  const answerRemovedExistingIds = computed(() => machineState.value.removedBoxIds)
+  const answerReplaceMode = computed(() => machineState.value.mode === 'replacing')
+  const answerReplaceQuestionId = computed(() => machineState.value.replaceQuestionId)
+  const answerOpening = computed(() => machineState.value.phase === 'opening')
+  const answerStateName = computed(() => resolveStateName(machineState.value))
 
   // --- computed ---
   const currentAnswerQuestion = computed(() => {
@@ -290,10 +309,8 @@ export const useAnswerStore = defineStore('answer', () => {
     const wasReplace = answerReplaceMode.value
     const replaceQid = answerReplaceQuestionId.value
     recordAnswerScrollProgress()
+    dispatch({ type: 'BACK' })
     resetAnswerWorkspace({ clearMs: true })
-    answerReplaceMode.value = false
-    answerReplaceQuestionId.value = null
-    answerOpening.value = false
     const restored = wasReplace || appStore.navStack.some((x) => x.kind === 'filter')
       ? await filterStore.returnToFilterFromNavStack()
       : false
@@ -313,9 +330,7 @@ export const useAnswerStore = defineStore('answer', () => {
   function beginAnswerReplaceMode(questionId: number) {
     const safeId = Number(questionId)
     if (!Number.isFinite(safeId)) return
-    answerReplaceMode.value = true
-    answerReplaceQuestionId.value = safeId
-    answerOpening.value = true
+    dispatch({ type: 'REPLACE_ENTER', questionId: safeId })
     resetAnswerWorkspace({ clearMs: true })
   }
 
@@ -343,6 +358,7 @@ export const useAnswerStore = defineStore('answer', () => {
 
   function undoAnswer() {
     if (!answerUndoStack.value.length) return
+    if (!dispatch({ type: 'UNDO' })) return
     const current = captureAnswerSnapshot()
     const prev = answerUndoStack.value.pop()!
     answerRedoStack.value.push(current)
@@ -351,6 +367,7 @@ export const useAnswerStore = defineStore('answer', () => {
 
   function redoAnswer() {
     if (!answerRedoStack.value.length) return
+    if (!dispatch({ type: 'REDO' })) return
     const current = captureAnswerSnapshot()
     const next = answerRedoStack.value.pop()!
     answerUndoStack.value.push(current)
@@ -403,14 +420,13 @@ export const useAnswerStore = defineStore('answer', () => {
   async function openAnswerForPaper(forcedMsId: number | null = null, forcedQuestionId: number | null = null) {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
-    if (!papersStore.currentPaperId) {
-      answerOpening.value = false
-      return
-    }
-    answerOpening.value = true
+    if (!papersStore.currentPaperId) return
+    if (!dispatch({ type: 'OPEN' })) return
+    const openSeq = machine.getState().seq
     resetAnswerWorkspace({ clearMs: true })
     try {
       const qp = await api(`/papers/${papersStore.currentPaperId}`)
+      if (!machine.isCurrentSeq(openSeq)) return
       let answerPapers: AnswerPaperListItem[] = []
       if (!forcedMsId) {
         try {
@@ -421,20 +437,26 @@ export const useAnswerStore = defineStore('answer', () => {
           answerPapers = []
         }
       }
+      if (!machine.isCurrentSeq(openSeq)) return
       const msMatch = forcedMsId ? { id: forcedMsId } : findMatchedMsPaper(qp, answerPapers)
       const msId = msMatch?.id || null
       if (!msId) {
+        dispatch({ type: 'OPEN_FAIL', seq: openSeq })
         appStore.setStatus(t('answer.msNotFound'), 'err')
         return
       }
       msPaperId.value = msId
       const msDetail = await api(`/papers/${msId}`)
+      if (!machine.isCurrentSeq(openSeq)) return
       papersStore.currentMsCacheToken = extractCacheBustToken(msDetail?.pdf_url)
       const msPagesData = await api(`/papers/${msId}/pages`)
+      if (!machine.isCurrentSeq(openSeq)) return
       msPages.value = msPagesData.pages || []
       const qData = await api(`/papers/${papersStore.currentPaperId}/questions`)
+      if (!machine.isCurrentSeq(openSeq)) return
       const qs = qData.questions || []
       if (!qs.length) {
+        dispatch({ type: 'OPEN_FAIL', seq: openSeq })
         appStore.setStatus(t('answer.noQuestions'), 'err')
         return
       }
@@ -444,41 +466,43 @@ export const useAnswerStore = defineStore('answer', () => {
         const idx = answerQuestions.value.findIndex((q) => q.id === forcedQuestionId)
         if (idx >= 0) answerQIndex.value = idx
       } else {
-        const last = getAnswerProgress('q', papersStore.currentPaperId, papersStore.currentPaperCacheToken, msId, papersStore.currentMsCacheToken)
-        if (last != null && last >= 0 && last < answerQuestions.value.length) {
-          answerQIndex.value = last
+        const savedIdx = getAnswerProgress('q', papersStore.currentPaperId, papersStore.currentPaperCacheToken, msId, papersStore.currentMsCacheToken)
+        const restored = clampAnswerProgressIndex(savedIdx, answerQuestions.value.length)
+        if (savedIdx != null && Number.isFinite(Number(savedIdx)) && restored >= 0 && restored === Math.floor(Number(savedIdx))) {
+          answerQIndex.value = restored
         } else {
-          // Jump to the first unanswered question
           try {
             const status = await questionsApi.getAnswerStatus(papersStore.currentPaperId)
-            const answeredSet = new Set(status.answered_ids)
-            // Find last unanswered (questions are sorted ascending by question_no)
-            let lastUnanswered = -1
-            for (let i = answerQuestions.value.length - 1; i >= 0; i--) {
-              if (!answeredSet.has(answerQuestions.value[i].id)) {
-                lastUnanswered = i
-                break
-              }
-            }
-            if (lastUnanswered >= 0) answerQIndex.value = lastUnanswered
-          } catch {}
+            if (!machine.isCurrentSeq(openSeq)) return
+            const firstUnanswered = findFirstUnansweredIndex(answerQuestions.value, status.answered_ids)
+            answerQIndex.value = firstUnanswered >= 0 ? firstUnanswered : 0
+          } catch {
+            answerQIndex.value = 0
+          }
         }
       }
       answerAlignRef.value = loadAnswerAlignRef(papersStore.currentPaperId, msId)
       await ensureAnswerAlignRefFromFirstQuestion()
+      if (!machine.isCurrentSeq(openSeq)) return
       appStore.setView('answer')
-      await loadAnswerQuestion(answerQIndex.value)
+      await loadAnswerQuestion(answerQIndex.value, { seq: openSeq })
+      if (!machine.isCurrentSeq(openSeq)) return
+      dispatch({ type: 'OPEN_OK', seq: openSeq })
       answerReadyPaperId.value = papersStore.currentPaperId
       appStore.setStatus(t('answer.modeActive', { count: answerQuestions.value.length }), 'ok')
     } catch (e) {
-      appStore.setStatus(t('answer.loadFailed', { error: String(e) }), 'err')
-    } finally {
-      answerOpening.value = false
+      if (machine.isCurrentSeq(openSeq)) {
+        dispatch({ type: 'OPEN_FAIL', seq: openSeq })
+        appStore.setStatus(t('answer.loadFailed', { error: String(e) }), 'err')
+      }
     }
   }
 
-  async function loadAnswerQuestion(index: number, opts: { preserveScroll?: boolean } = {}) {
+  async function loadAnswerQuestion(index: number, opts: { preserveScroll?: boolean; seq?: number } = {}) {
     if (index < 0 || index >= answerQuestions.value.length) return
+    if (!dispatch({ type: 'LOAD_Q', index, seq: opts.seq })) return
+    const loadSeq = machine.getState().requestSeq
+    if (loadSeq == null) return
     const preserveScroll = !!opts.preserveScroll
     const prev = answerQuestions.value[answerQIndex.value]
     const q = answerQuestions.value[index]
@@ -486,19 +510,33 @@ export const useAnswerStore = defineStore('answer', () => {
     answerQIndex.value = index
     answerNewBoxes.value = []
     answerExistingBoxes.value = []
+    selectedAnswerNew.value = null
     resetAnswerHistory()
     try {
       const d = await api(`/questions/${q.id}/answer`)
+      if (!dispatch({ type: 'LOAD_OK', seq: loadSeq })) return
       if (d && d.answer && d.answer.boxes) {
-        answerExistingBoxes.value = d.answer.boxes.map((b: ApiAnswerBox) => ({ page: b.page, bbox: b.bbox }))
+        answerExistingBoxes.value = d.answer.boxes.map((b: ApiAnswerBox) => ({
+          id: b.id != null ? String(b.id) : nextBoxId('ex'),
+          page: b.page,
+          bbox: b.bbox,
+        }))
         const settingsStore = useSettingsStore()
         if (settingsStore.answerAlignEnabled && answerAlignRef.value) {
           answerExistingBoxes.value = alignAnswerBoxStatesToBoundsX(answerExistingBoxes.value, answerAlignRef.value)
         }
       }
-    } catch {}
+    } catch {
+      // Keep going with empty boxes (matches prior behaviour) but only if
+      // this response is still the active request.
+      if (!dispatch({ type: 'LOAD_FAIL', seq: loadSeq })) return
+    }
     if (answerReplaceMode.value && answerReplaceQuestionId.value === q.id) {
-      answerNewBoxes.value = answerExistingBoxes.value.map((b) => ({ page: b.page, bbox: [...b.bbox] as BoundingBox }))
+      answerNewBoxes.value = answerExistingBoxes.value.map((b) => ({
+        id: b.id ?? nextBoxId('new'),
+        page: b.page,
+        bbox: [...b.bbox] as BoundingBox,
+      }))
       answerExistingBoxes.value = []
       const settingsStore = useSettingsStore()
       if (settingsStore.answerAlignEnabled) {
@@ -506,6 +544,7 @@ export const useAnswerStore = defineStore('answer', () => {
         answerNewBoxes.value = alignAnswerBoxStatesToBoundsX(answerNewBoxes.value, bounds)
       }
       selectedAnswerNew.value = answerNewBoxes.value[0] || null
+      dispatch({ type: 'EDIT' })
       useAppStore().setStatus(t('answer.editingAnswer', { id: q.id }), 'ok')
     }
     setAnswerProgressIndex()
@@ -550,27 +589,31 @@ export const useAnswerStore = defineStore('answer', () => {
   async function saveAnswer(_opts: { preserveScroll?: boolean } = {}): Promise<boolean> {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
-    const q = answerQuestions.value[answerQIndex.value]
+    const idx = answerQIndex.value
+    const q = answerQuestions.value[idx]
     if (!q || msPaperId.value == null) return false
+    // Double-click safe: only the first SAVE enters `saving`.
+    if (!dispatch({ type: 'SAVE' })) return false
     recordAnswerScrollProgress(q)
     const isReplace = answerReplaceMode.value && answerReplaceQuestionId.value === q.id
-    const merged: AnswerBoxState[] = []
-    if (!isReplace) {
-      for (const b of answerExistingBoxes.value) merged.push({ page: b.page, bbox: b.bbox })
-    }
-    for (const b of answerNewBoxes.value) merged.push({ page: b.page, bbox: b.bbox })
+    const aligned = buildAnswerSaveBoxes({
+      existing: answerExistingBoxes.value,
+      newBoxes: answerNewBoxes.value,
+      removedExistingIds: answerRemovedExistingIds.value,
+      isReplace,
+    })
     const settingsStore = useSettingsStore()
-    if (settingsStore.answerAlignEnabled && merged.length) {
+    if (settingsStore.answerAlignEnabled && aligned.length) {
       if (!answerAlignRef.value && papersStore.currentPaperId && msPaperId.value) {
-        const bb = merged[0].bbox
+        const bb = aligned[0].bbox
         answerAlignRef.value = [bb[0], bb[2]]
         saveAnswerAlignRef(papersStore.currentPaperId, msPaperId.value, answerAlignRef.value)
       }
+      const bounds = getAnswerAlignBounds()
+      for (const b of aligned) {
+        b.bbox = alignAnswerBBoxToBoundsX(b.bbox as BoundingBox, bounds) as number[]
+      }
     }
-    const bounds = getAnswerAlignBounds()
-    const aligned = settingsStore.answerAlignEnabled
-      ? alignAnswerBoxStatesToBoundsX(merged, bounds)
-      : merged
     try {
       appStore.setStatus(t('answer.savingAnswer', { id: q.id }))
       await api(`/questions/${q.id}/answer`, {
@@ -578,31 +621,45 @@ export const useAnswerStore = defineStore('answer', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ms_paper_id: msPaperId.value, boxes: aligned }),
       })
+      // Replace → replaceReturning; normal → ready.clean with dirty=false.
+      dispatch({ type: 'SAVE_OK' })
       appStore.setStatus(t('answer.saved'), 'ok')
-      answerExistingBoxes.value = aligned.map((b) => ({ page: b.page, bbox: b.bbox }))
+      answerExistingBoxes.value = aligned.map((b) => ({
+        id: nextBoxId('ex'),
+        page: b.page,
+        bbox: b.bbox as BoundingBox,
+      }))
       answerNewBoxes.value = []
+      selectedAnswerNew.value = null
       resetAnswerHistory()
       setAnswerProgressIndex()
       if (isReplace) {
-        answerReplaceMode.value = false
-        answerReplaceQuestionId.value = null
         await useFilterStore().returnToFilterFromNavStack()
+        dispatch({ type: 'BACK' })
       }
       return true
     } catch (e) {
+      dispatch({ type: 'SAVE_FAIL' })
       appStore.setStatus(String(e), 'err')
       return false
     }
   }
 
   async function navigateAnswer(direction: 'prev' | 'next') {
+    const accepted = dispatch(direction === 'prev' ? { type: 'NAV_PREV' } : { type: 'NAV_NEXT' })
+    if (!accepted) return
     if (direction === 'prev' && answerQIndex.value > 0) {
       await loadAnswerQuestion(answerQIndex.value - 1)
     } else if (direction === 'next' && answerQIndex.value < answerQuestions.value.length - 1) {
-      const needSave = answerNewBoxes.value.length > 0
+      const needSave = answerNeedsSave()
       if (needSave) await saveAnswer({ preserveScroll: true })
       await loadAnswerQuestion(answerQIndex.value + 1, { preserveScroll: true })
     }
+  }
+
+  /** Dispatch a machine event from the view (nav gates, etc.). */
+  function sendAnswerEvent(event: AnswerEvent): boolean {
+    return dispatch(event)
   }
 
   async function refreshAnswerPapers() {
@@ -630,10 +687,7 @@ export const useAnswerStore = defineStore('answer', () => {
       selectedAnswerNew.value = null
       dragAnswerOp.value = null
       answerDrawing.value = null
-      if (answerReplaceMode.value && answerNewBoxes.value.length === 0) {
-        answerReplaceMode.value = false
-        answerReplaceQuestionId.value = null
-      }
+      dispatch({ type: 'CLEAR' })
       commitAnswerHistory(snapshot)
       return
     }
@@ -649,17 +703,42 @@ export const useAnswerStore = defineStore('answer', () => {
     selectedAnswerNew.value = null
     dragAnswerOp.value = null
     answerDrawing.value = null
-    if (answerReplaceMode.value) {
-      answerReplaceMode.value = false
-      answerReplaceQuestionId.value = null
-    }
+    // Replace stays dirty: clear and save judgments must agree (no silent exit).
+    dispatch({ type: 'CLEAR' })
     commitAnswerHistory(snapshot)
   }
 
   function answerNeedsSave(): boolean {
-    const q = answerQuestions.value[answerQIndex.value]
-    if (answerReplaceMode.value && q?.id === answerReplaceQuestionId.value) return true
-    return answerNewBoxes.value.length > 0
+    const s = machineState.value
+    if (s.mode === 'replacing') return true
+    return s.dirty
+  }
+
+  function deleteExistingAnswerBox(index: number) {
+    const safe = Number(index)
+    if (!Number.isFinite(safe) || safe < 0 || safe >= answerExistingBoxes.value.length) return
+    const box = answerExistingBoxes.value[safe]
+    const id = box?.id ?? `idx:${safe}`
+    dispatch({ type: 'EDIT', removeBoxId: id })
+    selectedAnswerNew.value = null
+  }
+
+  function restoreDeletedExistingAnswerBox(index: number) {
+    const safe = Number(index)
+    if (!Number.isFinite(safe)) return
+    const box = answerExistingBoxes.value[safe]
+    const id = box?.id ?? `idx:${safe}`
+    if (!answerRemovedExistingIds.value.has(id)) return
+    dispatch({ type: 'EDIT', restoreBoxId: id })
+  }
+
+  function visibleExistingAnswerBoxes() {
+    return answerExistingBoxes.value
+      .map((b, idx) => ({
+        ...b,
+        idx,
+        removed: answerRemovedExistingIds.value.has(b.id ?? `idx:${idx}`),
+      }))
   }
 
   return {
@@ -671,6 +750,7 @@ export const useAnswerStore = defineStore('answer', () => {
     answerQIndex,
     answerExistingBoxes,
     answerNewBoxes,
+    answerRemovedExistingIds,
     answerDrawing,
     selectedAnswerNew,
     dragAnswerOp,
@@ -683,6 +763,7 @@ export const useAnswerStore = defineStore('answer', () => {
     answerReplaceQuestionId,
     answerReadyPaperId,
     answerOpening,
+    answerStateName,
     // computed
     currentAnswerQuestion,
     answerQInfoText,
@@ -712,8 +793,12 @@ export const useAnswerStore = defineStore('answer', () => {
     setAnswerProgressIndex,
     saveAnswer,
     navigateAnswer,
+    sendAnswerEvent,
     refreshAnswerPapers,
     clearAnswerBoxes,
     answerNeedsSave,
+    deleteExistingAnswerBox,
+    restoreDeletedExistingAnswerBox,
+    visibleExistingAnswerBoxes,
   }
 })

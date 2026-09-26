@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useSettingsStore } from '@/stores/settings'
@@ -12,6 +12,9 @@ import { useAnswerStore } from '@/stores/answer'
 import { useAppUpdateStore } from '@/stores/appUpdate'
 import { i18n } from '@/i18n'
 import AppCheckbox from '@/components/ui/AppCheckbox.vue'
+import { cloudApi } from '@/api/endpoints'
+import { ApiError } from '@/api/client'
+import type { CloudConfigInfo, CloudSyncSummary } from '@/types'
 
 const { t } = useI18n()
 
@@ -85,6 +88,48 @@ const {
   exportCropWorkers,
 } = storeToRefs(exportStore)
 
+// Settings snapshot export / import + cloud token
+const settingsSnapshotResult = ref('')
+const cloudTokenInput = ref('')
+
+function onExportSettings() {
+  try {
+    const snapshot = settingsStore.exportSettingsSnapshot()
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `paper-labeler-settings-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    settingsSnapshotResult.value = t('settings.snapshot.exportOk', { count: Object.keys(snapshot).length })
+  } catch (e) {
+    settingsSnapshotResult.value = t('settings.snapshot.exportFail', { error: String(e) })
+  }
+}
+
+function onImportSettingsFile(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result || '{}'))
+      const keys = settingsStore.importSettingsSnapshot(data)
+      settingsSnapshotResult.value = t('settings.snapshot.importOk', { count: keys.length })
+    } catch (e) {
+      settingsSnapshotResult.value = t('settings.snapshot.importFail', { error: String(e) })
+    }
+  }
+  reader.readAsText(file)
+}
+
+function onSaveCloudToken() {
+  settingsStore.saveCloudToken(cloudTokenInput.value)
+  settingsSnapshotResult.value = t('settings.snapshot.tokenSaved')
+}
 
 // Toggle handlers — call store actions to persist + enforce mutual exclusion
 function onToggleAlignLeft() {
@@ -194,12 +239,104 @@ function runRepairApply() {
   settingsStore.runRepair(true)
 }
 
+// ── 云端同步 ──────────────────────────────────────────────
+const cloudConfig = ref<CloudConfigInfo | null>(null)
+const cloudRunning = ref(false)
+const cloudCurrent = ref<CloudSyncSummary | null>(null)
+const cloudLast = ref<CloudSyncSummary | null>(null)
+const cloudStarting = ref(false)
+const cloudStartError = ref('')
+let cloudPollTimer: number | null = null
+
+const cloudReady = computed(
+  () => !!cloudConfig.value && cloudConfig.value.enabled && cloudConfig.value.missing.length === 0,
+)
+const cloudPhase = computed(() => cloudCurrent.value?.phase ?? '')
+const cloudActiveSummary = computed(() => cloudCurrent.value ?? cloudLast.value)
+
+function cloudPhaseLabel(phase: string): string {
+  if (!phase) return ''
+  const key = `settings.cloud.phase.${phase}`
+  const label = t(key)
+  return label === key ? phase : label
+}
+
+function cloudCountLabel(key: string): string {
+  const k = `settings.cloud.counts.${key}`
+  const label = t(k)
+  return label === k ? key : label
+}
+
+function apiErrDetail(e: unknown): string {
+  if (e instanceof ApiError) {
+    try {
+      const body = JSON.parse(e.body)
+      if (body?.detail) return String(body.detail)
+    } catch {
+      /* fallthrough */
+    }
+    return e.body || e.message
+  }
+  return e instanceof Error ? e.message : String(e)
+}
+
+function stopCloudPoll() {
+  if (cloudPollTimer != null) {
+    clearInterval(cloudPollTimer)
+    cloudPollTimer = null
+  }
+}
+
+async function pollCloudStatus() {
+  try {
+    const s = await cloudApi.syncStatus()
+    cloudRunning.value = s.running
+    cloudCurrent.value = s.current
+    if (s.last) cloudLast.value = s.last
+    if (!s.running) stopCloudPoll()
+  } catch {
+    stopCloudPoll()
+  }
+}
+
+async function startCloudSync() {
+  cloudStartError.value = ''
+  cloudStarting.value = true
+  try {
+    await cloudApi.startSync()
+    cloudRunning.value = true
+    stopCloudPoll()
+    cloudPollTimer = window.setInterval(pollCloudStatus, 1500)
+    void pollCloudStatus()
+  } catch (e) {
+    cloudStartError.value = apiErrDetail(e)
+  } finally {
+    cloudStarting.value = false
+  }
+}
+
+async function loadCloudInfo() {
+  try {
+    cloudConfig.value = await cloudApi.config()
+  } catch {
+    cloudConfig.value = null
+  }
+  void pollCloudStatus()
+}
+
 // Load persisted values on mount
 onMounted(() => {
   settingsStore.loadFromStorage()
+  settingsStore.loadCloudToken()
+  cloudTokenInput.value = settingsStore.cloudToken
   exportStore.loadExportSettings()
   exportStore.refreshExportCacheOverview()
   appUpdateStore.init()
+  void loadCloudInfo()
+})
+
+onUnmounted(() => {
+  stopCloudPoll()
 })
 </script>
 
@@ -387,6 +524,94 @@ onMounted(() => {
           </div>
         </div>
 
+      </div>
+    </div>
+
+    <!-- 设置快照 -->
+    <div class="card">
+      <div class="card-title">{{ t('settings.snapshot.title') }}</div>
+      <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5">
+        {{ t('settings.snapshot.desc') }}
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px">
+        <button class="btn" @click="onExportSettings">{{ t('settings.snapshot.export') }}</button>
+        <label class="btn" style="cursor: pointer">
+          {{ t('settings.snapshot.import') }}
+          <input type="file" accept="application/json,.json" style="display: none" @change="onImportSettingsFile" />
+        </label>
+      </div>
+      <div v-if="settingsSnapshotResult" style="margin-top: 8px; font-size: 13px; color: var(--text-secondary)">
+        {{ settingsSnapshotResult }}
+      </div>
+    </div>
+
+    <!-- 云端同步 -->
+    <div class="card">
+      <div class="card-title">{{ t('settings.cloud.title') }}</div>
+      <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5">
+        {{ t('settings.cloud.desc') }}
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px">
+        <span style="font-size: 13px; color: var(--text-secondary); white-space: nowrap">{{ t('settings.cloud.tokenLabel') }}</span>
+        <input
+          v-model="cloudTokenInput"
+          type="password"
+          :placeholder="t('settings.cloud.tokenPlaceholder')"
+          style="flex: 1; min-width: 180px; padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; color: var(--text-primary); font-family: inherit; outline: none"
+        />
+        <button class="btn" @click="onSaveCloudToken">{{ t('settings.cloud.tokenSave') }}</button>
+      </div>
+
+      <div style="font-size: 13px; padding-top: 10px; color: var(--text-secondary)">
+        <span v-if="!cloudConfig">…</span>
+        <span v-else-if="!cloudConfig.enabled" style="color: var(--warning)">{{ t('settings.cloud.disabled') }}</span>
+        <span v-else-if="cloudConfig.missing.length" style="color: var(--danger)">{{ t('settings.cloud.missing', { items: cloudConfig.missing.join(', ') }) }}</span>
+        <span v-else>{{ t('settings.cloud.ready', { url: cloudConfig.supabase_url, bucket: cloudConfig.r2_bucket }) }}</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px">
+        <button
+          class="btn btn-primary"
+          :disabled="!cloudReady || cloudRunning || cloudStarting"
+          @click="startCloudSync"
+        >
+          {{ cloudRunning || cloudStarting ? t('settings.cloud.syncing') : t('settings.cloud.sync') }}
+        </button>
+        <span v-if="cloudRunning && cloudPhase" style="font-size: 13px; color: var(--text-secondary)">
+          {{ cloudPhaseLabel(cloudPhase) }}
+        </span>
+      </div>
+
+      <div v-if="cloudStartError" style="margin-top: 8px; font-size: 13px; color: var(--danger)">
+        {{ t('settings.cloud.startFailed', { error: cloudStartError }) }}
+      </div>
+
+      <div v-if="cloudActiveSummary" style="margin-top: 12px; font-size: 13px; color: var(--text-secondary); line-height: 1.6">
+        <span v-if="!cloudRunning" :style="{ color: cloudActiveSummary.ok ? '#22c55e' : '#ef4444' }">
+          {{ cloudActiveSummary.ok
+            ? t('settings.cloud.lastOk', { seconds: cloudActiveSummary.duration_s })
+            : t('settings.cloud.lastFail', { errors: cloudActiveSummary.error_count, seconds: cloudActiveSummary.duration_s }) }}
+        </span>
+        <div v-if="cloudActiveSummary.resurrected.length" style="color: var(--warning)">
+          {{ t('settings.cloud.resurrected', { count: cloudActiveSummary.resurrected.length }) }}
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px">
+          <span
+            v-for="(v, k) in cloudActiveSummary.counts"
+            v-show="Number(v) > 0"
+            :key="k"
+            style="font-size: 12px; padding: 2px 8px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary)"
+          >
+            {{ cloudCountLabel(String(k)) }} {{ v }}
+          </span>
+        </div>
+        <div v-if="cloudActiveSummary.errors.length" style="margin-top: 6px; color: var(--danger); font-size: 12px">
+          {{ t('settings.cloud.errorsLabel') }}: {{ cloudActiveSummary.errors.slice(0, 3).join('；') }}<span v-if="cloudActiveSummary.error_count > 3"> …(+{{ cloudActiveSummary.error_count - 3 }})</span>
+        </div>
+      </div>
+      <div v-else style="margin-top: 10px; font-size: 13px; color: var(--text-tertiary)">
+        {{ t('settings.cloud.never') }}
       </div>
     </div>
 

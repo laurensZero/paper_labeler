@@ -794,7 +794,8 @@ def get_answer_for_question(question_id: int, db: Session = Depends(get_db)):
 
 @router.post("/questions/{question_id}/answer")
 def upsert_answer_for_question(question_id: int, payload: AnswerUpsert, db: Session = Depends(get_db)):
-    if not payload.boxes:
+    # boxes may be empty — that clears the answer (user deleted the last box)
+    if payload.boxes is None:
         raise HTTPException(status_code=400, detail="boxes required")
 
     ms_pages_path = PAGE_DIR / f"paper_{payload.ms_paper_id}"
@@ -821,7 +822,7 @@ def upsert_answer_for_question(question_id: int, payload: AnswerUpsert, db: Sess
         db.add(a)
         db.commit()
 
-    # replace all boxes
+    # replace all boxes (empty list clears)
     db.query(AnswerBox).filter(AnswerBox.answer_id == a.id).delete(synchronize_session=False)
     db.commit()
 

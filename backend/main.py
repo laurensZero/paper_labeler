@@ -24,7 +24,8 @@ if __package__ is None or __package__ == "":
 
 from backend.database import init_db
 from backend.config import DATA_DIR, UI_DIR
-from backend.routers import admin, papers, questions, sections, stats, export, cie_import, compositions
+from backend.services.applog import get_logger, setup_logging
+from backend.routers import admin, papers, questions, sections, stats, export, cie_import, compositions, logs
 
 
 def _migrate_legacy_appdata_data() -> None:
@@ -76,9 +77,14 @@ def _migrate_legacy_appdata_data() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    setup_logging()
+    log = get_logger("app")
+    log.info("backend starting DATA_DIR=%s UI_DIR=%s", DATA_DIR, UI_DIR)
     _migrate_legacy_appdata_data()
     init_db()
+    log.info("backend ready")
     yield
+    log.info("backend shutdown")
 
 
 class UTF8JSONResponse(JSONResponse):
@@ -137,7 +143,32 @@ def _rate_limit_exempt(path: str) -> bool:
     # CIE subject combo / import job polling is small and user-facing
     if path.startswith("/cie_import/subject_combo") or path.startswith("/cie_import/import_job"):
         return True
+    if path.startswith("/logs"):
+        return True
     return False
+
+
+@app.middleware("http")
+async def _log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    status = 500
+    try:
+        resp = await call_next(request)
+        status = getattr(resp, "status_code", 500)
+        return resp
+    finally:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        path = request.url.path
+        # Skip noisy static/preview traffic
+        if not (path.startswith("/data/") or path.startswith("/ui/") or path.endswith("/preview.png")):
+            if status >= 500 or elapsed_ms > 1500:
+                get_logger("http").warning(
+                    "%s %s -> %s in %.0fms", request.method, path, status, elapsed_ms
+                )
+            elif status >= 400:
+                get_logger("http").info(
+                    "%s %s -> %s in %.0fms", request.method, path, status, elapsed_ms
+                )
 
 
 @app.middleware("http")
@@ -413,6 +444,12 @@ app.include_router(admin.router)
 app.include_router(export.router, prefix="/export")
 app.include_router(cie_import.router)
 app.include_router(compositions.router)
+app.include_router(logs.router)
+try:
+    from backend.routers import cloud as _cloud_router
+    app.include_router(_cloud_router.router)
+except Exception:
+    pass
 
 
 def _run_uvicorn() -> None:

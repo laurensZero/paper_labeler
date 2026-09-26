@@ -4,7 +4,6 @@ CIE Paper Import from https://cie.fraft.cn/
 from __future__ import annotations
 
 import re
-import shutil
 import json
 import threading
 import time
@@ -13,7 +12,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime
 from typing import Callable, Optional, List
-import tempfile
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -22,17 +20,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from backend.database import Paper, SessionLocal
+from backend.database import SessionLocal
 from backend.dependencies import get_db
-from backend.config import PDF_DIR, PAGE_DIR, MAX_UPLOAD_BYTES, DATA_DIR
-from backend.services.paper_utils import (
-    render_pdf_to_images,
-    stem_no_ext,
-    is_answer_filename,
-    detect_is_answer_by_pdf_text,
-    normalize_exam_code_for_type,
-    try_pair_papers,
-)
+from backend.config import DATA_DIR
+from backend.services.paper_utils import stem_no_ext
 
 router = APIRouter(prefix="/cie_import", tags=["cie_import"])
 
@@ -159,44 +150,44 @@ def _run_cie_import_job(job_id: str) -> None:
 
     def publish() -> None:
         with progress_lock:
+            frac_sum = sum(item_frac)
             done = sum(1 for f in item_frac if f >= 1.0)
             active = [
                 {"index": i, "filename": item_name[i], "step": item_step[i]}
                 for i in range(total)
                 if 0.0 < item_frac[i] < 1.0
             ]
-            percent = round((sum(item_frac) / total) * 100.0, 1) if total else 100.0
+            percent = round((frac_sum / total) * 100.0, 1) if total else 100.0
             filename = active[0]["filename"] if active else (item_name[-1] if item_name else "")
             step = active[0]["step"] if active else ("done" if done >= total else "queued")
+            # Continuous current so parallel imports do not sit at "0/6".
+            current_display = round(frac_sum, 1) if any(0.0 < f < 1.0 for f in item_frac) else done
             _set_job(
                 job_id,
-                current=done,
+                current=current_display,
                 filename=filename,
                 step=step,
                 percent=percent,
                 active=active[:6],
-                msg=f"{done}/{total}" + (f" · {len(active)} 份并行中" if active else ""),
+                msg=f"{current_display}/{total}"
+                + (f" · {len(active)} 份并行中" if active else ""),
             )
 
     def work_one(idx: int) -> dict:
         item = items[idx]
         filename = item_name[idx]
 
-        def on_step(step: str, step_progress: float = 0.0) -> None:
+        def on_event(event: dict) -> None:
+            # Pipeline stages use "register"; frontend step list still says "save".
+            stage = str(event.get("stage") or "")
+            if stage == "register":
+                stage = "save"
+            elif stage == "done":
+                stage = "done"
+            frac = float(event.get("frac") or 0.0)
             with progress_lock:
-                item_step[idx] = step
-                if step == "download":
-                    item_frac[idx] = 0.30 * max(0.0, min(1.0, step_progress))
-                elif step == "save":
-                    item_frac[idx] = 0.35
-                elif step == "render":
-                    item_frac[idx] = 0.35 + 0.40 * max(0.0, min(1.0, step_progress))
-                elif step == "analyze":
-                    item_frac[idx] = 0.85
-                elif step == "ocr":
-                    item_frac[idx] = 0.85 + 0.15 * max(0.0, min(1.0, step_progress))
-                elif step == "done":
-                    item_frac[idx] = 1.0
+                item_step[idx] = stage or item_step[idx]
+                item_frac[idx] = max(item_frac[idx], min(1.0, frac))
             publish()
 
         try:
@@ -209,7 +200,7 @@ def _run_cie_import_job(job_id: str) -> None:
                     ocr_min_height_px=ocr_min_height_px,
                     ocr_y_padding_px=ocr_y_padding_px,
                     db=db,
-                    on_step=on_step,
+                    on_event=on_event,
                 )
             finally:
                 db.close()
@@ -391,200 +382,21 @@ def _import_pdf_from_url(
     ocr_min_height_px: int,
     ocr_y_padding_px: int,
     db: Session,
-    on_step: Optional[Callable[[str, float], None]] = None,
+    on_event: Optional[Callable[[dict], None]] = None,
 ) -> dict:
-    """Download + import one PDF. Raises on failure. Calls on_step(step, 0..1)."""
+    """Download + import one PDF via the staged pipeline. Raises on failure."""
+    from backend.services.import_pipeline import ImportContext, run_import
 
-    def step(name: str, progress: float = 0.0) -> None:
-        if on_step:
-            on_step(name, progress)
-
-    url = (url or "").strip()
-    if not url:
-        raise HTTPException(status_code=400, detail="URL cannot be empty")
-    if not url.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="Invalid URL format")
-
-    filename = filename_hint or extract_filename_from_url(url)
-    if not filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="URL must point to a PDF file")
-
-    with _cie_db_lock:
-        existing = db.query(Paper).filter(Paper.filename == filename).first()
-        if existing:
-            raise HTTPException(
-                status_code=409,
-                detail=f"文件 '{filename}' 已导入过 (Paper ID: {existing.id})，请勿重复导入",
-            )
-
-    step("download", 0.0)
-    tmp_path: Optional[Path] = None
-    paper: Optional[Paper] = None
-
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-        )
-
-        with urllib.request.urlopen(req, timeout=60) as response:
-            content_type = response.headers.get("Content-Type", "")
-            if "pdf" not in content_type.lower() and not url.lower().endswith(".pdf"):
-                raise HTTPException(status_code=400, detail="URL does not point to a PDF file")
-
-            content_length = response.headers.get("Content-Length")
-            if content_length and int(content_length) > MAX_UPLOAD_BYTES:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"File too large (max {MAX_UPLOAD_BYTES // 1024 // 1024}MB)",
-                )
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                total_size = 0
-                chunk_size = 64 * 1024
-                while True:
-                    chunk = response.read(chunk_size)
-                    if not chunk:
-                        break
-                    total_size += len(chunk)
-                    if total_size > MAX_UPLOAD_BYTES:
-                        tmp_file.close()
-                        Path(tmp_file.name).unlink(missing_ok=True)
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"File too large (max {MAX_UPLOAD_BYTES // 1024 // 1024}MB)",
-                        )
-                    tmp_file.write(chunk)
-                    if content_length:
-                        try:
-                            step("download", min(0.95, total_size / max(1, int(content_length))))
-                        except Exception:
-                            pass
-                tmp_path = Path(tmp_file.name)
-        step("download", 1.0)
-
-        step("save", 0.0)
-        exam_code = stem_no_ext(filename)
-        with _cie_db_lock:
-            paper = Paper(
-                filename=filename,
-                exam_code=exam_code,
-                is_answer=is_answer_filename(filename),
-            )
-            db.add(paper)
-            db.commit()
-            db.refresh(paper)
-
-        pdf_path = PDF_DIR / f"paper_{paper.id}.pdf"
-        shutil.move(str(tmp_path), str(pdf_path))
-        tmp_path = None
-        step("save", 1.0)
-
-        step("render", 0.0)
-        page_output_dir = PAGE_DIR / f"paper_{paper.id}"
-        rendered_pages = render_pdf_to_images(pdf_path, page_output_dir)
-        step("render", 1.0)
-
-        step("analyze", 0.0)
-        with _cie_db_lock:
-            paper.pdf_path = str(pdf_path)
-            paper.pages_dir = str(page_output_dir)
-            paper.page_count = int(rendered_pages)
-
-            detected = detect_is_answer_by_pdf_text(pdf_path)
-            if detected is not None and bool(paper.is_answer) != bool(detected):
-                paper.is_answer = bool(detected)
-                paper.exam_code = normalize_exam_code_for_type(paper.exam_code, bool(detected))
-
-            db.add(paper)
-            db.commit()
-            try_pair_papers(db, paper)
-        step("analyze", 1.0)
-
-        ocr_questions = []
-        ocr_boxes = []
-        ocr_warn = None
-
-        if ocr_auto and not bool(paper.is_answer):
-            step("ocr", 0.0)
-            from backend.auto_suggest import suggest_question_boxes_from_pdf
-            from backend.services.paper_utils import auto_suggest_allowed_by_filename
-
-            allowed, reason = auto_suggest_allowed_by_filename(filename)
-            if not allowed:
-                ocr_warn = reason
-            else:
-                ocr_questions, ocr_warn = suggest_question_boxes_from_pdf(
-                    pdf_path,
-                    int(paper.page_count or 0),
-                    min_height_px=int(ocr_min_height_px or 0),
-                    y_padding_px=int(ocr_y_padding_px or 0),
-                )
-
-            try:
-                for q in ocr_questions:
-                    label = q.get("label")
-                    for b in q.get("boxes") or []:
-                        d = {"page": b.get("page"), "bbox": b.get("bbox")}
-                        if label is not None:
-                            d["label"] = label
-                        ocr_boxes.append(d)
-            except Exception:
-                pass
-            step("ocr", 1.0)
-        else:
-            step("ocr", 1.0)
-
-        step("done", 1.0)
-        return {
-            "paper": {
-                "id": paper.id,
-                "filename": paper.filename,
-                "exam_code": paper.exam_code,
-                "is_answer": paper.is_answer,
-                "page_count": paper.page_count,
-                "paired_paper_id": paper.paired_paper_id,
-            },
-            "ocr_questions": ocr_questions,
-            "ocr_boxes": ocr_boxes,
-            "ocr_warn": ocr_warn,
-        }
-
-    except HTTPException:
-        if tmp_path:
-            tmp_path.unlink(missing_ok=True)
-        if paper is not None and paper.id:
-            _cleanup_partial_paper(db, paper)
-        raise
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-        if tmp_path:
-            tmp_path.unlink(missing_ok=True)
-        if paper is not None and paper.id:
-            _cleanup_partial_paper(db, paper)
-        raise HTTPException(status_code=400, detail=f"Failed to download PDF: {_err_text(e)}")
-    except Exception as e:
-        if tmp_path:
-            tmp_path.unlink(missing_ok=True)
-        if paper is not None and paper.id:
-            _cleanup_partial_paper(db, paper)
-        raise HTTPException(status_code=500, detail=f"Import failed: {_err_text(e)}")
-
-
-def _cleanup_partial_paper(db: Session, paper: Paper) -> None:
-    try:
-        with _cie_db_lock:
-            pdf_path = PDF_DIR / f"paper_{paper.id}.pdf"
-            page_dir = PAGE_DIR / f"paper_{paper.id}"
-            pdf_path.unlink(missing_ok=True)
-            if page_dir.exists():
-                shutil.rmtree(page_dir, ignore_errors=True)
-            db.delete(paper)
-            db.commit()
-    except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
+    filename = (filename_hint or "").strip() or extract_filename_from_url(url)
+    ctx = ImportContext(
+        url=(url or "").strip(),
+        filename=filename,
+        ocr_auto=bool(ocr_auto),
+        ocr_min_height_px=int(ocr_min_height_px or 0),
+        ocr_y_padding_px=int(ocr_y_padding_px or 0),
+        on_event=on_event,
+    )
+    return run_import(ctx, db)
 
 
 @router.post("/from_url")
@@ -597,7 +409,7 @@ async def import_from_url(request: ImportRequest, db: Session = Depends(get_db))
         ocr_min_height_px=request.ocr_min_height_px,
         ocr_y_padding_px=request.ocr_y_padding_px,
         db=db,
-        on_step=None,
+        on_event=None,
     )
 
 
@@ -678,7 +490,7 @@ async def batch_import_from_urls(request: BatchImportRequest, db: Session = Depe
                 ocr_min_height_px=request.ocr_min_height_px,
                 ocr_y_padding_px=request.ocr_y_padding_px,
                 db=db,
-                on_step=None,
+                on_event=None,
             )
             results.append(
                 {

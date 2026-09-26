@@ -125,13 +125,19 @@ def _save_page_webp(img: "Image.Image", image_path: Path) -> None:
             pass
 
 
-def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
+def render_pdf_to_images(
+    pdf_path: Path,
+    output_dir: Path,
+    on_progress=None,
+) -> int:
     """Render PDF pages to WebP images.
 
     Keeps historical 4x zoom (~288 DPI) for labeling sharpness, but avoids the
     old fitz→PNG→PIL round-trip: pixmap samples go straight to PIL. Page
     encoding runs on a small thread pool so render/encode overlap. Clears
     output_dir first to avoid mixed/stale pages when a paper id is reused.
+
+    Optional on_progress(done, total) is invoked after each page is rasterized.
 
     Returns the rendered page count.
     """
@@ -163,6 +169,11 @@ def render_pdf_to_images(pdf_path: Path, output_dir: Path) -> int:
                 del pix
                 image_path = output_dir / f"page_{page_index + 1}.webp"
                 pending.append(pool.submit(_save_page_webp, img, image_path))
+                if on_progress is not None:
+                    try:
+                        on_progress(page_index + 1, page_count)
+                    except Exception:
+                        pass
                 if len(pending) >= max_pending:
                     pending.popleft().result()
             while pending:

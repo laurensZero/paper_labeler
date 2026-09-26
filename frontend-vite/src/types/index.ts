@@ -81,3 +81,9 @@ export type {
   CompositionItemUpdateParams,
   CompositionReorderParams,
 } from './composition'
+
+export type {
+  CloudConfigInfo,
+  CloudSyncSummary,
+  CloudSyncStatus,
+} from './cloud'

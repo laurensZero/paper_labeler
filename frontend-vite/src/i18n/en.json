@@ -10,7 +10,8 @@
     "answer": "Answer Marking",
     "sections": "Sections",
     "settings": "Settings",
-    "compose": "Compose"
+    "compose": "Compose",
+    "cloud": "Cloud"
   },
   "sidebar": {
     "collapse": "Collapse",
@@ -137,14 +138,12 @@
     "boxesCount": "Boxes: {count}",
     "answerShow": "Show Answer",
     "answerHide": "Hide Answer",
-    "batchFavorite": "Favorite",
     "answerHeader": "Answer",
     "answerLoadingStatus": "Loading...",
     "answerNotMarked": "No answer marked",
     "selectQuestion": "Select a question",
     "questionCount": "{count} questions",
     "multiSelectActive": "{count} selected",
-    "multiSelect": "Multi-select",
     "editLabel": "Edit",
     "editCollapse": "Collapse",
     "jumpToMark": "Jump",
@@ -154,6 +153,41 @@
     "fullscreen": "Fullscreen",
     "exitFullscreen": "Exit Fullscreen",
     "exitFullscreenHint": "Exit Fullscreen (Esc)"
+  },
+  "cloud": {
+    "title": "Cloud",
+    "tabFeedback": "Feedback",
+    "tabPerm": "Permissions",
+    "fbQuestion": "Question",
+    "fbUser": "From",
+    "fbBody": "Content",
+    "fbStatus": "Status",
+    "fbTime": "Time",
+    "fbAccept": "Accept",
+    "fbReject": "Dismiss",
+    "fbReopen": "Reopen",
+    "fbEmpty": "No feedback yet",
+    "fbFail": "Failed to load",
+    "sugOpen": "Pending",
+    "sugAccepted": "Accepted",
+    "sugRejected": "Dismissed",
+    "permEmail": "Email",
+    "permRole": "Role",
+    "permRoleAdmin": "Admin",
+    "permRoleTeacher": "Teacher",
+    "permDrafts": "See drafts",
+    "permGrants": "Visibility grants",
+    "permHint": "Select a user on the left to edit grants; with no grants, the beta default applies (all confirmed questions).",
+    "permScope": "Scope",
+    "permScopeSection": "Section",
+    "permScopePaper": "Paper",
+    "permValue": "Value",
+    "permAdd": "Add",
+    "permDel": "Delete",
+    "permEmpty": "No grants configured (default: all confirmed questions)",
+    "permSelect": "← Select a user first",
+    "permAdded": "Added",
+    "permDeleted": "Deleted"
   },
   "mark": {
     "title": "Question Marking",
@@ -229,7 +263,7 @@
       "darkImageInvert": "Dark mode image invert",
       "darkImageInvertDesc": "Default: dim brightness. When enabled: invert colors (white bg → black bg)",
       "filmStripDots": "Show section color dots",
-      "filmStripDotsDesc": "Display colored dots on each question in the bottom filmstrip to indicate its section"
+      "filmStripDotsDesc": "Show colored section dots on the bottom filmstrip and the compose bank list"
     },
     "ocr": {
       "title": "OCR Recognition",
@@ -329,10 +363,64 @@
       "enterPath": "Enter data folder path:",
       "restart": "Restart App"
     },
+    "cloud": {
+      "title": "Cloud Sync",
+      "desc": "Push the local question bank to the cloud for the web app. Colleagues only see pushed content.",
+      "disabled": "Disabled: set PAPER_CLOUD_ENABLED=1 in the project root .env",
+      "missing": "Missing config: {items}",
+      "ready": "Ready · {url} · R2: {bucket}",
+      "sync": "Sync to Cloud",
+      "syncing": "Syncing…",
+      "startFailed": "Failed to start: {error}",
+      "never": "Never synced",
+      "lastOk": "Last sync succeeded · {seconds}s",
+      "lastFail": "Last sync had {errors} errors · {seconds}s",
+      "resurrected": "Warning: {count} records deleted in cloud but present locally were re-pushed (check id reuse)",
+      "errorsLabel": "Errors",
+      "phase": {
+        "queued": "Queued",
+        "fetch_cloud": "Fetching cloud baseline",
+        "papers": "Syncing papers",
+        "questions": "Syncing questions",
+        "question_sections": "Syncing question sections",
+        "answers": "Syncing answers",
+        "sections": "Syncing section dictionary",
+        "question_boxes": "Uploading question crops",
+        "answer_boxes": "Uploading answer crops",
+        "sync_log": "Writing sync log",
+        "done": "Done",
+        "done_with_errors": "Done (with errors)",
+        "failed": "Failed"
+      },
+      "counts": {
+        "papers_upserted": "Papers",
+        "questions_upserted": "Questions",
+        "answers_upserted": "Answers",
+        "questions_tombstoned": "Q tombstones",
+        "qbox_uploaded": "Q images",
+        "abox_uploaded": "A images",
+        "qbox_upserted": "Q boxes",
+        "abox_upserted": "A boxes"
+      },
+      "tokenLabel": "Admin token",
+      "tokenPlaceholder": "Same as PAPER_CLOUD_TOKEN in .env",
+      "tokenSave": "Save token"
+    },
     "about": {
       "title": "About",
       "version": "Paper Labeler v2.0",
       "description": "CIE Exam Paper Labeling & Management Tool"
+    },
+    "snapshot": {
+      "title": "Settings snapshot",
+      "desc": "Export/import local preferences (alignment, OCR, filter, export, subject/year history). No label data.",
+      "export": "Export settings",
+      "import": "Import settings",
+      "exportOk": "Exported {count} settings",
+      "exportFail": "Export failed: {error}",
+      "importOk": "Imported {count} settings",
+      "importFail": "Import failed: {error}",
+      "tokenSaved": "Cloud token saved"
     }
   },
   "exportWizard": {
