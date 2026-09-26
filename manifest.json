@@ -1,7 +1,7 @@
 {
-  "version": "20260925.4",
-  "url": "bundle-20260925.4.zip",
-  "hash": "sha256:4834ab4d4812723d0639c828131ef1cc0f1796c829a08607db4688fd5411dcf1",
-  "notes": "fea1107 优化cie导入流程 ",
-  "publishedAt": "2026-09-25T08:15:02Z"
+  "version": "20260926.1",
+  "url": "bundle-20260926.1.zip",
+  "hash": "sha256:46942661372f65128f10ace8938f4164bc4cf103e521744c084047ad85853f2f",
+  "notes": "775fdec 优化标注交互性能，避免低端机拖框卡死 ",
+  "publishedAt": "2026-09-26T02:22:03Z"
 }
