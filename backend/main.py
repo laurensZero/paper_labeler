@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -123,31 +122,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Rate limiter (in-memory sliding window, no external deps) ──────────
-_RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "120"))  # requests per window
-_RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
-_rate_hits: dict[str, deque[float]] = defaultdict(deque)
-_rate_last_sweep = 0.0
-
-
-def _rate_limit_exempt(path: str) -> bool:
-    # Static assets, health checks and high-frequency read endpoints
-    # (question preview images, export status polling) must not count
-    # against the limit — in Electron all traffic shares 127.0.0.1.
-    if path.startswith("/data/") or path.startswith("/ui/") or path == "/health":
-        return True
-    if path.endswith("/preview.png"):
-        return True
-    if path.startswith("/export/questions_pdf_job/"):
-        return True
-    # CIE subject combo / import job polling is small and user-facing
-    if path.startswith("/cie_import/subject_combo") or path.startswith("/cie_import/import_job"):
-        return True
-    if path.startswith("/logs"):
-        return True
-    return False
-
-
 @app.middleware("http")
 async def _log_requests(request: Request, call_next):
     start = time.perf_counter()
@@ -169,42 +143,6 @@ async def _log_requests(request: Request, call_next):
                 get_logger("http").info(
                     "%s %s -> %s in %.0fms", request.method, path, status, elapsed_ms
                 )
-
-
-@app.middleware("http")
-async def _rate_limit(request: Request, call_next):
-    if _rate_limit_exempt(request.url.path):
-        return await call_next(request)
-
-    global _rate_last_sweep
-    client = request.client
-    ip = client.host if client else "unknown"
-    now = time.monotonic()
-    cutoff = now - _RATE_LIMIT_WINDOW
-
-    # Periodically drop idle clients so _rate_hits cannot grow forever
-    if now - _rate_last_sweep >= _RATE_LIMIT_WINDOW:
-        _rate_last_sweep = now
-        for stale_ip, stale_hits in list(_rate_hits.items()):
-            while stale_hits and stale_hits[0] < cutoff:
-                stale_hits.popleft()
-            if not stale_hits:
-                del _rate_hits[stale_ip]
-
-    hits = _rate_hits[ip]
-
-    # Prune expired entries
-    while hits and hits[0] < cutoff:
-        hits.popleft()
-
-    if len(hits) >= _RATE_LIMIT_MAX:
-        return JSONResponse(
-            {"detail": "Too many requests, please slow down."},
-            status_code=429,
-        )
-
-    hits.append(now)
-    return await call_next(request)
 
 
 app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
