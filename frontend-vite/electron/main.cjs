@@ -3,6 +3,7 @@ const { spawn } = require('child_process')
 const path = require('path')
 const net = require('net')
 const http = require('http')
+const https = require('https')
 const fs = require('fs')
 const os = require('os')
 const crypto = require('crypto')
@@ -374,19 +375,11 @@ function detectPortableExe() {
 
 function downloadFile(url, dest, onProgress, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
-    // Electron's network stack uses the session/system proxy configuration.
-    // Node's http/https clients do not, which made update downloads bypass a proxy.
-    const request = electronNet.request({
-      url,
-      session: session.defaultSession,
-      redirect: 'manual',
-    })
-    request.on('response', (res) => {
+    const mod = url.startsWith('https:') ? https : http
+    const request = mod.get(url, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
         res.resume()
-        const location = Array.isArray(res.headers.location) ? res.headers.location[0] : res.headers.location
-        const nextUrl = new URL(location, url).toString()
-        downloadFile(nextUrl, dest, onProgress, redirectsLeft - 1).then(resolve, reject)
+        downloadFile(new URL(res.headers.location, url).toString(), dest, onProgress, redirectsLeft - 1).then(resolve, reject)
         return
       }
       if (res.statusCode !== 200) {
@@ -418,30 +411,27 @@ function downloadFile(url, dest, onProgress, redirectsLeft = 5) {
       })
     })
     request.on('error', reject)
-    request.end()
   })
 }
 
 function fetchText(url, headers = {}, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
+    let finalUrl = url
     const request = electronNet.request({
       url,
       session: session.defaultSession,
-      redirect: 'manual',
       headers,
     })
+    request.on('redirect', (_statusCode, _method, redirectUrl) => {
+      finalUrl = redirectUrl
+      request.followRedirect()
+    })
     request.on('response', (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
-        res.resume()
-        const location = Array.isArray(res.headers.location) ? res.headers.location[0] : res.headers.location
-        fetchText(new URL(location, url).toString(), headers, redirectsLeft - 1).then(resolve, reject)
-        return
-      }
       const chunks = []
       res.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
       res.on('end', () => resolve({
         status: res.statusCode || 0,
-        url,
+        url: finalUrl,
         body: Buffer.concat(chunks).toString('utf-8'),
       }))
       res.on('error', reject)
