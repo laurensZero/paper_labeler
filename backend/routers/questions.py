@@ -1,7 +1,7 @@
 import re
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from sqlalchemy import or_, func
+from sqlalchemy import Integer, and_, case, cast, func, literal, or_, select
 from sqlalchemy.orm import Session
 from backend.database import Question, QuestionBox, Paper, Answer, AnswerBox, QuestionSection
 from backend.schemas.schemas import (
@@ -46,18 +46,67 @@ def _extract_year_season(source: str) -> tuple[str | None, str | None]:
         return None, None
     return m.group(2), m.group(1).lower()
 
+
+def _section_match_filter(section: str):
+    """Match questions in `section` via relation table or legacy column (EXISTS, no big IN)."""
+    section_exists = (
+        select(QuestionSection.id)
+        .where(
+            QuestionSection.question_id == Question.id,
+            QuestionSection.section_name == section,
+        )
+        .exists()
+    )
+    return or_(section_exists, Question.section == section)
+
+
+def _matching_paper_ids_for_year_season(
+    db: Session,
+    year_values: set[str],
+    season_values: set[str],
+) -> set[int] | None:
+    """Resolve year/season filters to paper ids.
+
+    Papers with NULL tokens fall back to exam_code/filename parsing.
+    Returns None when no year/season filter is active.
+    Papers are hundreds of rows — cheap even on office laptops.
+    """
+    if not year_values and not season_values:
+        return None
+    rows = db.query(
+        Paper.id, Paper.year_token, Paper.season_token, Paper.exam_code, Paper.filename
+    ).all()
+    matched: set[int] = set()
+    for pid, y, s, exam_code, filename in rows:
+        yy, ss = y, s
+        if not yy or not ss:
+            source = f"{exam_code or ''} {filename or ''}"
+            py, ps = _extract_year_season(source)
+            yy = yy or py
+            ss = ss or ps
+        if year_values and yy not in year_values:
+            continue
+        if season_values and ss not in season_values:
+            continue
+        matched.add(int(pid))
+    return matched
+
 def _question_to_dict(
     q: Question,
     boxes: list[QuestionBox],
     db: Session = None,
     sections_override: list[str] | None = None,
 ) -> dict:
-    # 获取多个分类
-    sections = list(sections_override or [])
-    if (not sections) and db:
+    # sections_override is authoritative when provided (including empty list) —
+    # avoids N+1 lookups on list endpoints.
+    if sections_override is not None:
+        sections = list(sections_override)
+    elif db:
         section_rows = db.query(QuestionSection).filter(QuestionSection.question_id == q.id).all()
         sections = [s.section_name for s in section_rows]
-    
+    else:
+        sections = []
+
     # 向后兼容：如果没有 sections 但有老的 section 字段，使用老字段
     if not sections and q.section:
         sections = [q.section]
@@ -128,19 +177,18 @@ def create_question(paper_id: int, payload: QuestionCreate, db: Session = Depend
     if paper is None:
         raise HTTPException(status_code=404, detail="paper not found")
 
-    # Auto-assign global numeric question_no
-    rows = db.query(Question.question_no).filter(Question.question_no.isnot(None)).all()
-    max_no = 0
-    for (v,) in rows:
-        if not v:
-            continue
-        s = str(v).strip()
-        if s.isdigit():
-            max_no = max(max_no, int(s))
-
+    # Auto-assign global numeric question_no via SQL MAX (no full-table fetch).
+    # Non-digit values CAST to 0 in SQLite and are ignored by the max.
+    max_no = int(
+        db.query(func.coalesce(func.max(cast(Question.question_no, Integer)), 0))
+        .filter(Question.question_no.isnot(None), Question.question_no != "")
+        .scalar()
+        or 0
+    )
     qno = str(max_no + 1)
     # Safety: in case of races/legacy duplicates, skip forward until unique.
-    while db.query(Question).filter(Question.question_no == qno).one_or_none() is not None:
+    # Equality lookup uses the unique index on question_no.
+    while db.query(Question.id).filter(Question.question_no == qno).first() is not None:
         max_no += 1
         qno = str(max_no + 1)
 
@@ -400,19 +448,11 @@ def delete_question(question_id: int, db: Session = Depends(get_db)):
 @router.get("/papers/{paper_id}/questions")
 def list_questions_for_paper(paper_id: int, section: str | None = None, status: str | None = None, page: int | None = None, db: Session = Depends(get_db)):
     q = db.query(Question).filter(Question.paper_id == paper_id)
-    
+
     # 处理多分类筛选
     if section is not None and section != "":
-        # 查询该分类的所有题目 ID
-        section_qids = db.query(QuestionSection.question_id).filter(QuestionSection.section_name == section).all()
-        section_qids = [x[0] for x in section_qids]
-        if section_qids:
-            # 新旧数据同时兼容：优先关联表，同时保留老字段命中
-            q = q.filter(or_(Question.id.in_(section_qids), Question.section == section))
-        else:
-            # 向后兼容：如果 question_sections 表中没有，尝试查询老字段
-            q = q.filter(Question.section == section)
-    
+        q = q.filter(_section_match_filter(section))
+
     if status is not None and status != "":
         q = q.filter(Question.status == status)
     qs = q.order_by(Question.id.desc()).all()
@@ -502,30 +542,39 @@ def _search_questions_core(
             q = q.filter(Question.notes.ilike(f"%{kw}%"))
 
     if section is not None and section != "":
-        section_qids = [
-            x[0]
-            for x in db.query(QuestionSection.question_id)
-            .filter(QuestionSection.section_name == section)
-            .all()
-        ]
-        if section_qids:
-            q = q.filter(or_(Question.id.in_(section_qids), Question.section == section))
-        else:
-            q = q.filter(Question.section == section)
+        q = q.filter(_section_match_filter(section))
 
     if unsectioned is True:
-        has_sections_ids = [x[0] for x in db.query(QuestionSection.question_id).distinct().all()]
-        if has_sections_ids:
-            q = q.filter(~Question.id.in_(has_sections_ids))
+        # No relation-table section, empty legacy section, and at least one box.
+        has_section_row = (
+            select(QuestionSection.id)
+            .where(QuestionSection.question_id == Question.id)
+            .exists()
+        )
+        has_box = (
+            select(QuestionBox.id)
+            .where(QuestionBox.question_id == Question.id)
+            .exists()
+        )
+        q = q.filter(~has_section_row)
         q = q.filter(or_(Question.section.is_(None), Question.section == ""))
-        q = q.filter(db.query(QuestionBox.id).filter(QuestionBox.question_id == Question.id).exists())
+        q = q.filter(has_box)
 
     if status is not None and status != "":
         q = q.filter(Question.status == status)
     if favorite is True:
         q = q.filter(Question.is_favorite == True)
 
-    # 年份/季节过滤：优先用 Paper 上的 token，回退到 exam_code/filename 解析
+    if exclude_multi_section is True:
+        sec_count = (
+            select(func.count(QuestionSection.id))
+            .where(QuestionSection.question_id == Question.id)
+            .scalar_subquery()
+        )
+        q = q.filter(sec_count <= 1)
+
+    # 年份/季节：先在 papers 表上解析出匹配的 paper_id（量级是“卷”不是“题”），
+    # 再下推到 questions，避免把上千题拉进 Python 过滤。
     year_values: set[str] = set()
     if year:
         norm = _normalize_year_token(year)
@@ -546,81 +595,37 @@ def _search_questions_core(
         if sv:
             season_values.add(sv)
 
-    need_fallback_filter = False
-    if year_values:
-        # SQL: Paper.year_token IN (...) OR (year_token IS NULL AND 需要回退)
-        q = q.filter(
-            or_(
-                Paper.year_token.in_(year_values),
-                Paper.year_token.is_(None),
-            )
-        )
-        need_fallback_filter = True
-    if season_values:
-        q = q.filter(
-            or_(
-                Paper.season_token.in_(season_values),
-                Paper.season_token.is_(None),
-            )
-        )
-        need_fallback_filter = True
+    if year_values or season_values:
+        matched_paper_ids = _matching_paper_ids_for_year_season(db, year_values, season_values)
+        if not matched_paper_ids:
+            empty: dict = {
+                "total": 0,
+                "page": max(1, int(page or 1)),
+                "page_size": page_size,
+                "total_pages": 1,
+            }
+            if ids_only:
+                empty["question_ids"] = []
+            else:
+                empty["questions"] = []
+            return empty
+        q = q.filter(Question.paper_id.in_(sorted(matched_paper_ids)))
 
-    rows = q.order_by(Question.id.desc()).all()
+    # SQL 排序：纯数字 question_no 优先按数值降序，其余靠后，再按 id 降序。
+    digit_ok = and_(
+        Question.question_no.isnot(None),
+        Question.question_no != "",
+        ~Question.question_no.op("GLOB")(literal("*[^0-9]*")),
+    )
+    rank = case((digit_ok, 0), else_=1)
+    num_key = case((digit_ok, cast(Question.question_no, Integer)), else_=0)
+    q = q.order_by(rank.asc(), num_key.desc(), Question.id.desc())
 
-    # Python 侧过滤：token 为 NULL 的行需要回退解析，以及 exclude_multi_section
-    entries = []
-    if need_fallback_filter or exclude_multi_section is True:
-        # 批量预加载 section counts（避免 N+1 查询）
-        multi_section_qids: set[int] = set()
-        if exclude_multi_section is True:
-            from sqlalchemy import func as _func
-            section_count_rows = (
-                db.query(QuestionSection.question_id, _func.count(QuestionSection.id))
-                .group_by(QuestionSection.question_id)
-                .having(_func.count(QuestionSection.id) > 1)
-                .all()
-            )
-            multi_section_qids = {int(r[0]) for r in section_count_rows}
-
-        for qq, pp in rows:
-            # 年份/季节回退过滤
-            if year_values or season_values:
-                y = getattr(pp, "year_token", None)
-                s = getattr(pp, "season_token", None)
-                if not y or not s:
-                    source = (pp.exam_code or "") + " " + (pp.filename or "")
-                    py, ps = _extract_year_season(source)
-                    y = y or py
-                    s = s or ps
-                if year_values and y not in year_values:
-                    continue
-                if season_values and s not in season_values:
-                    continue
-
-            if exclude_multi_section is True and int(qq.id) in multi_section_qids:
-                continue
-
-            entries.append((qq, pp))
-    else:
-        entries = list(rows)
-
-    def sort_key(pair: tuple[Question, Paper]):
-        qrow = pair[0]
-        qno = qrow.question_no
-        qid = int(qrow.id or 0)
-        if qno is not None:
-            s = str(qno).strip()
-            if s.isdigit():
-                return (0, -int(s), -qid)
-        return (1, 0, -qid)
-
-    entries.sort(key=sort_key)
-    total = len(entries)
+    total = int(q.order_by(None).count() or 0)
     total_pages = max(1, (total + page_size - 1) // page_size)
     page = min(page, total_pages)
     start = (page - 1) * page_size
-    end = start + page_size
-    page_entries = entries[start:end]
+    page_entries = q.offset(start).limit(page_size).all()
 
     if ids_only:
         ids = [int(qq.id) for qq, _ in page_entries]

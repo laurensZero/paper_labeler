@@ -1,5 +1,4 @@
 const GITHUB_API = 'https://api.github.com'
-const GITEE_API = 'https://gitee.com/api/v5'
 const TIMEOUT = 15000
 
 export interface ReleaseAsset {
@@ -14,7 +13,7 @@ export interface Release {
   body: string
   html_url: string
   assets: ReleaseAsset[]
-  source: 'github' | 'gitee'
+  source: 'github'
 }
 
 // ── Version comparison ──
@@ -55,39 +54,65 @@ async function apiFetch(url: string, headers: Record<string, string>) {
 }
 
 export async function getLatestRelease(owner: string, repo: string): Promise<Release> {
-  const data = await apiFetch(`${GITHUB_API}/repos/${owner}/${repo}/releases/latest`, {
-    Accept: 'application/vnd.github+json',
-  })
-  return {
-    tag_name: String(data.tag_name || ''),
-    body: String(data.body || ''),
-    html_url: String(data.html_url || ''),
-    assets: ((data.assets || []) as Array<{ name?: string; browser_download_url?: string; size?: number; digest?: string }>).map((a) => ({
-      name: String(a.name || ''),
-      browser_download_url: String(a.browser_download_url || ''),
-      size: Number(a.size || 0),
-      sha256: parseAssetSha256(a.digest, String(a.name || ''), String(data.body || '')),
-    })),
-    source: 'github',
+  try {
+    const data = await apiFetch(`${GITHUB_API}/repos/${owner}/${repo}/releases/latest`, {
+      Accept: 'application/vnd.github+json',
+    })
+    return {
+      tag_name: String(data.tag_name || ''),
+      body: String(data.body || ''),
+      html_url: String(data.html_url || ''),
+      assets: ((data.assets || []) as Array<{ name?: string; browser_download_url?: string; size?: number; digest?: string }>).map((a) => ({
+        name: String(a.name || ''),
+        browser_download_url: String(a.browser_download_url || ''),
+        size: Number(a.size || 0),
+        sha256: parseAssetSha256(a.digest, String(a.name || ''), String(data.body || '')),
+      })),
+      source: 'github',
+    }
+  } catch (error) {
+    // GitHub's unauthenticated API is rate-limited. The public release page
+    // still exposes the latest tag and download links, so use it as a fallback.
+    if (error instanceof Error && /API error (403|429)/.test(error.message)) {
+      return getLatestReleaseFromPage(owner, repo)
+    }
+    throw error
   }
 }
 
-export async function getLatestReleaseFromGitee(owner: string, repo: string): Promise<Release> {
-  const data = await apiFetch(`${GITEE_API}/repos/${owner}/${repo}/releases/latest`, {
-    Accept: 'application/json',
+async function getLatestReleaseFromPage(owner: string, repo: string): Promise<Release> {
+  const latestUrl = `https://github.com/${owner}/${repo}/releases/latest`
+  const res = await fetch(latestUrl, {
+    headers: { Accept: 'text/html', 'User-Agent': 'Paper-Labeler-Updater' },
+    redirect: 'follow',
   })
-  const body = String(data.body || data.description || '')
+  if (!res.ok) throw new Error(`GitHub release page error ${res.status}`)
+
+  const html = await res.text()
+  const releaseUrl = res.url || latestUrl
+  const tagMatch = releaseUrl.match(/\/releases\/tag\/([^/?#]+)/i)
+  const tagName = tagMatch ? decodeURIComponent(tagMatch[1]) : ''
+  if (!tagName) throw new Error('GitHub latest release tag not found')
+
+  const assetLinks = [...html.matchAll(/href=["']([^"']+\/releases\/download\/[^"']+\.exe(?:\?[^"']*)?)["']/gi)]
+    .map((match) => new URL(match[1].replace(/&amp;/g, '&'), releaseUrl))
+    .filter((url, index, all) => all.findIndex((item) => item.href === url.href) === index)
+  const assetUrl = assetLinks.find((url) => /-portable\.exe$/i.test(decodeURIComponent(url.pathname)))
+    || assetLinks[0]
+  const version = tagName.replace(/^v/i, '')
+  const fallbackAssetName = `Paper Labeler-${version}-portable.exe`
+  const finalAssetUrl = assetUrl || new URL(
+    `/${owner}/${repo}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(fallbackAssetName)}`,
+    releaseUrl,
+  )
+  const assetName = decodeURIComponent(finalAssetUrl.pathname.split('/').pop() || fallbackAssetName)
+
   return {
-    tag_name: String(data.tag_name || data.tag || ''),
-    body,
-    html_url: String(data.html_url || `https://gitee.com/${owner}/${repo}/releases`),
-    assets: ((data.assets || []) as Array<{ name?: string; file_name?: string; browser_download_url?: string; download_url?: string; size?: number }>).map((a) => ({
-      name: String(a.name || a.file_name || ''),
-      browser_download_url: String(a.browser_download_url || a.download_url || ''),
-      size: Number(a.size || 0),
-      sha256: parseAssetSha256(undefined, String(a.name || a.file_name || ''), body),
-    })),
-    source: 'gitee',
+    tag_name: tagName,
+    body: '',
+    html_url: releaseUrl,
+    assets: [{ name: assetName, browser_download_url: finalAssetUrl.toString(), size: 0 }],
+    source: 'github',
   }
 }
 

@@ -1,9 +1,8 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell, net: electronNet, session } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const net = require('net')
 const http = require('http')
-const https = require('https')
 const fs = require('fs')
 const os = require('os')
 const crypto = require('crypto')
@@ -350,11 +349,19 @@ function detectPortableExe() {
 
 function downloadFile(url, dest, onProgress, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
-    const mod = url.startsWith('https:') ? https : http
-    const request = mod.get(url, (res) => {
+    // Electron's network stack uses the session/system proxy configuration.
+    // Node's http/https clients do not, which made update downloads bypass a proxy.
+    const request = electronNet.request({
+      url,
+      session: session.defaultSession,
+      redirect: 'manual',
+    })
+    request.on('response', (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
         res.resume()
-        downloadFile(res.headers.location, dest, onProgress, redirectsLeft - 1).then(resolve, reject)
+        const location = Array.isArray(res.headers.location) ? res.headers.location[0] : res.headers.location
+        const nextUrl = new URL(location, url).toString()
+        downloadFile(nextUrl, dest, onProgress, redirectsLeft - 1).then(resolve, reject)
         return
       }
       if (res.statusCode !== 200) {
@@ -386,6 +393,7 @@ function downloadFile(url, dest, onProgress, redirectsLeft = 5) {
       })
     })
     request.on('error', reject)
+    request.end()
   })
 }
 
@@ -413,13 +421,45 @@ while ((Get-Date) -lt $deadline) {
   Start-Sleep -Milliseconds 250
 }
 Start-Sleep -Milliseconds 500
-if (Test-Path -LiteralPath $new) {
-  if (Test-Path -LiteralPath $old) {
-    Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+if (-not (Test-Path -LiteralPath $new)) { throw "Update file missing: $new" }
+$backup = "$old.bak"
+$replaced = $false
+for ($attempt = 1; $attempt -le 20; $attempt++) {
+  try {
+    if (Test-Path -LiteralPath $backup) {
+      Remove-Item -LiteralPath $backup -Force -ErrorAction Stop
+    }
+    if (Test-Path -LiteralPath $old) {
+      Move-Item -LiteralPath $old -Destination $backup -Force -ErrorAction Stop
+    }
+    # The download is in %TEMP%, which may be on another volume than the app.
+    # Copy works across volumes; Move-Item does not reliably do so.
+    Copy-Item -LiteralPath $new -Destination $old -Force -ErrorAction Stop
+    $newSize = (Get-Item -LiteralPath $new).Length
+    $oldSize = (Get-Item -LiteralPath $old).Length
+    if ($newSize -ne $oldSize) { throw "Copied update size mismatch" }
+    Remove-Item -LiteralPath $new -Force -ErrorAction Stop
+    $replaced = $true
+    break
+  } catch {
+    if (Test-Path -LiteralPath $backup) {
+      Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+      Move-Item -LiteralPath $backup -Destination $old -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Milliseconds 500
   }
-  Move-Item -LiteralPath $new -Destination $old -Force
-  Start-Process -FilePath $old
 }
+if (-not $replaced) { throw "Unable to replace the application after 20 attempts" }
+$newProcess = Start-Process -FilePath $old -WorkingDirectory (Split-Path -Parent $old) -PassThru
+Start-Sleep -Seconds 3
+if ($newProcess.HasExited) {
+  Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $backup) {
+    Move-Item -LiteralPath $backup -Destination $old -Force -ErrorAction Stop
+  }
+  throw "Updated application exited during startup"
+}
+Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
 `
   fs.writeFileSync(scriptPath, script, 'utf-8')

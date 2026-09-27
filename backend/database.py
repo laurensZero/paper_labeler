@@ -1,7 +1,7 @@
 from __future__ import annotations
 import logging
 from datetime import datetime
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, Column, Boolean, Float, text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, Column, Boolean, Float, event, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from backend.config import DATA_DIR
 
@@ -14,10 +14,23 @@ def _build_engine():
     db_path = (DATA_DIR / "app.db").resolve()
     url = f"sqlite:///{db_path.as_posix()}"
     # busy_timeout: parallel CIE imports won't fail the whole batch on lock contention
-    return create_engine(
+    engine = create_engine(
         url,
         connect_args={"check_same_thread": False, "timeout": 30},
     )
+
+    # WAL: readers don't block writers (office laptops + parallel import/save).
+    # synchronous=NORMAL is safe with WAL and much kinder to eMMC/HDD.
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+        finally:
+            cursor.close()
+
+    return engine
 
 
 engine = _build_engine()

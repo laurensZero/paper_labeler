@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { i18n } from '@/i18n'
-import { compareVersions, getLatestRelease, getLatestReleaseFromGitee, parseUpdateLevel, resolvePortableAsset, type UpdateLevel } from '@/utils/release'
+import { compareVersions, getLatestRelease, parseUpdateLevel, resolvePortableAsset, type UpdateLevel } from '@/utils/release'
 
 function t(key: string) { return i18n.global.t(key) }
 
@@ -20,7 +20,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   const applying = ref(false)
   const dialogVisible = ref(false)
   const error = ref('')
-  const source = ref<'github' | 'gitee'>('github')
+  const source = ref<'github'>('github')
   const upToDate = ref(false)
 
   // Portable EXE download
@@ -82,39 +82,22 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   }
 
   async function checkRelease() {
-    const order = source.value === 'gitee' ? ['gitee', 'github'] : ['github', 'gitee']
-    const errors: string[] = []
+    const release = await getLatestRelease(REPO_OWNER, REPO_REPO)
+    const tag = release.tag_name.replace(/^v/i, '')
+    if (compareVersions(tag, currentVersion.value) <= 0) return
 
-    for (const src of order) {
-      try {
-        const release = src === 'gitee'
-          ? await getLatestReleaseFromGitee(REPO_OWNER, REPO_REPO)
-          : await getLatestRelease(REPO_OWNER, REPO_REPO)
-        const tag = release.tag_name.replace(/^v/i, '')
-        if (compareVersions(tag, currentVersion.value) <= 0) return
-
-        const asset = resolvePortableAsset(release)
-        if (!asset) {
-          errors.push(src + ': no portable exe asset')
-          continue
-        }
-
-        latestVersion.value = tag
-        releaseNotes.value = release.body
-        updateLevel.value = parseUpdateLevel(release.body)
-        downloadUrl.value = asset.browser_download_url
-        expectedSha256.value = asset.sha256 || ''
-        source.value = src as 'github' | 'gitee'
-        dialogVisible.value = true
-        return
-      } catch (e: unknown) {
-        errors.push(src + ': ' + (e instanceof Error ? e.message : String(e)))
-      }
+    const asset = resolvePortableAsset(release)
+    if (!asset) {
+      throw new Error('github: no portable exe asset')
     }
 
-    if (errors.length) {
-      throw new Error(errors.join('; '))
-    }
+    latestVersion.value = tag
+    releaseNotes.value = release.body
+    updateLevel.value = parseUpdateLevel(release.body)
+    downloadUrl.value = asset.browser_download_url
+    expectedSha256.value = asset.sha256 || ''
+    source.value = 'github'
+    dialogVisible.value = true
   }
 
   // ── Download portable EXE ──
