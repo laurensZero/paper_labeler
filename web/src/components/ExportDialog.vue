@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { getSupabase } from '@/lib/supabase'
+import { useAuth } from '@/composables/auth'
+import { checkExportItemCount, checkExportQuota, quotaErrorKey, recordExport } from '@/lib/quota'
 import type { ExportCommonOptions, ExportQuestionInput } from '@/lib/pdfExport'
 
 export interface RandomPoolItem {
@@ -36,6 +39,8 @@ const props = defineProps<{
   buildRandomLines?: (ids: number[], fields: SummaryFields) => string[]
   /** 多选导出时的题数（显示「将导出 N 题」）；全量导出时不传 */
   itemCount?: number
+  /** 组卷导出时传组卷 id（限额计数与审计）；题库导出不传 */
+  compositionId?: string | null
 }>()
 
 const emit = defineEmits<{ 'update:visible': [v: boolean] }>()
@@ -136,6 +141,25 @@ function cancelExport() {
   cancelFlag.value.value = true
 }
 
+/** 管理端「导出管控」的导出水印（预设/自定义）；开启时返回水印文本 */
+async function loadWatermarkText(): Promise<string | undefined> {
+  const { data, error } = await getSupabase()
+    .from('app_config')
+    .select('value')
+    .eq('key', 'export')
+    .maybeSingle()
+  const wm = data?.value?.export_watermark as
+    | { enabled?: boolean; mode?: string; text?: string }
+    | undefined
+  if (error || !wm?.enabled) return undefined
+  const auth = useAuth()
+  const email = auth.profile?.email || auth.session?.user.email || 'user'
+  const date = new Date().toISOString().slice(0, 10)
+  const base =
+    wm.mode === 'custom' && wm.text ? wm.text : '{email} {date}'
+  return base.replaceAll('{email}', email).replaceAll('{date}', date)
+}
+
 function zeroRnd() {
   for (const k of Object.keys(rndCounts)) rndCounts[k] = 0
 }
@@ -177,6 +201,12 @@ async function start() {
   progress.phase = ''
   cancelFlag.value = { value: false }
   try {
+    const quotaHit = await checkExportQuota()
+    if (quotaHit) {
+      errorMsg.value =
+        quotaHit === 'export_week' ? t('quota.exportWeekReached') : t('quota.exportMonthReached')
+      return
+    }
     const { buildQuestionsPdf, downloadBlob } = await import('@/lib/pdfExport')
     const isRandom = showRandomTab.value && mode.value === 'random'
     let sampled: number[] = []
@@ -188,6 +218,12 @@ async function start() {
     const items = isRandom
       ? await (props.randomProvider ?? props.provider)(sampled)
       : await props.provider()
+    const questionCount = items.filter((i) => !i.isBlankPage).length
+    const cap = checkExportItemCount(questionCount)
+    if (cap) {
+      errorMsg.value = t('quota.exportItemsReached', { max: cap.max })
+      return
+    }
     if (!items.some((i) => !i.isBlankPage && i.boxes.length)) {
       throw new Error(t('randomExport.empty'))
     }
@@ -197,6 +233,7 @@ async function start() {
         ? (props.buildRandomLines?.(sampled, fields) ?? [])
         : (props.buildLines?.(fields) ?? [])
       : []
+    const watermarkText = await loadWatermarkText()
     const opts: ExportCommonOptions = {
       includeAnswers: includeAnswers.value,
       answersPlacement: placement.value,
@@ -210,6 +247,7 @@ async function start() {
       coverLines: props.preset?.coverLines,
       sectionLabel: props.preset?.sectionLabel,
       cancel: cancelFlag.value,
+      watermarkText,
       progress: (done, total, phase) => {
         progress.done = done
         progress.total = total
@@ -219,8 +257,17 @@ async function start() {
     const { blob, filename: outName, pageCount } = await buildQuestionsPdf(items, opts)
     downloadBlob(blob, outName)
     finishedPages.value = pageCount
+    const isRandomExport = showRandomTab.value && mode.value === 'random'
+    void recordExport({
+      compositionId: props.compositionId ?? null,
+      includeAnswers: includeAnswers.value,
+      source: props.compositionId ? 'compose' : isRandomExport ? 'random' : 'bank',
+    })
   } catch (e) {
-    if (e && typeof e === 'object' && (e as Error).name === 'ExportCancelled') {
+    const qKey = quotaErrorKey(e)
+    if (qKey) {
+      errorMsg.value = t(qKey)
+    } else if (e && typeof e === 'object' && (e as Error).name === 'ExportCancelled') {
       cancelled.value = true
     } else {
       errorMsg.value = e instanceof Error ? e.message : String(e)

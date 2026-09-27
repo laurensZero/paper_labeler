@@ -148,3 +148,263 @@ def test_create_user_invite_flow_with_token(with_token, monkeypatch):
     assert body["email"] == "ok@example.com"
     assert body["invited"] is True
     assert body["invite_url"] is None
+
+
+# ---------------------------------------------------------------------------
+# 限额（profiles.max_*）与全局设置（app_config 水印开关）
+# ---------------------------------------------------------------------------
+
+_UID = "00000000-0000-0000-0000-000000000000"
+
+
+def _enable_cloud(monkeypatch):
+    monkeypatch.setattr("backend.routers.cloud.cloud_enabled", lambda: True)
+
+    class _Cfg:
+        supabase_url = "https://x.supabase.co"
+        service_role_key = "svc"
+        r2_account_id = "a"
+        r2_access_key_id = "k"
+        r2_secret_access_key = "s"
+        r2_bucket = "b"
+        r2_public_base = "https://pub"
+
+    monkeypatch.setattr("backend.routers.cloud.get_cloud_config", lambda: _Cfg())
+
+
+def test_patch_profile_quota_validation(with_token, monkeypatch):
+    _enable_cloud(monkeypatch)
+    from backend.cloud import supabase as sb
+
+    patched: list[dict] = []
+    monkeypatch.setattr(sb, "patch", lambda cfg, table, filters, body: (patched.append(body) or 1))
+
+    res = client.patch(
+        f"/cloud/profiles/{_UID}", json={"max_compositions": -1}, headers={"X-Paper-Token": "secret"}
+    )
+    assert res.status_code == 400
+
+    res = client.patch(
+        f"/cloud/profiles/{_UID}", json={"max_exports_per_week": "10"}, headers={"X-Paper-Token": "secret"}
+    )
+    assert res.status_code == 400
+
+    res = client.patch(
+        f"/cloud/profiles/{_UID}",
+        json={"max_compositions": None, "max_exports_per_month": 10, "max_export_items": 30},
+        headers={"X-Paper-Token": "secret"},
+    )
+    assert res.status_code == 200, res.text
+    assert patched == [
+        {"max_compositions": None, "max_exports_per_month": 10, "max_export_items": 30}
+    ]
+
+
+def test_settings_requires_token(no_token):
+    res = client.patch("/cloud/settings", json={"export_watermark": {"enabled": True}})
+    assert res.status_code in (401, 403)
+
+
+def test_settings_validates_and_roundtrips(with_token, monkeypatch):
+    _enable_cloud(monkeypatch)
+    from backend.cloud import supabase as sb
+
+    res = client.patch("/cloud/settings", json={}, headers={"X-Paper-Token": "secret"})
+    assert res.status_code == 400
+
+    res = client.patch(
+        "/cloud/settings",
+        json={"export_watermark": {"mode": "fancy"}},
+        headers={"X-Paper-Token": "secret"},
+    )
+    assert res.status_code == 400
+
+    upserts: list[list[dict]] = []
+    monkeypatch.setattr(
+        sb, "upsert", lambda cfg, table, rows, on_conflict="id": upserts.append(list(rows))
+    )
+    # 未建行时：先读到空，merge 后落库
+    monkeypatch.setattr(sb, "select", lambda cfg, table, **k: [])
+    res = client.patch(
+        "/cloud/settings",
+        json={"export_watermark": {"enabled": True, "mode": "custom", "text": "{email} 机密"}},
+        headers={"X-Paper-Token": "secret"},
+    )
+    assert res.status_code == 200, res.text
+    wm = res.json()["export_watermark"]
+    assert wm == {"enabled": True, "mode": "custom", "text": "{email} 机密"}
+    stored = upserts[0][0]["value"]["export_watermark"]
+    assert stored["enabled"] is True and stored["mode"] == "custom"
+
+    # 部分字段更新：只改 enabled，保留 mode/text
+    upserts.clear()
+    monkeypatch.setattr(
+        sb,
+        "select",
+        lambda cfg, table, **k: [
+            {
+                "value": {
+                    "export_watermark": {"enabled": True, "mode": "custom", "text": "abc"},
+                    "browse_watermark": {"enabled": False, "mode": "preset", "text": ""},
+                }
+            }
+        ],
+    )
+    res = client.patch(
+        "/cloud/settings",
+        json={"browse_watermark": {"enabled": True}},
+        headers={"X-Paper-Token": "secret"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["browse_watermark"] == {"enabled": True, "mode": "preset", "text": ""}
+
+    # 模拟落库后的状态再读
+    monkeypatch.setattr(
+        sb,
+        "select",
+        lambda cfg, table, **k: [
+            {
+                "value": {
+                    "export_watermark": {"enabled": True, "mode": "custom", "text": "abc"},
+                    "browse_watermark": {"enabled": True, "mode": "preset", "text": ""},
+                }
+            }
+        ],
+    )
+    res = client.get("/cloud/settings")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["export_watermark"]["mode"] == "custom"
+    assert body["browse_watermark"]["enabled"] is True
+
+    # 无行时返回默认：导出水印关、浏览水印开、均为预设
+    monkeypatch.setattr(sb, "select", lambda cfg, table, **k: [])
+    res = client.get("/cloud/settings")
+    body = res.json()
+    assert body["export_watermark"] == {"enabled": False, "mode": "preset", "text": ""}
+    assert body["browse_watermark"] == {"enabled": True, "mode": "preset", "text": ""}
+
+
+def test_profiles_include_quota_usage(with_token, monkeypatch):
+    _enable_cloud(monkeypatch)
+    from datetime import datetime, timezone
+
+    from backend.cloud import supabase as sb
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    old_iso = "2020-01-01T00:00:00+00:00"
+
+    def fake_select(cfg, table, columns="", **k):
+        if table == "profiles":
+            return [
+                {
+                    "id": _UID,
+                    "email": "a@b.com",
+                    "role": "teacher",
+                    "can_see_drafts": False,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "max_compositions": 3,
+                    "max_exports_per_week": 5,
+                    "max_exports_per_month": None,
+                    "max_export_items": 30,
+                }
+            ]
+        if table == "compositions":
+            return [{"owner_id": _UID}, {"owner_id": _UID}]
+        if table == "export_jobs":
+            return [
+                {"requested_by": _UID, "status": "done", "created_at": now_iso},
+                {"requested_by": _UID, "status": "failed", "created_at": now_iso},
+                {"requested_by": _UID, "status": "done", "created_at": old_iso},
+            ]
+        raise AssertionError(f"unexpected table {table}")
+
+    monkeypatch.setattr(sb, "select", fake_select)
+    res = client.get("/cloud/profiles")
+    assert res.status_code == 200, res.text
+    row = res.json()[0]
+    assert row["max_compositions"] == 3
+    assert row["max_exports_per_week"] == 5
+    assert row["max_exports_per_month"] is None
+    assert row["max_export_items"] == 30
+    assert row["composition_count"] == 2
+    assert row["export_count_week"] == 1  # failed 不计；去年的不进本周期
+    assert row["export_count_month"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 组卷查看（列表 + 明细）
+# ---------------------------------------------------------------------------
+
+def test_compositions_list_sorted_with_owner(with_token, monkeypatch):
+    _enable_cloud(monkeypatch)
+    from backend.cloud import supabase as sb
+
+    rows = [
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "name": "old",
+            "title": None,
+            "visibility": "private",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "owner_id": _UID,
+            "profiles": {"email": "a@b.com"},
+            "composition_items": [{"id": 1}, {"id": 2}],
+        },
+        {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name": "new",
+            "title": "T",
+            "visibility": "shared",
+            "created_at": "2026-02-01T00:00:00Z",
+            "updated_at": "2026-02-01T00:00:00Z",
+            "owner_id": _UID,
+            "profiles": [{"email": "c@d.com"}],
+            "composition_items": [],
+        },
+    ]
+    monkeypatch.setattr(sb, "select", lambda cfg, table, **k: rows)
+    res = client.get("/cloud/compositions")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert [r["name"] for r in body] == ["new", "old"]  # updated_at 倒序
+    assert body[1]["item_count"] == 2
+    assert body[1]["owner_email"] == "a@b.com"
+    assert body[0]["owner_email"] == "c@d.com"
+
+
+def test_composition_detail_validates_uuid(with_token):
+    res = client.get("/cloud/compositions/not-a-uuid")
+    assert res.status_code == 400
+
+
+def test_composition_detail_sorted(with_token, monkeypatch):
+    _enable_cloud(monkeypatch)
+    from backend.cloud import supabase as sb
+
+    rows = [
+        {
+            "id": 2,
+            "sort_order": 20,
+            "item_type": "question",
+            "blank_pages": 0,
+            "score": 5,
+            "questions": {"question_no": "12", "section": "函数", "paper_id": 1, "papers": {"exam_code": "2024A"}},
+        },
+        {
+            "id": 1,
+            "sort_order": 10,
+            "item_type": "blank_page",
+            "blank_pages": 2,
+            "score": None,
+            "questions": None,
+        },
+    ]
+    monkeypatch.setattr(sb, "select", lambda cfg, table, **k: rows)
+    res = client.get("/cloud/compositions/11111111-1111-1111-1111-111111111111")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert [r["id"] for r in body] == [1, 2]  # sort_order 升序
+    assert body[1]["exam_code"] == "2024A"
+    assert body[0]["item_type"] == "blank_page"

@@ -2142,3 +2142,22 @@ img.skel.is-loaded {
     width: min(360px, 100%);
   }
 }
+
+
+/* ---- 题库防盗：浏览水印 + 内容区防复制 ---- */
+.browse-wm {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  pointer-events: none;
+  background-repeat: repeat;
+}
+
+.protected {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.protected img {
+  -webkit-user-drag: none;
+}

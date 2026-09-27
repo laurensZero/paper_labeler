@@ -250,5 +250,11 @@
       "notFound": "Composition not found or access denied",
       "copyFailed": "Duplicate failed"
     }
+  },
+  "quota": {
+    "compReached": "Composition limit reached — ask the admin to raise it or delete unused compositions.",
+    "exportWeekReached": "Weekly export limit reached — ask the admin to raise it, or try again next week.",
+    "exportMonthReached": "Monthly export limit reached — ask the admin to raise it, or try again next month.",
+    "exportItemsReached": "At most {max} questions per export — remove some questions and try again."
   }
 }

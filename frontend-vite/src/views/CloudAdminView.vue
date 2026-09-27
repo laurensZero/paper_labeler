@@ -17,7 +17,7 @@ const sectionsStore = useSectionsStore()
 const papersStore = usePapersStore()
 const filterStore = useFilterStore()
 
-const tab = ref<'feedback' | 'perm'>('feedback')
+const tab = ref<'feedback' | 'perm' | 'comps' | 'guard'>('feedback')
 const error = ref('')
 
 function errText(e: unknown): string {
@@ -180,12 +180,23 @@ function statusTag(status: string): string {
 // ---------------------------------------------------------------------------
 // 权限管理
 // ---------------------------------------------------------------------------
+// TODO(停用用户/封号)：用户行后续加「停用/启用」按钮 → PATCH /cloud/profiles/{id}
+// { is_active: false }，后端落 profiles.is_active 并调用 GoTrue admin ban
+// （ban_duration）真正禁止登录，网页端登录时再校验兜底。本版先不做，
+// 见 backend/routers/cloud.py update_profile 的同名 TODO。
 interface ProfileRow {
   id: string
   email: string
   role: 'admin' | 'teacher'
   can_see_drafts: boolean
   created_at: string
+  max_compositions: number | null
+  max_exports_per_week: number | null
+  max_exports_per_month: number | null
+  max_export_items: number | null
+  composition_count: number
+  export_count_week: number
+  export_count_month: number
 }
 
 interface GrantRow {
@@ -385,6 +396,211 @@ function displayGrantValue(g: GrantRow): string {
   return sectionsStore.sectionLabelMap[g.scope_value] || g.scope_value
 }
 
+// ---------------------------------------------------------------------------
+// 组卷查看（全部用户的组卷 + 题目明细）
+// ---------------------------------------------------------------------------
+interface CompRow {
+  id: string
+  name: string
+  title: string | null
+  visibility: string
+  created_at: string
+  updated_at: string
+  owner_id: string
+  owner_email: string
+  item_count: number
+}
+
+interface CompItem {
+  id: number
+  sort_order: number
+  item_type: string
+  blank_pages: number
+  score: number | null
+  question_no: string | null
+  section: string | null
+  exam_code: string | null
+}
+
+const compRows = ref<CompRow[]>([])
+const compLoading = ref(false)
+const compFilter = ref('')
+const compsLoaded = ref(false)
+const expandedComp = ref<string | null>(null)
+const compDetail = ref<CompItem[]>([])
+const compDetailLoading = ref(false)
+
+async function loadCompositions() {
+  compLoading.value = true
+  error.value = ''
+  try {
+    compRows.value = (await api('/cloud/compositions')) as CompRow[]
+  } catch (e) {
+    error.value = errText(e)
+    compRows.value = []
+  } finally {
+    compLoading.value = false
+  }
+}
+
+const filteredComps = computed(() =>
+  compFilter.value ? compRows.value.filter((r) => r.owner_id === compFilter.value) : compRows.value,
+)
+
+async function toggleComp(id: string) {
+  if (expandedComp.value === id) {
+    expandedComp.value = null
+    return
+  }
+  expandedComp.value = id
+  compDetail.value = []
+  compDetailLoading.value = true
+  error.value = ''
+  try {
+    compDetail.value = (await api(`/cloud/compositions/${id}`)) as CompItem[]
+  } catch (e) {
+    error.value = errText(e)
+    compDetail.value = []
+  } finally {
+    compDetailLoading.value = false
+  }
+}
+
+function compItemLabel(it: CompItem): string {
+  if (it.item_type === 'blank_page') return t('cloud.compBlank', { n: it.blank_pages || 1 })
+  const parts = [`#${it.question_no || t('cloud.compNoQno')}`]
+  if (it.exam_code) parts.push(it.exam_code)
+  if (it.section) parts.push(it.section)
+  const label = parts.join(' · ')
+  return it.score != null ? `${label}（${it.score} 分）` : label
+}
+
+// ---------------------------------------------------------------------------
+// 导出管控（双水印：预设/自定义 + 预览；每人组卷/周月导出/单次题数限额）
+// ---------------------------------------------------------------------------
+interface WmConfig {
+  enabled: boolean
+  mode: 'preset' | 'custom'
+  text: string
+}
+type WmKey = 'export_watermark' | 'browse_watermark'
+
+const wmSettings = ref<{ export_watermark: WmConfig; browse_watermark: WmConfig } | null>(null)
+const wmBusy = ref(false)
+const guardLoaded = ref(false)
+
+function wm(key: WmKey): WmConfig {
+  return wmSettings.value?.[key] ?? { enabled: false, mode: 'preset', text: '' }
+}
+
+async function loadSettings() {
+  error.value = ''
+  try {
+    wmSettings.value = (await api('/cloud/settings')) as typeof wmSettings.value
+  } catch (e) {
+    error.value = t('cloud.guardWatermarkFailed') + ': ' + errText(e)
+  }
+}
+
+async function patchWm(key: WmKey, patch: Partial<WmConfig>) {
+  wmBusy.value = true
+  error.value = ''
+  try {
+    const res = (await api('/cloud/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...cloudAuthHeaders() },
+      body: JSON.stringify({ [key]: patch }),
+    })) as Record<string, WmConfig>
+    if (wmSettings.value && res[key]) wmSettings.value[key] = res[key]
+  } catch (e) {
+    error.value = errText(e)
+    await loadSettings() // 失败回读，界面回到服务端真实状态
+  } finally {
+    wmBusy.value = false
+  }
+}
+
+function onWmEnabled(key: WmKey, e: Event) {
+  void patchWm(key, { enabled: (e.target as HTMLInputElement).checked })
+}
+
+function onWmMode(key: WmKey, e: Event) {
+  const mode = (e.target as HTMLSelectElement).value as WmConfig['mode']
+  void patchWm(key, { mode })
+}
+
+function onWmText(key: WmKey, e: Event) {
+  void patchWm(key, { text: (e.target as HTMLInputElement).value })
+}
+
+// ---- 水印预览（示例邮箱/日期代入占位符；与网页端展开规则一致）----
+const wmExampleEmail = 'user@example.com'
+const wmExampleDate = computed(() => new Date().toISOString().slice(0, 10))
+const wmExampleTextPh = '{email} {date}'
+
+function wmResolveText(key: WmKey): string {
+  const cfg = wm(key)
+  const base =
+    cfg.mode === 'preset'
+      ? key === 'export_watermark'
+        ? '{email} {date}'
+        : '{email}'
+      : cfg.text || (key === 'export_watermark' ? '{email} {date}' : '{email}')
+  return base.replaceAll('{email}', wmExampleEmail).replaceAll('{date}', wmExampleDate.value)
+}
+
+function escapeXml(s: string): string {
+  return s.replace(
+    /[<>&'"]/g,
+    (c) =>
+      ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' })[c] ?? c,
+  )
+}
+
+/** 浏览水印平铺预览背景（SVG data-URI，与 web 端 BrowseWatermark 同构） */
+function wmTiledBg(text: string): string {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="460" height="300">' +
+    `<text x="230" y="150" transform="rotate(-24 230 150)" text-anchor="middle" ` +
+    'font-family="Arial, Helvetica, sans-serif" font-size="15" ' +
+    `fill="rgba(0,0,0,0.08)">${escapeXml(text)}</text></svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+}
+
+type QuotaField =
+  | 'max_compositions'
+  | 'max_exports_per_week'
+  | 'max_exports_per_month'
+  | 'max_export_items'
+
+function onQuotaChange(p: ProfileRow, field: QuotaField, e: Event) {
+  const input = e.target as HTMLInputElement
+  const raw = input.value.trim()
+  let value: number | null = null
+  if (raw !== '') {
+    const n = Number(raw)
+    if (!Number.isInteger(n) || n < 0) {
+      error.value = t('cloud.guardQuotaInvalid')
+      input.value = p[field] == null ? '' : String(p[field])
+      return
+    }
+    value = n
+  }
+  void patchProfile(p, { [field]: value })
+}
+
+function setTab(next: 'feedback' | 'perm' | 'comps' | 'guard') {
+  tab.value = next
+  if (next === 'comps' && !compsLoaded.value) {
+    compsLoaded.value = true
+    void loadCompositions()
+  }
+  if (next === 'guard' && !guardLoaded.value) {
+    guardLoaded.value = true
+    void loadSettings()
+  }
+}
+
 onMounted(() => {
   void loadFeedback()
   void loadProfiles()
@@ -398,11 +614,17 @@ onMounted(() => {
     </h2>
 
     <div class="cl-tabs">
-      <button :class="{ active: tab === 'feedback' }" @click="tab = 'feedback'">
+      <button :class="{ active: tab === 'feedback' }" @click="setTab('feedback')">
         {{ t('cloud.tabFeedback') }}
       </button>
-      <button :class="{ active: tab === 'perm' }" @click="tab = 'perm'">
+      <button :class="{ active: tab === 'perm' }" @click="setTab('perm')">
         {{ t('cloud.tabPerm') }}
+      </button>
+      <button :class="{ active: tab === 'comps' }" @click="setTab('comps')">
+        {{ t('cloud.tabComps') }}
+      </button>
+      <button :class="{ active: tab === 'guard' }" @click="setTab('guard')">
+        {{ t('cloud.tabGuard') }}
       </button>
     </div>
 
@@ -474,7 +696,7 @@ onMounted(() => {
     </div>
 
     <!-- 权限管理 -->
-    <div v-else class="cl-perm">
+    <div v-else-if="tab === 'perm'" class="cl-perm">
       <div class="cl-card cl-card--left">
         <div class="cl-user-create" style="position: relative; z-index: 5">
           <div class="cl-user-create-title">{{ t('cloud.userCreate') }}</div>
@@ -594,6 +816,240 @@ onMounted(() => {
           </ul>
         </template>
         <div v-else class="cl-empty">{{ t('cloud.permSelect') }}</div>
+      </div>
+    </div>
+
+    <!-- 组卷查看 -->
+    <div v-else-if="tab === 'comps'">
+      <div class="cl-toolbar">
+        <select v-model="compFilter" class="cl-select" style="min-width: 180px" @change="expandedComp = null">
+          <option value="">{{ t('cloud.compsFilterAll') }}</option>
+          <option v-for="p in profiles" :key="p.id" :value="p.id">{{ p.email }}</option>
+        </select>
+        <button class="cl-btn cl-btn--ghost" :disabled="compLoading" @click="loadCompositions">↻</button>
+      </div>
+      <div class="cl-card">
+        <div v-if="compLoading" class="cl-empty">…</div>
+        <table v-else class="cl-table">
+          <thead>
+            <tr>
+              <th>{{ t('cloud.compsOwner') }}</th>
+              <th>{{ t('cloud.compsName') }}</th>
+              <th style="width: 64px">{{ t('cloud.compsItems') }}</th>
+              <th style="width: 76px">{{ t('cloud.compsVis') }}</th>
+              <th style="width: 120px">{{ t('cloud.compsTime') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="row in filteredComps" :key="row.id">
+              <tr
+                class="cl-row-click"
+                :class="{ 'cl-row--active': expandedComp === row.id }"
+                @click="toggleComp(row.id)"
+              >
+                <td>{{ row.owner_email || '—' }}</td>
+                <td style="font-weight: 600">
+                  {{ row.name }}<span v-if="row.title" class="cl-muted"> · {{ row.title }}</span>
+                </td>
+                <td>{{ row.item_count }}</td>
+                <td>
+                  <span class="cl-tag" :class="row.visibility === 'shared' ? 'tag-ok' : ''">
+                    {{ row.visibility === 'shared' ? t('cloud.compsShared') : t('cloud.compsPrivate') }}
+                  </span>
+                </td>
+                <td class="cl-muted">{{ fmtTime(row.updated_at) }}</td>
+              </tr>
+              <tr v-if="expandedComp === row.id" class="cl-detail-row">
+                <td colspan="5">
+                  <div v-if="compDetailLoading" class="cl-empty">…</div>
+                  <ul v-else class="cl-comp-detail">
+                    <li v-for="it in compDetail" :key="it.id">
+                      <span class="cl-tag" :class="it.item_type === 'blank_page' ? 'tag-warn' : ''">
+                        {{ it.item_type === 'blank_page' ? '◻' : '#' + (it.question_no || t('cloud.compNoQno')) }}
+                      </span>
+                      <span class="cl-grant-value">{{ compItemLabel(it) }}</span>
+                    </li>
+                    <li v-if="!compDetail.length" class="cl-muted" style="list-style: none">
+                      {{ t('cloud.compsDetailEmpty') }}
+                    </li>
+                  </ul>
+                </td>
+              </tr>
+            </template>
+            <tr v-if="!filteredComps.length">
+              <td colspan="5" class="cl-empty">{{ t('cloud.compsEmpty') }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 导出管控：双水印配置 + 用户限额 -->
+    <div v-else class="cl-guard">
+      <div class="cl-wm-grid">
+        <!-- 网页浏览水印 -->
+        <div class="cl-card cl-wm-card">
+          <div class="cl-user-create-title" style="padding: 8px 8px 0">{{ t('cloud.guardWmBrowse') }}</div>
+          <p class="cl-hint">{{ t('cloud.guardWmBrowseHint') }}</p>
+          <div class="cl-wm-controls">
+            <label class="cl-check" style="font-size: 13px">
+              <input
+                type="checkbox"
+                :checked="wm('browse_watermark').enabled"
+                :disabled="wmBusy"
+                @change="onWmEnabled('browse_watermark', $event)"
+              />
+              {{ wm('browse_watermark').enabled ? t('cloud.guardWatermarkOn') : t('cloud.guardWatermarkOff') }}
+            </label>
+            <select
+              class="cl-select"
+              :value="wm('browse_watermark').mode"
+              :disabled="wmBusy"
+              @change="onWmMode('browse_watermark', $event)"
+            >
+              <option value="preset">{{ t('cloud.guardWmPreset') }}</option>
+              <option value="custom">{{ t('cloud.guardWmCustom') }}</option>
+            </select>
+          </div>
+          <input
+            v-if="wm('browse_watermark').mode === 'custom'"
+            class="cl-input"
+            style="width: calc(100% - 16px); margin: 0 8px; box-sizing: border-box"
+            type="text"
+            :value="wm('browse_watermark').text"
+            :placeholder="wmExampleEmail"
+            :disabled="wmBusy"
+            maxlength="200"
+            @change="onWmText('browse_watermark', $event)"
+          />
+          <div class="cl-wm-preview-label">{{ t('cloud.guardWmPreview') }}</div>
+          <div
+            class="cl-wm-preview-browse"
+            :style="{ backgroundImage: wmTiledBg(wmResolveText('browse_watermark')) }"
+          ></div>
+        </div>
+
+        <!-- 导出 PDF 水印 -->
+        <div class="cl-card cl-wm-card">
+          <div class="cl-user-create-title" style="padding: 8px 8px 0">{{ t('cloud.guardWmExport') }}</div>
+          <p class="cl-hint">{{ t('cloud.guardWmExportHint') }}</p>
+          <div class="cl-wm-controls">
+            <label class="cl-check" style="font-size: 13px">
+              <input
+                type="checkbox"
+                :checked="wm('export_watermark').enabled"
+                :disabled="wmBusy"
+                @change="onWmEnabled('export_watermark', $event)"
+              />
+              {{ wm('export_watermark').enabled ? t('cloud.guardWatermarkOn') : t('cloud.guardWatermarkOff') }}
+            </label>
+            <select
+              class="cl-select"
+              :value="wm('export_watermark').mode"
+              :disabled="wmBusy"
+              @change="onWmMode('export_watermark', $event)"
+            >
+              <option value="preset">{{ t('cloud.guardWmPreset') }}</option>
+              <option value="custom">{{ t('cloud.guardWmCustom') }}</option>
+            </select>
+          </div>
+          <input
+            v-if="wm('export_watermark').mode === 'custom'"
+            class="cl-input"
+            style="width: calc(100% - 16px); margin: 0 8px; box-sizing: border-box"
+            type="text"
+            :value="wm('export_watermark').text"
+            :placeholder="wmExampleTextPh"
+            :disabled="wmBusy"
+            maxlength="200"
+            @change="onWmText('export_watermark', $event)"
+          />
+          <div class="cl-wm-preview-label">{{ t('cloud.guardWmPreview') }}</div>
+          <div class="cl-wm-preview-export">
+            <span class="cl-wm-preview-rot">{{ wmResolveText('export_watermark') }}</span>
+          </div>
+        </div>
+      </div>
+      <p class="cl-hint" style="margin: -4px 2px 0">{{ t('cloud.guardWmHint') }}</p>
+
+      <div class="cl-card">
+        <div class="cl-user-create-title" style="padding: 8px 8px 0">{{ t('cloud.guardQuotaTitle') }}</div>
+        <p class="cl-hint">{{ t('cloud.guardQuotaHint') }}</p>
+        <div v-if="permLoading" class="cl-empty">…</div>
+        <table v-else class="cl-table">
+          <thead>
+            <tr>
+              <th>{{ t('cloud.permEmail') }}</th>
+              <th style="width: 22%">{{ t('cloud.guardQuotaComp') }}</th>
+              <th style="width: 34%">{{ t('cloud.guardQuotaExport') }}</th>
+              <th style="width: 22%">{{ t('cloud.guardQuotaExportItems') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in profiles" :key="p.id">
+              <td>{{ p.email }}</td>
+              <td>
+                <div class="cl-quota-cell">
+                  <span class="cl-muted">{{ t('cloud.guardQuotaUsage', { used: p.composition_count }) }}</span>
+                  <input
+                    class="cl-quota-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    :value="p.max_compositions ?? ''"
+                    :placeholder="t('cloud.guardQuotaUnlimited')"
+                    :disabled="busyUserId === p.id"
+                    @change="onQuotaChange(p, 'max_compositions', $event)"
+                  />
+                </div>
+              </td>
+              <td>
+                <div class="cl-quota-cell">
+                  <span class="cl-muted">{{ t('cloud.guardQuotaUsageWeek', { used: p.export_count_week }) }}</span>
+                  <input
+                    class="cl-quota-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    :value="p.max_exports_per_week ?? ''"
+                    :placeholder="t('cloud.guardQuotaUnlimited')"
+                    :disabled="busyUserId === p.id"
+                    @change="onQuotaChange(p, 'max_exports_per_week', $event)"
+                  />
+                </div>
+                <div class="cl-quota-cell" style="margin-top: 6px">
+                  <span class="cl-muted">{{ t('cloud.guardQuotaUsageMonth', { used: p.export_count_month }) }}</span>
+                  <input
+                    class="cl-quota-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    :value="p.max_exports_per_month ?? ''"
+                    :placeholder="t('cloud.guardQuotaUnlimited')"
+                    :disabled="busyUserId === p.id"
+                    @change="onQuotaChange(p, 'max_exports_per_month', $event)"
+                  />
+                </div>
+              </td>
+              <td>
+                <input
+                  class="cl-quota-input"
+                  style="width: 100%; box-sizing: border-box"
+                  type="number"
+                  min="0"
+                  step="1"
+                  :value="p.max_export_items ?? ''"
+                  :placeholder="t('cloud.guardQuotaUnlimited')"
+                  :disabled="busyUserId === p.id"
+                  @change="onQuotaChange(p, 'max_export_items', $event)"
+                />
+              </td>
+            </tr>
+            <tr v-if="!profiles.length">
+              <td colspan="4" class="cl-empty">{{ t('cloud.guardEmpty') }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -906,8 +1362,127 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.cl-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.cl-detail-row td {
+  background: var(--bg-pressed);
+}
+
+.cl-comp-detail {
+  list-style: none;
+  margin: 0;
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cl-comp-detail li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.cl-guard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cl-quota-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cl-wm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.cl-wm-card {
+  overflow: visible;
+}
+
+.cl-wm-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 4px 8px 10px;
+}
+
+.cl-wm-preview-label {
+  padding: 0 8px 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.cl-wm-preview-browse {
+  height: 110px;
+  margin: 0 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-repeat: repeat;
+  background-color: #fff;
+}
+
+.cl-wm-preview-export {
+  position: relative;
+  height: 140px;
+  margin: 0 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.cl-wm-preview-rot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(-30deg);
+  white-space: nowrap;
+  font-size: 14px;
+  color: #888;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.cl-quota-input {
+  width: 88px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.cl-quota-input:focus {
+  border-color: var(--accent);
+}
+
+.cl-quota-input:disabled {
+  opacity: 0.6;
+}
+
 @media (max-width: 900px) {
   .cl-perm {
+    grid-template-columns: 1fr;
+  }
+
+  .cl-wm-grid {
     grid-template-columns: 1fr;
   }
 }

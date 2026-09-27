@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { signOut, useAuth } from '@/composables/auth'
 import { setLocale } from '@/i18n'
+import BrowseWatermark from '@/components/BrowseWatermark.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,10 +23,36 @@ async function onSignOut() {
   await signOut()
   router.push({ name: 'login' })
 }
+
+// ---- 题库防盗：.protected 内容区禁右键/拖拽/复制（仅拦截内容区，输入框不受影响）----
+function inProtected(e: Event): boolean {
+  const el = e.target as HTMLElement | null
+  return !!(el && typeof el.closest === 'function' && el.closest('.protected'))
+}
+function onGuardContextMenu(e: MouseEvent) {
+  if (inProtected(e)) e.preventDefault()
+}
+function onGuardDragStart(e: DragEvent) {
+  if (inProtected(e)) e.preventDefault()
+}
+function onGuardCopy(e: ClipboardEvent) {
+  if (inProtected(e)) e.preventDefault()
+}
+onMounted(() => {
+  window.addEventListener('contextmenu', onGuardContextMenu, true)
+  window.addEventListener('dragstart', onGuardDragStart, true)
+  window.addEventListener('copy', onGuardCopy, true)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('contextmenu', onGuardContextMenu, true)
+  window.removeEventListener('dragstart', onGuardDragStart, true)
+  window.removeEventListener('copy', onGuardCopy, true)
+})
 </script>
 
 <template>
   <div class="app">
+    <BrowseWatermark v-if="auth.session" />
     <header class="topbar">
       <div class="brand">
         <img class="brand-mark" src="/logo.svg" alt="Paper Labeler" />

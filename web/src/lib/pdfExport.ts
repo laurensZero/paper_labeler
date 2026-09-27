@@ -2,7 +2,7 @@
 // 版式严格对齐管理端 backend/routers/export.py::_make_pdf（mm 制、边框到页底、
 // 70% 续页、答案自动分页缩放、首页信息页/封面页、页码偏移）。
 // 图片链路：R2 webp → createImageBitmap → canvas → JPEG → pdf-lib 嵌入。
-import { PDFDocument, PDFFont, PDFImage, rgb } from 'pdf-lib'
+import { PDFDocument, PDFFont, PDFImage, degrees, rgb } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
 
 const MM = 72 / 25.4
@@ -48,6 +48,8 @@ export interface ExportCommonOptions {
   progress?: ExportProgress
   /** 取消开关：置 true 后在下一个检查点中断 */
   cancel?: { value: boolean }
+  /** 导出水印文本（管理端「导出管控」开关开启时传入，如 "a@x.com 2026-09-27"） */
+  watermarkText?: string
 }
 
 export interface ExportBox {
@@ -539,6 +541,33 @@ export async function buildQuestionsPdf(
       const text = String(display)
       drawCenteredText(page, text, font, 8, 297 - 10, BOX_W, BOX_X, GRAY)
     })
+  }
+
+  // ---- 导出水印：整页斜向浅灰（含封面/空白页），防盗追溯用 ----
+  if (opts.watermarkText) {
+    const wmSize = 22
+    const angle = (30 * Math.PI) / 180
+    let wmWidth = 0
+    try {
+      wmWidth = font.widthOfTextAtSize(opts.watermarkText, wmSize)
+    } catch {
+      wmWidth = 0 // 字体缺字时跳过水印，不阻断导出
+    }
+    if (wmWidth > 0) {
+      const cx = A4_W / 2
+      const cy = A4_H / 2
+      for (const page of doc.getPages()) {
+        page.drawText(opts.watermarkText, {
+          x: cx - (Math.cos(angle) * wmWidth) / 2,
+          y: cy - (Math.sin(angle) * wmWidth) / 2,
+          size: wmSize,
+          font,
+          color: GRAY,
+          rotate: degrees(30),
+          opacity: 0.12,
+        })
+      }
+    }
   }
 
   await report('write')

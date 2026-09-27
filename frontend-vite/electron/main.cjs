@@ -356,20 +356,46 @@ function makeErrorHtml(isDark, detail) {
 }
 
 // ── Portable EXE updater (download + helper replace) ──
+function findExeInDir(dir) {
+  if (!dir || !fs.existsSync(dir)) return null
+  try {
+    const names = fs.readdirSync(dir).filter((n) => /\.exe$/i.test(n))
+    const hit = names.find((n) => /portable\.exe$/i.test(n))
+      || names.find((n) => /paper[.\-\s]?labeler/i.test(n))
+      || names.find((n) => /^paper/i.test(n))
+      || names[0]
+    return hit ? path.join(dir, hit) : null
+  } catch {
+    return null
+  }
+}
+
 function detectPortableExe() {
   if (!app.isPackaged) return null
+
   const envFile = process.env.PORTABLE_EXECUTABLE_FILE
   if (envFile && fs.existsSync(envFile)) return envFile
-  const dir = process.env.PORTABLE_EXECUTABLE_DIR
-  if (dir && fs.existsSync(dir)) {
-    try {
-      const names = fs.readdirSync(dir).filter((n) => /\.exe$/i.test(n))
-      const hit = names.find((n) => /portable\.exe$/i.test(n))
-        || names.find((n) => /paper.?labeler/i.test(n))
-        || names[0]
-      if (hit) return path.join(dir, hit)
-    } catch {}
-  }
+
+  const envDir = process.env.PORTABLE_EXECUTABLE_DIR
+  const fromEnv = findExeInDir(envDir)
+  if (fromEnv) return fromEnv
+
+  // Fallback: data-root marker records the portable folder even if env vars are missing
+  try {
+    const markerPath = path.join(app.getPath('userData'), 'data-root.txt')
+    if (fs.existsSync(markerPath)) {
+      const stored = fs.readFileSync(markerPath, 'utf-8').trim()
+      const fromMarker = findExeInDir(stored)
+      if (fromMarker) return fromMarker
+    }
+  } catch {}
+
+  // Last resort: sibling of data/ next to default resources
+  try {
+    const guess = findExeInDir(path.dirname(app.getPath('exe')))
+    if (guess && /portable\.exe$/i.test(guess)) return guess
+  } catch {}
+
   return null
 }
 
@@ -513,6 +539,7 @@ Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction Silent
 
 function resolveShortcutTarget() {
   // Prefer the stable portable exe path so shortcuts keep working after update-replace.
+  if (!portableExePath) portableExePath = detectPortableExe()
   const exe = portableExePath || (app.isPackaged ? process.execPath : null)
   if (!exe || !fs.existsSync(exe)) return null
   return { target: exe, cwd: path.dirname(exe) }
@@ -559,13 +586,15 @@ function setupPortableUpdater() {
   ipcMain.handle('shortcut:status', async () => {
     try {
       const paths = shortcutPaths()
+      const target = resolveShortcutTarget()
       return {
         desktop: fs.existsSync(paths.desktop),
         startMenu: fs.existsSync(paths.startMenu),
-        canCreate: !!resolveShortcutTarget(),
+        canCreate: !!target || app.isPackaged,
+        target: target ? target.target : null,
       }
     } catch (e) {
-      return { desktop: false, startMenu: false, canCreate: false, error: e.message }
+      return { desktop: false, startMenu: false, canCreate: app.isPackaged, error: e.message }
     }
   })
 

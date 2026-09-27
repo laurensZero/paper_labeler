@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -190,8 +191,31 @@ def delete_suggestion(suggestion_id: int, request: Request):
     return {"ok": True}
 
 
+def _parse_ts(value: object) -> datetime | None:
+    """Supabase timestamptz 字符串 → UTC datetime（解析失败返回 None）。"""
+    if not value:
+        return None
+    try:
+        s = str(value)
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _period_starts(now: datetime | None = None) -> tuple[datetime, datetime]:
+    """(本周一 00:00 UTC, 本月1日 00:00 UTC)，与 PG date_trunc('week'/'month', now()) 对齐。"""
+    now = now or datetime.now(timezone.utc)
+    week = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return week, month
+
+
 @router.get("/profiles")
 def list_profiles():
+    """用户列表 + 限额配置 + 已用次数（组卷存量 / 本周·本月导出，供导出管控页展示）。"""
     from backend.cloud import supabase as sb
 
     cfg = _require_cloud()
@@ -199,10 +223,42 @@ def list_profiles():
         rows = sb.select(
             cfg,
             "profiles",
-            columns="id,email,role,can_see_drafts,created_at",
+            columns=(
+                "id,email,role,can_see_drafts,created_at,"
+                "max_compositions,max_exports_per_week,max_exports_per_month,max_export_items"
+            ),
         )
+        comp_rows = sb.select(cfg, "compositions", columns="owner_id")
+        job_rows = sb.select(cfg, "export_jobs", columns="requested_by,status,created_at")
     except sb.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
+
+    comp_counts: dict[str, int] = {}
+    for r in comp_rows:
+        oid = str(r.get("owner_id") or "")
+        if oid:
+            comp_counts[oid] = comp_counts.get(oid, 0) + 1
+
+    week_start, month_start = _period_starts()
+    export_week: dict[str, int] = {}
+    export_month: dict[str, int] = {}
+    for r in job_rows:
+        if str(r.get("status") or "") == "failed":
+            continue
+        uid = str(r.get("requested_by") or "")
+        ts = _parse_ts(r.get("created_at"))
+        if not uid or ts is None:
+            continue
+        if ts >= week_start:
+            export_week[uid] = export_week.get(uid, 0) + 1
+        if ts >= month_start:
+            export_month[uid] = export_month.get(uid, 0) + 1
+
+    for r in rows:
+        uid = str(r.get("id") or "")
+        r["composition_count"] = comp_counts.get(uid, 0)
+        r["export_count_week"] = export_week.get(uid, 0)
+        r["export_count_month"] = export_month.get(uid, 0)
     return sorted(rows, key=lambda r: str(r.get("email") or ""))
 
 
@@ -262,8 +318,22 @@ def create_user(payload: dict, request: Request):
     }
 
 
+def _parse_quota(value: object, field: str) -> int | None:
+    """限额字段：null = 不限；非负整数；其余 400。"""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise HTTPException(status_code=400, detail=f"{field} 必须是非负整数或 null")
+    if int(value) != value or int(value) < 0:
+        raise HTTPException(status_code=400, detail=f"{field} 必须是非负整数或 null")
+    return int(value)
+
+
 @router.patch("/profiles/{user_id}")
 def update_profile(user_id: str, payload: dict, request: Request):
+    # TODO(停用用户/封号)：支持 payload.is_active —— 写 profiles.is_active，
+    # 并调用 GoTrue admin API（PUT /auth/v1/admin/users/{id}, ban_duration）
+    # 真正禁止登录/刷新；网页端登录时再校验 is_active 兜底。本版先不做。
     _require_token(request)
     body: dict = {}
     if "role" in payload:
@@ -272,6 +342,14 @@ def update_profile(user_id: str, payload: dict, request: Request):
         body["role"] = payload["role"]
     if "can_see_drafts" in payload:
         body["can_see_drafts"] = bool(payload["can_see_drafts"])
+    for field in (
+        "max_compositions",
+        "max_exports_per_week",
+        "max_exports_per_month",
+        "max_export_items",
+    ):
+        if field in payload:
+            body[field] = _parse_quota(payload[field], field)
     if not body:
         raise HTTPException(status_code=400, detail="没有可更新的字段")
     from backend.cloud import supabase as sb
@@ -342,3 +420,190 @@ def delete_grant(grant_id: int, request: Request):
     if n == 0:
         raise HTTPException(status_code=404, detail="grant not found")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# 组卷查看（管理端）：全部用户的组卷列表 + 题目明细
+# ---------------------------------------------------------------------------
+
+def _embed_one(value: object) -> dict | None:
+    """PostgREST 嵌入可能是 dict 或单元素 list，统一取 dict。"""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list) and value and isinstance(value[0], dict):
+        return value[0]
+    return None
+
+
+@router.get("/compositions")
+def list_compositions():
+    """全部用户的组卷（含所属邮箱与题目数），按更新时间倒序。"""
+    from backend.cloud import supabase as sb
+
+    cfg = _require_cloud()
+    try:
+        rows = sb.select(
+            cfg,
+            "compositions",
+            columns=(
+                "id,name,title,visibility,created_at,updated_at,owner_id,"
+                "profiles(email),composition_items(id)"
+            ),
+        )
+    except sb.SupabaseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    out = []
+    for r in rows:
+        items = r.get("composition_items") or []
+        prof = _embed_one(r.get("profiles"))
+        out.append(
+            {
+                "id": r.get("id"),
+                "name": r.get("name"),
+                "title": r.get("title"),
+                "visibility": r.get("visibility"),
+                "created_at": r.get("created_at"),
+                "updated_at": r.get("updated_at"),
+                "owner_id": r.get("owner_id"),
+                "owner_email": (prof or {}).get("email") or "",
+                "item_count": len(items) if isinstance(items, list) else 0,
+            }
+        )
+    out.sort(key=lambda r: str(r.get("updated_at") or ""), reverse=True)
+    return out
+
+
+@router.get("/compositions/{composition_id}")
+def composition_detail(composition_id: str):
+    """单卷题目明细（题号/试卷/模块），按 sort_order 排序。"""
+    import uuid as uuid_mod
+
+    from backend.cloud import supabase as sb
+
+    try:
+        uuid_mod.UUID(composition_id)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=400, detail="composition_id 无效") from None
+    cfg = _require_cloud()
+    try:
+        rows = sb.select(
+            cfg,
+            "composition_items",
+            columns=(
+                "id,sort_order,item_type,blank_pages,score,"
+                "questions(question_no,section,paper_id,papers(exam_code,filename))"
+            ),
+            filters={"composition_id": f"eq.{composition_id}"},
+        )
+    except sb.SupabaseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    out = []
+    for r in rows:
+        q = _embed_one(r.get("questions"))
+        paper = _embed_one((q or {}).get("papers")) if q else None
+        out.append(
+            {
+                "id": r.get("id"),
+                "sort_order": r.get("sort_order"),
+                "item_type": r.get("item_type"),
+                "blank_pages": r.get("blank_pages"),
+                "score": r.get("score"),
+                "question_no": (q or {}).get("question_no"),
+                "section": (q or {}).get("section"),
+                "exam_code": (paper or {}).get("exam_code") or (paper or {}).get("filename"),
+            }
+        )
+    out.sort(key=lambda r: int(r.get("sort_order") or 0))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 全局设置：网页浏览水印 + 导出水印（app_config key = 'export'）
+# 结构：{enabled: bool, mode: 'preset'|'custom', text: string}
+#   preset：浏览 = {email} 平铺；导出 = {email} {date} 斜向
+#   custom：使用 text，支持 {email}/{date} 占位符
+# ---------------------------------------------------------------------------
+
+_WM_DEFAULTS = {"export_watermark": False, "browse_watermark": True}
+_WM_MODES = {"preset", "custom"}
+_WM_MAX_TEXT = 200
+
+
+def _wm_shape(raw: object, key: str) -> dict:
+    """把存储值规整为完整水印配置（缺字段用默认补）。"""
+    d = raw if isinstance(raw, dict) else {}
+    mode = d.get("mode") if d.get("mode") in _WM_MODES else "preset"
+    return {
+        "enabled": bool(d.get("enabled", _WM_DEFAULTS[key])),
+        "mode": mode,
+        "text": str(d.get("text") or "")[:_WM_MAX_TEXT],
+    }
+
+
+def _wm_patch(payload: object, key: str) -> dict:
+    """校验 PATCH 传入的水印子对象（部分字段更新）。"""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail=f"{key} 必须是对象")
+    out: dict = {}
+    if "enabled" in payload:
+        out["enabled"] = bool(payload["enabled"])
+    if "mode" in payload:
+        if payload["mode"] not in _WM_MODES:
+            raise HTTPException(status_code=400, detail="mode 必须是 preset/custom")
+        out["mode"] = payload["mode"]
+    if "text" in payload:
+        text = str(payload["text"] or "")
+        if len(text) > _WM_MAX_TEXT:
+            raise HTTPException(status_code=400, detail=f"text 最长 {_WM_MAX_TEXT} 字符")
+        out["text"] = text
+    if not out:
+        raise HTTPException(status_code=400, detail="没有可更新的字段")
+    return out
+
+
+def _read_settings_value() -> dict:
+    from backend.cloud import supabase as sb
+
+    cfg = _require_cloud()
+    try:
+        rows = sb.select(cfg, "app_config", columns="value", filters={"key": "eq.export"})
+    except sb.SupabaseError as exc:
+        # 迁移 0004 尚未执行时给出默认值，避免整页报错
+        logger.warning("app_config select failed, using defaults: %s", exc)
+        rows = []
+    if rows and isinstance(rows[0].get("value"), dict):
+        return rows[0]["value"]
+    return {}
+
+
+@router.get("/settings")
+def get_settings():
+    value = _read_settings_value()
+    return {
+        "export_watermark": _wm_shape(value.get("export_watermark"), "export_watermark"),
+        "browse_watermark": _wm_shape(value.get("browse_watermark"), "browse_watermark"),
+    }
+
+
+@router.patch("/settings")
+def update_settings(payload: dict, request: Request):
+    _require_token(request)
+    updates: dict[str, dict] = {}
+    for key in ("export_watermark", "browse_watermark"):
+        if key in payload:
+            updates[key] = _wm_patch(payload[key], key)
+    if not updates:
+        raise HTTPException(status_code=400, detail="没有可更新的字段")
+
+    from backend.cloud import supabase as sb
+
+    cfg = _require_cloud()
+    current = _read_settings_value()
+    merged = dict(current)
+    for key, patch in updates.items():
+        merged[key] = {**_wm_shape(current.get(key), key), **patch}
+    try:
+        sb.upsert(cfg, "app_config", [{"key": "export", "value": merged}], on_conflict="key")
+    except sb.SupabaseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return {"ok": True, **{key: merged[key] for key in updates}}

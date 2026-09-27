@@ -33,6 +33,7 @@ const appUpdateStore = useAppUpdateStore()
 const shortcutStatus = ref<{ desktop: boolean; startMenu: boolean; canCreate: boolean } | null>(null)
 const shortcutBusy = ref(false)
 const shortcutMsg = ref('')
+const canManageShortcuts = computed(() => !!window.electronAPI?.shortcutCreate)
 
 async function refreshShortcutStatus() {
   if (!window.electronAPI?.shortcutStatus) {
@@ -742,15 +743,15 @@ onUnmounted(() => {
       </div>
 
       <!-- Desktop / Start Menu shortcuts (portable) -->
-      <div v-if="shortcutStatus?.canCreate" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary)">
+      <div v-if="canManageShortcuts" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary)">
         <span>{{ t('settings.shortcuts.label') }}</span>
         <button class="btn btn-ghost btn-sm" :disabled="shortcutBusy" @click="onCreateShortcuts">
           {{ shortcutBusy ? t('settings.shortcuts.creating') : t('settings.shortcuts.create') }}
         </button>
-        <span v-if="shortcutStatus.desktop || shortcutStatus.startMenu" style="font-size: 12px; color: #22c55e">
-          {{ shortcutStatus.desktop ? t('settings.shortcuts.hasDesktop') : '' }}
-          <template v-if="shortcutStatus.desktop && shortcutStatus.startMenu"> · </template>
-          {{ shortcutStatus.startMenu ? t('settings.shortcuts.hasStartMenu') : '' }}
+        <span v-if="shortcutStatus?.desktop || shortcutStatus?.startMenu" style="font-size: 12px; color: #22c55e">
+          {{ shortcutStatus?.desktop ? t('settings.shortcuts.hasDesktop') : '' }}
+          <template v-if="shortcutStatus?.desktop && shortcutStatus?.startMenu"> · </template>
+          {{ shortcutStatus?.startMenu ? t('settings.shortcuts.hasStartMenu') : '' }}
         </span>
         <span v-if="shortcutMsg" style="font-size: 12px; color: var(--text-tertiary)">{{ shortcutMsg }}</span>
       </div>

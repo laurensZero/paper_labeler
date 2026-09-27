@@ -9,6 +9,7 @@ import MultiSelect from '@/components/MultiSelect.vue'
 import ExportDialog from '@/components/ExportDialog.vue'
 import { buildCascadeOptions, fetchSectionsGraph, UNSET_SECTION, type CascadeGroup } from '@/lib/sections'
 import { fetchAnswerBoxes } from '@/lib/exportData'
+import { checkCompositionQuota, quotaErrorKey } from '@/lib/quota'
 import type { ExportQuestionInput } from '@/lib/pdfExport'
 
 const { t } = useI18n()
@@ -273,13 +274,18 @@ async function openComposition(id: string) {
 async function createNew() {
   const name = newName.value.trim()
   if (!name) return
+  if ((await checkCompositionQuota()) === 'comp') {
+    pageError.value = t('quota.compReached')
+    return
+  }
   const { data, error } = await getSupabase()
     .from('compositions')
     .insert({ name, owner_id: auth.session!.user.id })
     .select('id')
     .single()
   if (error) {
-    pageError.value = error.message
+    const qKey = quotaErrorKey(error)
+    pageError.value = qKey ? t(qKey) : error.message
     return
   }
   newName.value = ''
@@ -287,6 +293,10 @@ async function createNew() {
 }
 
 async function duplicateComposition(id: string) {
+  if ((await checkCompositionQuota()) === 'comp') {
+    pageError.value = t('quota.compReached')
+    return
+  }
   const { data, error } = await getSupabase()
     .from('compositions')
     .select('*')
@@ -316,7 +326,8 @@ async function duplicateComposition(id: string) {
     .select('id')
     .single()
   if (e2) {
-    pageError.value = e2.message
+    const qKey = quotaErrorKey(e2)
+    pageError.value = qKey ? t(qKey) : e2.message
     return
   }
   const newId = (created as { id: string }).id
@@ -782,7 +793,7 @@ onMounted(async () => {
             <span class="muted" style="font-size: 12px">{{ t('compose.statsLine', { q: questionItemCount, p: estimatedPages }) }}</span>
           </div>
 
-          <div ref="previewRef" class="cv-preview-scroll">
+          <div ref="previewRef" class="cv-preview-scroll protected">
             <!-- 封面预览 -->
             <div v-if="showCoverPreview" class="cv-page cv-page--cover">
               <div class="cv-cover-frame">
@@ -1077,6 +1088,7 @@ onMounted(async () => {
       :default-filename="exportFilenameDefault"
       :preset="exportPreset"
       :show-summary="false"
+      :composition-id="compId"
     />
   </div>
 </template>

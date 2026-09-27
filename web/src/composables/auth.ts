@@ -7,6 +7,14 @@ export interface Profile {
   email: string
   role: 'admin' | 'teacher'
   can_see_drafts: boolean
+  /** 组卷存量上限（null = 不限；管理端「导出管控」配置） */
+  max_compositions: number | null
+  /** 导出次数·本周上限（周期制，防批量导出） */
+  max_exports_per_week: number | null
+  /** 导出次数·本月上限 */
+  max_exports_per_month: number | null
+  /** 单次导出题目数上限（题库导出与组卷导出同受此限） */
+  max_export_items: number | null
 }
 
 interface AuthState {
@@ -26,7 +34,9 @@ let initPromise: Promise<void> | null = null
 async function loadProfile(userId: string): Promise<void> {
   const { data } = await getSupabase()
     .from('profiles')
-    .select('id,email,role,can_see_drafts')
+    .select(
+      'id,email,role,can_see_drafts,max_compositions,max_exports_per_week,max_exports_per_month,max_export_items',
+    )
     .eq('id', userId)
     .maybeSingle()
   state.profile = (data as Profile | null) ?? null

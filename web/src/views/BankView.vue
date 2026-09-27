@@ -639,7 +639,7 @@ onBeforeUnmount(() => {
         <div v-if="loading && !rows.length" class="bank-empty">{{ t('bank.loading') }}</div>
 
         <template v-else-if="selected">
-          <div class="bank-question" :key="selected.id">
+          <div class="bank-question protected" :key="selected.id">
             <div v-if="sortedBoxes(selected).length" class="bank-question-imgs">
               <img
                 v-for="b in sortedBoxes(selected)"

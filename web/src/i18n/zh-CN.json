@@ -250,5 +250,11 @@
       "notFound": "组卷不存在或无权查看",
       "copyFailed": "复制失败"
     }
+  },
+  "quota": {
+    "compReached": "组卷数已达上限，请联系管理员调高上限或删除不用的组卷。",
+    "exportWeekReached": "本周导出次数已达上限，请联系管理员调高上限，或下周一再试。",
+    "exportMonthReached": "本月导出次数已达上限，请联系管理员调高上限，或下月再试。",
+    "exportItemsReached": "单次导出最多 {max} 题，请减少题目后再试。"
   }
 }
