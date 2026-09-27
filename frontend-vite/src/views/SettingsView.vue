@@ -13,6 +13,7 @@ import { useAppUpdateStore } from '@/stores/appUpdate'
 import { i18n } from '@/i18n'
 import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 import { cloudApi } from '@/api/endpoints'
+import { CLOUD_ADMIN_ENABLED } from '@/features'
 import { ApiError } from '@/api/client'
 import type { CloudConfigInfo, CloudSyncSummary } from '@/types'
 
@@ -328,11 +329,11 @@ async function loadCloudInfo() {
 onMounted(() => {
   settingsStore.loadFromStorage()
   settingsStore.loadCloudToken()
-  cloudTokenInput.value = settingsStore.cloudToken
+  if (CLOUD_ADMIN_ENABLED) cloudTokenInput.value = settingsStore.cloudToken
   exportStore.loadExportSettings()
   exportStore.refreshExportCacheOverview()
   appUpdateStore.init()
-  void loadCloudInfo()
+  if (CLOUD_ADMIN_ENABLED) void loadCloudInfo()
 })
 
 onUnmounted(() => {
@@ -546,7 +547,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 云端同步 -->
-    <div class="card">
+    <template v-if="CLOUD_ADMIN_ENABLED">    <div class="card">
       <div class="card-title">{{ t('settings.cloud.title') }}</div>
       <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5">
         {{ t('settings.cloud.desc') }}
@@ -614,6 +615,7 @@ onUnmounted(() => {
         {{ t('settings.cloud.never') }}
       </div>
     </div>
+    </template>
 
     <!-- 数据维护 -->
     <div class="card">

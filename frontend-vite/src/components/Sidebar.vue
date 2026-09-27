@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { usePapersStore } from '@/stores/papers'
+import { CLOUD_ADMIN_ENABLED } from '@/features'
 import { useCieImportStore } from '@/stores/cieImport'
 import PaperList from './PaperList.vue'
 
@@ -118,7 +119,7 @@ function openCieImport() {
         </svg>
         <span v-if="!props.collapsed" class="footer-btn-label">{{ t('nav.sections') }}</span>
       </button>
-      <button class="footer-btn" :class="{ collapsed: props.collapsed }" @click="router.push({ name: 'cloud-admin' })" v-tooltip="t('nav.cloud')">
+      <button v-if="CLOUD_ADMIN_ENABLED" class="footer-btn" :class="{ collapsed: props.collapsed }" @click="router.push({ name: 'cloud-admin' })" v-tooltip="t('nav.cloud')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
         </svg>

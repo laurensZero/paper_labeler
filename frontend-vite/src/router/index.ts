@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { CLOUD_ADMIN_ENABLED } from '@/features'
 
 const router = createRouter({
   history: createWebHistory('/ui/'),
@@ -12,7 +13,12 @@ const router = createRouter({
     { path: '/sections', name: 'sections', component: () => import('@/views/SectionEditor.vue') },
     { path: '/compose', name: 'compose', component: () => import('@/views/ComposeView.vue') },
     { path: '/compose/:id', name: 'compose-edit', component: () => import('@/views/ComposeView.vue') },
-    { path: '/cloud', name: 'cloud-admin', component: () => import('@/views/CloudAdminView.vue') },
+    {
+      path: '/cloud',
+      name: 'cloud-admin',
+      component: () => import('@/views/CloudAdminView.vue'),
+      beforeEnter: () => (CLOUD_ADMIN_ENABLED ? true : { name: 'filter' }),
+    },
     { path: '/:pathMatch(.*)*', redirect: '/filter' },
   ],
 })
