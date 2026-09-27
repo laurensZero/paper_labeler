@@ -604,8 +604,7 @@ onBeforeUnmount(() => {
       </div>
       <input
         v-model="filters.jump"
-        class="input"
-        style="width: 96px"
+        class="input bank-jump"
         :placeholder="t('bank.jumpPh')"
         @keydown.enter="jumpToQuestion"
       />

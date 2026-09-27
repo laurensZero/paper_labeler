@@ -32,6 +32,92 @@ async function launch() {
   }
 }
 
+// ---- 云端清理机制：本测写入 Supabase 的数据（反馈/收藏）必须在 finally 恢复原状，不留垃圾 ----
+const rootEnv = (() => {
+  try {
+    const txt = readFileSync(join(__dir, '..', '..', '.env'), 'utf8')
+    const pick = (k) => ((txt.match(new RegExp(`^${k}=(.*)$`, 'm')) || [])[1] || '').trim()
+    return { url: pick('SUPABASE_URL'), key: pick('SUPABASE_SERVICE_ROLE_KEY') }
+  } catch {
+    return { url: '', key: '' }
+  }
+})()
+
+async function sb(path, opts = {}) {
+  const res = await fetch(`${rootEnv.url}/rest/v1/${path}`, {
+    method: opts.method || 'GET',
+    headers: {
+      apikey: rootEnv.key,
+      Authorization: `Bearer ${rootEnv.key}`,
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
+    body: opts.body,
+  })
+  if (!res.ok) throw new Error(`sb ${opts.method || 'GET'} ${path} -> ${res.status} ${await res.text()}`)
+  return res.status === 204 ? null : res.json()
+}
+
+// 测试写入跟踪
+let fbBody = null // 反馈正文（唯一 marker）
+let favIds = [] // 被批量收藏的题 id
+let favSnap = null // 批量收藏前的 question_user_data 快照（null=未取，不执行恢复）
+
+async function cleanupCloudData() {
+  const lines = []
+  if (fbBody) {
+    if (!rootEnv.url) {
+      lines.push('⚠ 无 service key，反馈未能清理')
+    } else {
+      const q = `suggestions?body=eq.${encodeURIComponent(fbBody)}`
+      await sb(q, { method: 'DELETE' })
+      const left = await sb(`${q}&select=id`)
+      if (left.length) throw new Error(`反馈残留 ${left.length} 条`)
+      lines.push('反馈已删除')
+      fbBody = null
+    }
+  }
+  if (favIds.length) {
+    if (!rootEnv.url || !favSnap) {
+      lines.push('⚠ 无快照，收藏未恢复')
+    } else {
+      const q = `question_user_data?question_id=in.(${favIds.join(',')})&select=question_id,user_id,is_favorite,note`
+      const after = await sb(q)
+      const key = (r) => `${r.question_id}:${r.user_id}`
+      const before = new Map(favSnap.map((r) => [key(r), r]))
+      for (const row of after) {
+        const prev = before.get(key(row))
+        if (!prev) {
+          await sb(`question_user_data?question_id=eq.${row.question_id}&user_id=eq.${row.user_id}`, {
+            method: 'DELETE',
+          })
+        } else if (prev.is_favorite !== row.is_favorite || prev.note !== row.note) {
+          await sb('question_user_data', {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates' },
+            body: JSON.stringify([
+              { question_id: prev.question_id, user_id: prev.user_id, is_favorite: prev.is_favorite, note: prev.note },
+            ]),
+          })
+        }
+      }
+      const now = await sb(q)
+      const nowMap = new Map(now.map((r) => [key(r), r]))
+      if (now.length !== favSnap.length) throw new Error(`收藏残留: 现 ${now.length} vs 快照 ${favSnap.length}`)
+      for (const prev of favSnap) {
+        const cur = nowMap.get(key(prev))
+        if (!cur || cur.is_favorite !== prev.is_favorite || cur.note !== prev.note) {
+          throw new Error(`收藏未恢复 ${key(prev)}`)
+        }
+      }
+      lines.push(`收藏已恢复（快照 ${favSnap.length} 行）`)
+      favIds = []
+      favSnap = null
+    }
+  }
+  return lines.join('，')
+}
+
 const browser = await launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 page.on('dialog', (d) => void d.accept())
@@ -136,13 +222,14 @@ try {
   ok('显示答案面板')
   await page.click('button:has-text("隐藏答案")')
 
-  // 2d2. 题目反馈：提交 → 出现在我的反馈列表
-  await page.fill('.bank-feedback textarea', 'E2E 反馈：这题印刷有点糊')
+  // 2d2. 题目反馈：提交（唯一 marker，finally 里删除，不往 Supabase 留垃圾）
+  fbBody = `E2E 反馈测试 ${Date.now()}`
+  await page.fill('.bank-feedback textarea', fbBody)
   await page.click('.bank-feedback button:has-text("提交反馈")')
   await page.waitForSelector('.bank-feedback-item', { timeout: 8000 })
   const fbText = (await page.locator('.bank-feedback-item').first().textContent()) || ''
   if (!fbText.includes('E2E 反馈')) fail('题目反馈内容', fbText)
-  ok('题目反馈提交', '提交后立即出现在列表')
+  ok('题目反馈提交', '提交后立即出现在列表（测后清理）')
 
   // 3. 级联筛选：大分类 → 小分类
   await page.click('.bank-ctl--cascade .scs-trigger')
@@ -309,13 +396,22 @@ try {
   await page.click('.ex-modal button:has-text("关闭")')
   await page.waitForSelector('.ex-modal', { state: 'detached', timeout: 5000 })
 
-  // 6b. 批量收藏：勾选题打星 → 缩略图收藏标记 +2；退出多选清空勾选
+  // 6b. 批量收藏：先快照原状态（finally 恢复，不污染个人收藏）
+  favIds = await page.evaluate(() =>
+    [...document.querySelectorAll('.fs-item--selected')].map((e) => Number(e.dataset.fsId)),
+  )
+  if (favIds.length !== 2) fail('批量收藏前置', `选中数=${favIds.length}`)
+  if (rootEnv.url) {
+    favSnap = await sb(
+      `question_user_data?question_id=in.(${favIds.join(',')})&select=question_id,user_id,is_favorite,note`,
+    )
+  }
   await page.click('.bank-toolbar button:has-text("批量收藏")')
   await page.waitForFunction(
     () => document.querySelectorAll('.fs-item--fav.fs-item--selected').length === 2,
     { timeout: 10000 },
   )
-  ok('批量收藏', '2 题缩略图出现收藏星标')
+  ok('批量收藏', '2 题缩略图出现收藏星标（测后恢复）')
   await page.click('.bank-toolbar button:has-text("已选")')
   const cleared = await page.locator('.fs-item--selected').count()
   if (cleared !== 0) fail('退出多选', `仍残留 ${cleared} 个勾选`)
@@ -344,6 +440,58 @@ try {
   await page.click('.ex-modal button:has-text("关闭")')
   await page.waitForSelector('.ex-modal', { state: 'detached', timeout: 5000 })
 
+  // 7. 移动端适配冒烟（375×812）：主区纵排、信息卡全宽落下方、选择器两列、无横向滚动
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto(`${BASE}/bank`, { waitUntil: 'networkidle' })
+  await page.waitForSelector('.fs-item', { timeout: 15000 })
+  await page.waitForSelector('.bank-info', { timeout: 15000 })
+  await page.waitForTimeout(600)
+  const mob = await page.evaluate(() => {
+    const info = document.querySelector('.bank-info')
+    const hero = document.querySelector('.bank-hero')
+    const main = document.querySelector('.bank-main')
+    const ctls = [...document.querySelectorAll('.bank-toolbar .bank-ctl')]
+    return {
+      dir: getComputedStyle(main).flexDirection,
+      infoW: Math.round(info.getBoundingClientRect().width),
+      infoTop: Math.round(info.getBoundingClientRect().top),
+      heroTop: Math.round(hero.getBoundingClientRect().top),
+      ctlTops: ctls.map((e) => Math.round(e.getBoundingClientRect().top)),
+      imgW: Math.round(document.querySelector('.bank-question-imgs img')?.getBoundingClientRect().width || 0),
+      hOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    }
+  })
+  if (mob.dir !== 'column') fail('移动端主区纵排', `flex-direction=${mob.dir}`)
+  if (mob.infoW < 340) fail('移动端信息卡全宽', `w=${mob.infoW}`)
+  if (mob.imgW < 340) fail('移动端题图满宽可读', `题图宽 ${mob.imgW}px（375 视口应 ≥340）`)
+  if (mob.infoTop <= mob.heroTop) fail('移动端信息卡在题图下方', `info=${mob.infoTop} hero=${mob.heroTop}`)
+  if (mob.ctlTops[0] !== mob.ctlTops[1] || mob.ctlTops[2] !== mob.ctlTops[3] || mob.ctlTops[0] === mob.ctlTops[2]) {
+    fail('移动端选择器两列', `tops=${JSON.stringify(mob.ctlTops)}`)
+  }
+  if (mob.hOverflow > 1) fail('移动端无横向滚动', `溢出 ${mob.hOverflow}px`)
+  // 组卷页纵排 + 弹窗贴边（建临时方案验证，验完即删，不残留数据）
+  await page.goto(`${BASE}/compose`, { waitUntil: 'networkidle' })
+  await page.waitForTimeout(800)
+  const mobileComp = `移动端 ${Date.now()}`
+  if (await page.locator('button:has-text("新建方案")').count()) {
+    await page.click('button:has-text("新建方案")')
+    await page.fill('.cv-new-row input', mobileComp)
+    await page.click('.cv-new-row button:has-text("新建")')
+    await page.waitForURL('**/compose/**', { timeout: 10000 })
+  }
+  await page.waitForSelector('.cv-body', { timeout: 15000 })
+  const mobCv = await page.evaluate(() => {
+    const body = document.querySelector('.cv-body')
+    return { dir: body ? getComputedStyle(body).flexDirection : 'n/a' }
+  })
+  if (mobCv.dir !== 'column') fail('移动端组卷三栏纵排', `flex-direction=${mobCv.dir}`)
+  // 立即删除临时方案
+  await page.click('button[title="打开方案"]')
+  await page.waitForSelector('.cv-comp-item', { timeout: 10000 })
+  await page.locator(`.cv-comp-item:has-text("${mobileComp}")`).locator('button:has-text("删除")').click()
+  await page.waitForSelector('.cv-empty', { timeout: 10000 })
+  ok('移动端适配（375px）', `题图 ${mob.imgW}px 满宽、信息卡 ${mob.infoW}px、选择器两列、组卷纵排`)
+
   console.log('\nALL PASS')
   process.exitCode = 0
 } catch (e) {
@@ -351,5 +499,13 @@ try {
   await page.screenshot({ path: join(SHOTS, '9-failure.png') }).catch(() => {})
   process.exitCode = 1
 } finally {
+  // 无论成败：清理本测写入 Supabase 的反馈/收藏，并自检
+  try {
+    const msg = await cleanupCloudData()
+    if (msg) console.log('CLEANUP: ' + msg)
+  } catch (e) {
+    console.error('CLEANUP FAILED:', e.message)
+    process.exitCode = 1
+  }
   await browser.close()
 }

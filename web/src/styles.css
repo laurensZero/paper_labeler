@@ -1965,3 +1965,180 @@ img.skel.is-loaded {
   border: 1px solid var(--line);
   color: var(--ink-3);
 }
+
+/* 跳转输入框（原内联 width 移入类，便于响应式覆盖） */
+.bank-jump {
+  width: 96px;
+}
+
+/* ============ 响应式：平板 ≤900px（题库主区纵排，信息卡落到题图下方） ============ */
+@media (max-width: 900px) {
+  .bank-main {
+    flex-direction: column;
+    overflow-y: auto;
+    gap: 12px;
+  }
+
+  .bank-hero {
+    flex: none;
+    overflow: visible;
+    padding: 12px 14px;
+  }
+
+  .bank-info {
+    width: 100%;
+    flex: none;
+    margin: 0;
+  }
+
+  .bank-question {
+    max-width: none;
+  }
+
+  .cv-panel--bank,
+  .cv-panel--props {
+    width: 240px;
+  }
+}
+
+/* ============ 响应式：手机 ≤640px ============ */
+@media (max-width: 640px) {
+  .topbar {
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .user-email {
+    display: none;
+  }
+
+  .main {
+    padding: 6px;
+  }
+
+  /* 移动浏览器地址栏自适应：优先 dvh，旧内核回退 vh */
+  .bank {
+    height: calc(100vh - 36px - 20px);
+    height: calc(100dvh - 36px - 20px);
+  }
+
+  .cv {
+    height: calc(100vh - 36px - 20px);
+    height: calc(100dvh - 36px - 20px);
+  }
+
+  /* 工具栏：四个选择器改两列流式（覆盖桌面定宽，同特异度、后声明生效） */
+  .bank-toolbar {
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .bank-toolbar .bank-ctl.bank-ctl--cascade,
+  .bank-toolbar .bank-ctl.bank-ctl--paper,
+  .bank-toolbar .bank-ctl.bank-ctl--sm,
+  .bank-toolbar .bank-jump {
+    width: calc(50% - 3px);
+  }
+
+  .bank-search {
+    flex: 1 1 calc(50% - 3px);
+    min-width: 0;
+  }
+
+  .bank-search-input {
+    width: auto;
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* 压缩选择器高度，首屏优先露出题目图片 */
+  .bank-toolbar .bank-ctl.bank-ctl--cascade .scs-trigger,
+  .bank-toolbar .bank-ctl .ms-trigger,
+  .bank-toolbar .bank-ctl .pcms-trigger {
+    min-height: 34px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  /* 题图与文字：外层留白收到最小，题图优先占满（375 视口 ≈349px 宽） */
+  .bank-hero {
+    padding: 6px;
+  }
+
+  .bank-question-imgs {
+    border-radius: 12px;
+  }
+
+  .bank-qno {
+    font-size: 20px;
+  }
+
+  /* filmstrip：加大触控目标 */
+  .bank-strip {
+    padding: 0 6px;
+  }
+
+  .fs-item {
+    padding: 8px 14px;
+    min-width: 52px;
+  }
+
+  /* 信息卡动作按钮：触控高度 */
+  .bank-action {
+    padding: 10px 8px;
+  }
+
+  /* 组卷：三栏纵排，左栏列表内部限高可滚 */
+  .cv-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .cv-panel {
+    flex: none;
+  }
+
+  .cv-panel--bank {
+    width: 100%;
+    max-height: 38vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .cv-panel--props {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    overflow-y: visible;
+  }
+
+  .cv-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .cv-name-input {
+    width: 100%;
+  }
+
+  .cv-page,
+  .cv-section-header,
+  .cv-page--cover {
+    width: min(420px, calc(100vw - 24px));
+  }
+
+  /* 弹窗贴边 */
+  .cv-modal-overlay {
+    padding: 12px;
+  }
+
+  .cv-modal,
+  .ex-modal {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+  }
+
+  /* 登录卡自适应 */
+  .login-card {
+    width: min(360px, 100%);
+  }
+}
