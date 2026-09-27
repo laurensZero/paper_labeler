@@ -30,6 +30,41 @@ const markStore = useMarkStore()
 const answerStore = useAnswerStore()
 const appUpdateStore = useAppUpdateStore()
 
+const shortcutStatus = ref<{ desktop: boolean; startMenu: boolean; canCreate: boolean } | null>(null)
+const shortcutBusy = ref(false)
+const shortcutMsg = ref('')
+
+async function refreshShortcutStatus() {
+  if (!window.electronAPI?.shortcutStatus) {
+    shortcutStatus.value = null
+    return
+  }
+  try {
+    shortcutStatus.value = await window.electronAPI.shortcutStatus()
+  } catch {
+    shortcutStatus.value = null
+  }
+}
+
+async function onCreateShortcuts() {
+  if (!window.electronAPI?.shortcutCreate) return
+  shortcutBusy.value = true
+  shortcutMsg.value = ''
+  try {
+    const res = await window.electronAPI.shortcutCreate()
+    if (res?.error) {
+      shortcutMsg.value = res.error
+    } else {
+      shortcutMsg.value = t('settings.shortcuts.created')
+      await refreshShortcutStatus()
+    }
+  } catch (e) {
+    shortcutMsg.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    shortcutBusy.value = false
+  }
+}
+
 const importing = ref(false)
 const importResult = ref<{ ok: boolean; imported?: string[]; error?: string } | null>(null)
 
@@ -333,6 +368,7 @@ onMounted(() => {
   exportStore.loadExportSettings()
   exportStore.refreshExportCacheOverview()
   appUpdateStore.init()
+  void refreshShortcutStatus()
   if (CLOUD_ADMIN_ENABLED) void loadCloudInfo()
 })
 
@@ -703,6 +739,20 @@ onUnmounted(() => {
       </div>
       <div v-if="appUpdateStore.error" style="margin-top: 6px; font-size: 12px; color: #ef4444">
         {{ appUpdateStore.error }}
+      </div>
+
+      <!-- Desktop / Start Menu shortcuts (portable) -->
+      <div v-if="shortcutStatus?.canCreate" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary)">
+        <span>{{ t('settings.shortcuts.label') }}</span>
+        <button class="btn btn-ghost btn-sm" :disabled="shortcutBusy" @click="onCreateShortcuts">
+          {{ shortcutBusy ? t('settings.shortcuts.creating') : t('settings.shortcuts.create') }}
+        </button>
+        <span v-if="shortcutStatus.desktop || shortcutStatus.startMenu" style="font-size: 12px; color: #22c55e">
+          {{ shortcutStatus.desktop ? t('settings.shortcuts.hasDesktop') : '' }}
+          <template v-if="shortcutStatus.desktop && shortcutStatus.startMenu"> · </template>
+          {{ shortcutStatus.startMenu ? t('settings.shortcuts.hasStartMenu') : '' }}
+        </span>
+        <span v-if="shortcutMsg" style="font-size: 12px; color: var(--text-tertiary)">{{ shortcutMsg }}</span>
       </div>
 
       <!-- 更新信息面板 -->

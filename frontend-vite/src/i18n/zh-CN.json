@@ -420,6 +420,14 @@
       "tokenPlaceholder": "与 .env 中 PAPER_CLOUD_TOKEN 一致",
       "tokenSave": "保存 Token"
     },
+    "shortcuts": {
+      "label": "快捷方式",
+      "create": "创建桌面/开始菜单快捷方式",
+      "creating": "正在创建...",
+      "created": "快捷方式已创建，可直接双击打开",
+      "hasDesktop": "已创建桌面",
+      "hasStartMenu": "已创建开始菜单"
+    },
     "about": {
       "title": "关于",
       "version": "Paper Labeler v2.0",

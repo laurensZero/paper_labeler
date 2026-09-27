@@ -420,6 +420,14 @@
       "tokenPlaceholder": "Same as PAPER_CLOUD_TOKEN in .env",
       "tokenSave": "Save token"
     },
+    "shortcuts": {
+      "label": "Shortcuts",
+      "create": "Create desktop / Start Menu shortcuts",
+      "creating": "Creating...",
+      "created": "Shortcuts created — double-click to launch",
+      "hasDesktop": "Desktop",
+      "hasStartMenu": "Start Menu"
+    },
     "about": {
       "title": "About",
       "version": "Paper Labeler v2.0",

@@ -14,6 +14,8 @@ let depsInstallError = ''
 let portableExePath = null
 let pendingUpdateFile = null
 
+setupPortableUserData()
+
 // Directory next to the executable (portable dir when applicable), dev root otherwise.
 function getExeDir() {
   if (app.isPackaged) {
@@ -24,6 +26,29 @@ function getExeDir() {
     return path.dirname(app.getPath('exe'))
   }
   return path.resolve(__dirname, '..', '..')
+}
+
+// Pin Electron userData next to the portable exe so settings / CIE history
+// survive updates and travel with the folder. One-time migrate from AppData.
+function setupPortableUserData() {
+  if (!app.isPackaged) return
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR
+  if (!portableDir || !fs.existsSync(portableDir)) return
+
+  const portableUserData = path.join(portableDir, 'userdata')
+  try {
+    const legacy = app.getPath('userData')
+    const legacyResolved = path.resolve(legacy)
+    const portableResolved = path.resolve(portableUserData)
+    if (legacyResolved !== portableResolved && fs.existsSync(legacyResolved) && !fs.existsSync(portableResolved)) {
+      fs.cpSync(legacyResolved, portableResolved, { recursive: true })
+      console.log('[userData] migrated', legacyResolved, '->', portableResolved)
+    }
+    fs.mkdirSync(portableResolved, { recursive: true })
+    app.setPath('userData', portableResolved)
+  } catch (e) {
+    console.error('[userData] setup failed:', e && e.message)
+  }
 }
 
 // ROOT: where backend/ lives (for Python import).
@@ -397,6 +422,35 @@ function downloadFile(url, dest, onProgress, redirectsLeft = 5) {
   })
 }
 
+function fetchText(url, headers = {}, redirectsLeft = 5) {
+  return new Promise((resolve, reject) => {
+    const request = electronNet.request({
+      url,
+      session: session.defaultSession,
+      redirect: 'manual',
+      headers,
+    })
+    request.on('response', (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
+        res.resume()
+        const location = Array.isArray(res.headers.location) ? res.headers.location[0] : res.headers.location
+        fetchText(new URL(location, url).toString(), headers, redirectsLeft - 1).then(resolve, reject)
+        return
+      }
+      const chunks = []
+      res.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+      res.on('end', () => resolve({
+        status: res.statusCode || 0,
+        url,
+        body: Buffer.concat(chunks).toString('utf-8'),
+      }))
+      res.on('error', reject)
+    })
+    request.on('error', reject)
+    request.end()
+  })
+}
+
 function sha256File(filePath) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256')
@@ -466,8 +520,65 @@ Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction Silent
   return scriptPath
 }
 
+
+function resolveShortcutTarget() {
+  // Prefer the stable portable exe path so shortcuts keep working after update-replace.
+  const exe = portableExePath || (app.isPackaged ? process.execPath : null)
+  if (!exe || !fs.existsSync(exe)) return null
+  return { target: exe, cwd: path.dirname(exe) }
+}
+
+function shortcutPaths() {
+  const desktop = path.join(app.getPath('desktop'), 'Paper Labeler.lnk')
+  const programs = path.join(app.getPath('startMenu'), 'Programs')
+  const startMenu = path.join(programs, 'Paper Labeler.lnk')
+  return { desktop, startMenu }
+}
+
+function writeAppShortcut(shortcutPath) {
+  const info = resolveShortcutTarget()
+  if (!info) throw new Error('shortcut target not found')
+  const ok = shell.writeShortcutLink(shortcutPath, 'replace', {
+    target: info.target,
+    cwd: info.cwd,
+    description: 'Paper Labeler',
+  })
+  if (!ok) throw new Error('failed to write shortcut: ' + shortcutPath)
+  return shortcutPath
+}
+
 function setupPortableUpdater() {
   portableExePath = detectPortableExe()
+
+  ipcMain.handle('shortcut:create', async () => {
+    try {
+      const paths = shortcutPaths()
+      const created = []
+      created.push(writeAppShortcut(paths.desktop))
+      try {
+        created.push(writeAppShortcut(paths.startMenu))
+      } catch (e) {
+        console.error('[shortcut] start menu failed:', e.message)
+      }
+      return { ok: true, created }
+    } catch (e) {
+      return { error: e.message || String(e) }
+    }
+  })
+
+  ipcMain.handle('shortcut:status', async () => {
+    try {
+      const paths = shortcutPaths()
+      return {
+        desktop: fs.existsSync(paths.desktop),
+        startMenu: fs.existsSync(paths.startMenu),
+        canCreate: !!resolveShortcutTarget(),
+      }
+    } catch (e) {
+      return { desktop: false, startMenu: false, canCreate: false, error: e.message }
+    }
+  })
+
   if (portableExePath) {
     console.log('[updater] portable exe:', portableExePath)
   }
@@ -476,6 +587,16 @@ function setupPortableUpdater() {
 
   ipcMain.handle('updater:open-releases', () => {
     shell.openExternal('https://github.com/laurensZero/paper_labeler/releases/latest')
+  })
+
+  ipcMain.handle('updater:fetch-release', async (_event, opts) => {
+    const url = String(opts?.url || '')
+    if (!/^https:\/\/(api\.github\.com|github\.com)\//i.test(url)) return { status: 400, url, body: '' }
+    try {
+      return await fetchText(url, opts?.headers || {})
+    } catch (e) {
+      return { status: 599, url, body: e.message || String(e) }
+    }
   })
 
   ipcMain.handle('updater:download-portable', async (_event, opts) => {
