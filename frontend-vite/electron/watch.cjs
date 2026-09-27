@@ -10,6 +10,14 @@ let backendProc = null
 let electronProc = null
 
 function findPython() {
+  // Prefer project venv so backend deps / PYTHONPATH match manual runs.
+  const venvPy = isWin
+    ? path.resolve(ROOT, '..', 'venv', 'Scripts', 'python.exe')
+    : path.resolve(ROOT, '..', 'venv', 'bin', 'python')
+  try {
+    require('child_process').execSync(`"${venvPy}" --version`, { stdio: 'ignore' })
+    return venvPy
+  } catch {}
   const candidates = ['python', 'python3', 'py']
   for (const cmd of candidates) {
     try {
@@ -29,12 +37,20 @@ if (!python) {
 }
 
 console.log('[watch] Starting backend...')
-backendProc = spawn(python, ['-X', 'utf8', '-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', '8000'], {
-  cwd: path.resolve(ROOT, '..'),
-  stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
-  shell: isWin,
-})
+backendProc = spawn(
+  python,
+  [
+    '-X', 'utf8', '-m', 'uvicorn', 'backend.main:app',
+    '--host', '127.0.0.1', '--port', '8000',
+    '--reload', '--reload-dir', path.resolve(ROOT, '..', 'backend'),
+  ],
+  {
+    cwd: path.resolve(ROOT, '..'),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    shell: isWin,
+  },
+)
 backendProc.stdout.setEncoding('utf-8')
 backendProc.stderr.setEncoding('utf-8')
 backendProc.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`))

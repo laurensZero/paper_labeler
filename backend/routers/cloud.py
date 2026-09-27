@@ -147,7 +147,8 @@ def list_suggestions():
             "suggestions",
             columns=(
                 "id,body,status,created_at,question_id,user_id,"
-                "profiles(email),questions(question_no,papers(exam_code))"
+                "profiles(email),"
+                "questions(question_no,paper_id,papers(exam_code))"
             ),
         )
     except sb.SupabaseError as exc:
@@ -173,6 +174,22 @@ def update_suggestion(suggestion_id: int, payload: dict, request: Request):
     return {"ok": True, "status": status}
 
 
+@router.delete("/suggestions/{suggestion_id}")
+def delete_suggestion(suggestion_id: int, request: Request):
+    """Permanently remove one feedback row."""
+    _require_token(request)
+    from backend.cloud import supabase as sb
+
+    cfg = _require_cloud()
+    try:
+        n = sb.delete_filtered(cfg, "suggestions", {"id": f"eq.{suggestion_id}"})
+    except sb.SupabaseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    if n == 0:
+        raise HTTPException(status_code=404, detail="suggestion not found")
+    return {"ok": True}
+
+
 @router.get("/profiles")
 def list_profiles():
     from backend.cloud import supabase as sb
@@ -187,6 +204,62 @@ def list_profiles():
     except sb.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
     return sorted(rows, key=lambda r: str(r.get("email") or ""))
+
+
+@router.post("/users")
+def create_user(payload: dict, request: Request):
+    """Invite a user by email. They set their own password via the email link."""
+    _require_token(request)
+    email = str(payload.get("email") or "").strip()
+    role = str(payload.get("role") or "teacher")
+    can_see_drafts = bool(payload.get("can_see_drafts", False))
+    if not email or "@" not in email or " " in email:
+        raise HTTPException(status_code=400, detail="email 无效")
+    if role not in {"admin", "teacher"}:
+        raise HTTPException(status_code=400, detail="role 必须是 admin/teacher")
+
+    from backend.cloud import supabase as sb
+
+    cfg = _require_cloud()
+    invite_url = None
+    user_id = ""
+    try:
+        user = sb.admin_invite_user(cfg, email)
+        user_id = str(user.get("id") or "")
+    except sb.SupabaseError as exc:
+        msg = str(exc)
+        if "already registered" in msg or "already been registered" in msg or "email_exists" in msg:
+            raise HTTPException(status_code=409, detail="该邮箱已存在") from None
+        # SMTP not configured / invite failed → hand the admin a manual link.
+        try:
+            invite_url = sb.admin_generate_invite_link(cfg, email)
+            if invite_url:
+                # generate_link also creates the auth user
+                existing = sb.select(cfg, "profiles", columns="id,email", filters={"email": f"eq.{email}"})
+                if existing:
+                    user_id = str(existing[0].get("id") or "")
+        except sb.SupabaseError as exc2:
+            raise HTTPException(status_code=502, detail=f"{msg} / link: {exc2}") from None
+        if not invite_url:
+            raise HTTPException(status_code=502, detail=msg) from None
+
+    if user_id:
+        try:
+            existing = sb.select(cfg, "profiles", columns="id", filters={"id": f"eq.{user_id}"})
+            if existing:
+                sb.patch(cfg, "profiles", {"id": f"eq.{user_id}"}, {"role": role, "can_see_drafts": can_see_drafts})
+            else:
+                sb.insert(cfg, "profiles", [{"id": user_id, "email": email, "role": role, "can_see_drafts": can_see_drafts}])
+        except sb.SupabaseError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from None
+
+    return {
+        "ok": True,
+        "email": email,
+        "role": role,
+        "invited": invite_url is None,
+        "invite_url": invite_url,
+    }
 
 
 @router.patch("/profiles/{user_id}")
@@ -236,7 +309,7 @@ def create_grant(payload: dict, request: Request):
     user_id = str(payload.get("user_id") or "")
     scope = str(payload.get("scope") or "")
     value = str(payload.get("scope_value") or "").strip()
-    if not user_id or scope not in {"section", "paper", "question"} or not value:
+    if not user_id or scope not in {"section", "section_group", "paper", "question"} or not value:
         raise HTTPException(status_code=400, detail="user_id/scope/scope_value 无效")
     from backend.cloud import supabase as sb
 

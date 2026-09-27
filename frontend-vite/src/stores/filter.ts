@@ -11,6 +11,33 @@ import { useDialogStore } from './dialog'
 import { api, convertKeysToSnake } from '@/api/client'
 import type { Question, QuestionSearchParams, QuestionSearchResponse, QuestionsBatchUpdateParams, FilterQuestion } from '@/types'
 import { clampInt } from '@/utils/geometry'
+import { invalidateFilterCache } from '@/utils/exportCache'
+
+function localStore() {
+  return {
+    getItem: (k: string) => {
+      try {
+        return localStorage.getItem(k)
+      } catch {
+        return null
+      }
+    },
+    setItem: (k: string, v: string) => {
+      try {
+        localStorage.setItem(k, v)
+      } catch {
+        /* ignore */
+      }
+    },
+    removeItem: (k: string) => {
+      try {
+        localStorage.removeItem(k)
+      } catch {
+        /* ignore */
+      }
+    },
+  }
+}
 
 function extractPaperYear(text: string): string {
   const m = String(text || '').match(/_(m|s|w)(\d{2})_/i)
@@ -74,11 +101,7 @@ export const useFilterStore = defineStore('filter', () => {
       return
     } catch {}
     try {
-      localStorage.removeItem('cache:exportFilterIdsByKey')
-      localStorage.removeItem('cache:exportFilterIdsLatest')
-      const rawVersion = localStorage.getItem('cache:exportFilterCacheVersion')
-      const nextVersion = Math.max(0, Number(rawVersion || 0)) + 1
-      localStorage.setItem('cache:exportFilterCacheVersion', String(nextVersion))
+      invalidateFilterCache(localStore())
     } catch {}
   }
 

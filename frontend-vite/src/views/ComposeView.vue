@@ -585,7 +585,10 @@ async function exportComposition() {
                   </div>
                 </div>
                 <div v-if="!compositions.length" class="comp-list-empty">
-                  暂无方案
+                  {{ t('compose.noCompositions') }}
+                </div>
+                <div class="comp-list-hint">
+                  {{ t('compose.localOnlyHint') }}
                 </div>
               </div>
             </div>
@@ -2206,5 +2209,15 @@ async function exportComposition() {
   text-align: center;
   color: var(--text-tertiary);
   font-size: 13px;
+}
+
+.comp-list-hint {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-pressed);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

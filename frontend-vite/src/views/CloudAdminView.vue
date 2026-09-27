@@ -1,15 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/api/client'
+import { cloudAuthHeaders } from '@/api/endpoints'
 import { useSectionsStore } from '@/stores/sections'
 import { usePapersStore } from '@/stores/papers'
+import { useFilterStore } from '@/stores/filter'
+import SectionCascadeSelect from '@/components/ui/SectionCascadeSelect.vue'
 
 defineOptions({ name: 'CloudAdminView' })
 
 const { t } = useI18n()
+const router = useRouter()
 const sectionsStore = useSectionsStore()
 const papersStore = usePapersStore()
+const filterStore = useFilterStore()
 
 const tab = ref<'feedback' | 'perm'>('feedback')
 const error = ref('')
@@ -43,7 +49,11 @@ interface FeedbackRow {
   question_id: number
   user_id: string | null
   profiles: { email: string } | { email: string }[] | null
-  questions: { question_no: string | null; papers: { exam_code: string | null } | { exam_code: string | null }[] | null } | null
+  questions: {
+    question_no: string | null
+    paper_id: number | null
+    papers: { exam_code: string | null } | { exam_code: string | null }[] | null
+  } | null
 }
 
 const fbRows = ref<FeedbackRow[]>([])
@@ -69,7 +79,7 @@ async function setSuggestionStatus(row: FeedbackRow, status: string) {
   try {
     await api(`/cloud/suggestions/${row.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...cloudAuthHeaders() },
       body: JSON.stringify({ status }),
     })
     row.status = status
@@ -78,6 +88,72 @@ async function setSuggestionStatus(row: FeedbackRow, status: string) {
   } finally {
     fbBusyId.value = null
   }
+}
+
+async function deleteSuggestion(row: FeedbackRow) {
+  if (!window.confirm(t('cloud.fbDeleteConfirm'))) return
+  fbBusyId.value = row.id
+  error.value = ''
+  try {
+    await api(`/cloud/suggestions/${row.id}`, {
+      method: 'DELETE',
+      headers: cloudAuthHeaders(),
+    })
+    fbRows.value = fbRows.value.filter((r) => r.id !== row.id)
+  } catch (e: any) {
+    if (e?.status === 405) {
+      error.value = t('cloud.fbDeleteNeedRestart')
+    } else {
+      error.value = errText(e)
+    }
+  } finally {
+    fbBusyId.value = null
+  }
+}
+
+async function resolvePaperId(row: FeedbackRow): Promise<number | null> {
+  const q = one(row.questions)
+  const fromJoin = Number(q?.paper_id)
+  if (Number.isFinite(fromJoin) && fromJoin > 0) return fromJoin
+  // Cloud embed may omit paper_id — ask the local labeling API.
+  if (row.question_id) {
+    try {
+      const detail = (await api(`/questions/${row.question_id}`)) as {
+        question?: { paper_id?: number }
+        paper_id?: number
+      }
+      const pid = Number(detail?.question?.paper_id ?? detail?.paper_id)
+      if (Number.isFinite(pid) && pid > 0) return pid
+    } catch {
+      /* fall through */
+    }
+  }
+  // Last resort: match local paper by exam_code shown in the label.
+  try {
+    const code = String(fbQLabel(row).split('·').pop() || '').trim()
+    if (code) {
+      await papersStore.refreshPapers({ silent: true })
+      const hit = papersStore.papers.find(
+        (p) => (papersStore.formatPaperName(p) || p.filename || '').includes(code) || p.exam_code === code,
+      )
+      if (hit?.id) return Number(hit.id)
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+async function locateQuestion(row: FeedbackRow) {
+  error.value = ''
+  const paperId = await resolvePaperId(row)
+  if (!paperId) {
+    error.value = t('cloud.fbLocateMissing')
+    return
+  }
+  filterStore.filterSearchKeyword = String(one(row.questions)?.question_no ?? row.question_id)
+  filterStore.filterReturnQid = row.question_id
+  await router.push({ name: 'mark', params: { paperId: String(paperId) } })
 }
 
 function fbQLabel(row: FeedbackRow): string {
@@ -115,7 +191,7 @@ interface ProfileRow {
 interface GrantRow {
   id: number
   user_id: string
-  scope: 'section' | 'paper' | 'question'
+  scope: 'section' | 'section_group' | 'paper' | 'question'
   scope_value: string
 }
 
@@ -124,19 +200,56 @@ const permLoading = ref(false)
 const selectedUserId = ref<string | null>(null)
 const grants = ref<GrantRow[]>([])
 const grantsLoading = ref(false)
-const grantScope = ref<'section' | 'paper'>('section')
 const grantValue = ref('')
+const grantPaperValue = ref('')
 const busyUserId = ref<string | null>(null)
 
-const sectionOptions = computed(() => sectionsStore.sectionDefs.map((s) => s.name))
-const paperOptions = computed(() =>
-  papersStore.papers.map((p) => ({
-    value: String(p.id),
-    label: papersStore.formatPaperName(p) || `#${p.id}`,
-  })),
-)
-const grantValueOptions = computed(() => (grantScope.value === 'section' ? sectionOptions.value : paperOptions.value.map((o) => o.label)))
+const newEmail = ref('')
+const newRole = ref<'teacher' | 'admin'>('teacher')
+const newSeeDrafts = ref(false)
+const creatingUser = ref(false)
+const inviteResult = ref('')
+
+function onEmailInput(e: Event) {
+  newEmail.value = (e.target as HTMLInputElement)?.value ?? ''
+}
+
+// 与筛选页同构：大类可整组授权，小类单独授权
+const grantCascadeOptions = computed(() => {
+  const groups: { label: string; options: { value: string; label: string }[] }[] = []
+  for (const group of sectionsStore.sectionOptionGroupsAll) {
+    const options: { value: string; label: string }[] = [
+      { value: `group:${group.label}`, label: `【大类】${group.label}` },
+    ]
+    for (const name of group.options) {
+      options.push({
+        value: `section:${name}`,
+        label: sectionsStore.sectionLabelMap[name] || name,
+      })
+    }
+    groups.push({ label: group.label, options })
+  }
+  return groups
+})
+
+const paperCascadeOptions = computed(() => [
+  {
+    label: t('cloud.permScopePaper'),
+    options: papersStore.papers.map((p) => ({
+      value: `paper:${p.id}`,
+      label: papersStore.formatPaperName(p) || `#${p.id}`,
+    })),
+  },
+])
+
 const selectedProfile = computed(() => profiles.value.find((p) => p.id === selectedUserId.value) ?? null)
+
+function decodeGrantValue(raw: string): { scope: 'section' | 'section_group' | 'paper'; value: string } | null {
+  if (raw.startsWith('group:')) return { scope: 'section_group', value: raw.slice(6) }
+  if (raw.startsWith('section:')) return { scope: 'section', value: raw.slice(8) }
+  if (raw.startsWith('paper:')) return { scope: 'paper', value: raw.slice(6) }
+  return null
+}
 
 async function loadProfiles() {
   permLoading.value = true
@@ -151,9 +264,45 @@ async function loadProfiles() {
   }
 }
 
+async function createUser() {
+  const email = newEmail.value.trim()
+  if (!email || !email.includes('@')) {
+    error.value = t('cloud.userInvalid')
+    return
+  }
+  creatingUser.value = true
+  error.value = ''
+  inviteResult.value = ''
+  try {
+    const res = (await api('/cloud/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...cloudAuthHeaders() },
+      body: JSON.stringify({
+        email,
+        role: newRole.value,
+        can_see_drafts: newSeeDrafts.value,
+      }),
+    })) as { invited?: boolean; invite_url?: string | null }
+    newEmail.value = ''
+    newRole.value = 'teacher'
+    newSeeDrafts.value = false
+    if (res?.invite_url) {
+      inviteResult.value = t('cloud.userInviteLink', { url: res.invite_url })
+    } else {
+      inviteResult.value = t('cloud.userInviteSent', { email })
+    }
+    await loadProfiles()
+  } catch (e) {
+    error.value = errText(e)
+  } finally {
+    creatingUser.value = false
+  }
+}
+
 async function selectUser(id: string) {
   selectedUserId.value = id
   grantValue.value = ''
+  grantPaperValue.value = ''
   grantsLoading.value = true
   error.value = ''
   try {
@@ -172,7 +321,7 @@ async function patchProfile(p: ProfileRow, body: Record<string, unknown>) {
   try {
     await api(`/cloud/profiles/${p.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...cloudAuthHeaders() },
       body: JSON.stringify(body),
     })
     Object.assign(p, body)
@@ -185,26 +334,33 @@ async function patchProfile(p: ProfileRow, body: Record<string, unknown>) {
 
 function scopeLabel(scope: string): string {
   if (scope === 'section') return t('cloud.permScopeSection')
+  if (scope === 'section_group') return t('cloud.permScopeGroup')
   if (scope === 'paper') return t('cloud.permScopePaper')
   return 'question'
 }
 
 async function addGrant() {
-  if (!selectedUserId.value || !grantValue.value) return
-  // 试卷 scope 存 id，模块 scope 存名字
-  let value = grantValue.value
-  if (grantScope.value === 'paper') {
-    const opt = paperOptions.value.find((o) => o.label === value)
-    if (opt) value = opt.value
+  if (!selectedUserId.value) return
+  const raw = grantValue.value || grantPaperValue.value
+  if (!raw) return
+  const decoded = decodeGrantValue(raw)
+  if (!decoded) {
+    error.value = t('cloud.permValue')
+    return
   }
   error.value = ''
   try {
     await api('/cloud/grants', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: selectedUserId.value, scope: grantScope.value, scope_value: value }),
+      headers: { 'Content-Type': 'application/json', ...cloudAuthHeaders() },
+      body: JSON.stringify({
+        user_id: selectedUserId.value,
+        scope: decoded.scope,
+        scope_value: decoded.value,
+      }),
     })
     grantValue.value = ''
+    grantPaperValue.value = ''
     await selectUser(selectedUserId.value)
   } catch (e) {
     error.value = errText(e)
@@ -214,7 +370,7 @@ async function addGrant() {
 async function removeGrant(id: number) {
   error.value = ''
   try {
-    await api(`/cloud/grants/${id}`, { method: 'DELETE' })
+    await api(`/cloud/grants/${id}`, { method: 'DELETE', headers: cloudAuthHeaders() })
     grants.value = grants.value.filter((g) => g.id !== id)
   } catch (e) {
     error.value = errText(e)
@@ -223,10 +379,10 @@ async function removeGrant(id: number) {
 
 function displayGrantValue(g: GrantRow): string {
   if (g.scope === 'paper') {
-    const opt = paperOptions.value.find((o) => o.value === g.scope_value)
-    return opt ? opt.label : g.scope_value
+    const hit = papersStore.papers.find((p) => String(p.id) === String(g.scope_value))
+    return hit ? papersStore.formatPaperName(hit) || `#${hit.id}` : g.scope_value
   }
-  return g.scope_value
+  return sectionsStore.sectionLabelMap[g.scope_value] || g.scope_value
 }
 
 onMounted(() => {
@@ -280,6 +436,11 @@ onMounted(() => {
             <td>
               <div class="cl-actions">
                 <button
+                  class="cl-btn cl-btn--ghost"
+                  :disabled="fbBusyId === row.id"
+                  @click="locateQuestion(row)"
+                >{{ t('cloud.fbLocate') }}</button>
+                <button
                   v-if="row.status !== 'accepted'"
                   class="cl-btn"
                   :disabled="fbBusyId === row.id"
@@ -297,6 +458,11 @@ onMounted(() => {
                   :disabled="fbBusyId === row.id"
                   @click="setSuggestionStatus(row, 'open')"
                 >{{ t('cloud.fbReopen') }}</button>
+                <button
+                  class="cl-btn cl-btn--danger"
+                  :disabled="fbBusyId === row.id"
+                  @click="deleteSuggestion(row)"
+                >{{ t('cloud.fbDelete') }}</button>
               </div>
             </td>
           </tr>
@@ -310,6 +476,42 @@ onMounted(() => {
     <!-- 权限管理 -->
     <div v-else class="cl-perm">
       <div class="cl-card cl-card--left">
+        <div class="cl-user-create" style="position: relative; z-index: 5">
+          <div class="cl-user-create-title">{{ t('cloud.userCreate') }}</div>
+          <form class="cl-user-create-row" style="position: relative; z-index: 6" @submit.prevent="createUser">
+            <input
+              class="cl-email-input"
+              type="text"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              placeholder="admin@example.com"
+              :disabled="creatingUser"
+              :value="newEmail"
+              style="width: 240px; max-width: 100%; min-height: 36px; padding: 6px 12px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: #111; outline: none; pointer-events: auto; user-select: text; -webkit-user-select: text; display: block"
+              @input="onEmailInput"
+              @keydown.stop
+              @keyup.stop
+              @click.stop
+            />
+            <select v-model="newRole" class="cl-select" :disabled="creatingUser" style="min-height: 36px">
+              <option value="teacher">{{ t('cloud.permRoleTeacher') }}</option>
+              <option value="admin">{{ t('cloud.permRoleAdmin') }}</option>
+            </select>
+            <label class="cl-check">
+              <input v-model="newSeeDrafts" type="checkbox" :disabled="creatingUser" />
+              {{ t('cloud.permDrafts') }}
+            </label>
+            <button
+              type="submit"
+              class="cl-btn cl-btn--primary"
+              :disabled="creatingUser || !newEmail.trim()"
+            >{{ t('cloud.userSubmit') }}</button>
+          </form>
+          <div class="cl-hint">{{ t('cloud.userInviteHint') }}</div>
+          <div v-if="inviteResult" class="cl-invite-result">{{ inviteResult }}</div>
+        </div>
+
         <div v-if="permLoading" class="cl-empty">…</div>
         <table v-else class="cl-table">
           <thead>
@@ -364,15 +566,19 @@ onMounted(() => {
           <p class="cl-hint">{{ t('cloud.permHint') }}</p>
 
           <div class="cl-grant-add">
-            <select v-model="grantScope" class="cl-select">
-              <option value="section">{{ t('cloud.permScopeSection') }}</option>
-              <option value="paper">{{ t('cloud.permScopePaper') }}</option>
-            </select>
-            <select v-model="grantValue" class="cl-select cl-select--wide">
-              <option value="" disabled>{{ t('cloud.permValue') }}</option>
-              <option v-for="v in grantValueOptions" :key="v" :value="v">{{ v }}</option>
-            </select>
-            <button class="cl-btn cl-btn--primary" :disabled="!grantValue" @click="addGrant">
+            <SectionCascadeSelect
+              v-model="grantValue"
+              :options="grantCascadeOptions"
+              :placeholder="t('cloud.permValue')"
+              style="min-width: 220px"
+            />
+            <SectionCascadeSelect
+              v-model="grantPaperValue"
+              :options="paperCascadeOptions"
+              :placeholder="t('cloud.permScopePaper')"
+              style="min-width: 180px"
+            />
+            <button class="cl-btn cl-btn--primary" :disabled="!grantValue && !grantPaperValue" @click="addGrant">
               {{ t('cloud.permAdd') }}
             </button>
           </div>
@@ -506,6 +712,79 @@ onMounted(() => {
   gap: 6px;
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+.cl-user-create {
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-pressed);
+}
+
+.cl-user-create-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.cl-user-create-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.cl-user-create-row:last-child {
+  margin-bottom: 0;
+}
+
+.cl-input {
+  flex: 1 1 180px;
+  width: 180px;
+  min-width: 160px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated, var(--bg-input));
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.cl-input:focus {
+  border-color: var(--accent);
+}
+
+.cl-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cl-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.cl-invite-result {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
 }
 
 .cl-btn {

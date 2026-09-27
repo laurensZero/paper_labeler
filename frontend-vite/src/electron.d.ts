@@ -11,16 +11,14 @@ interface ElectronAPI {
   selectFolder(): Promise<string | null>
   setTheme(theme: 'dark' | 'light'): void
 
-  // Auto-updater (electron-updater)
-  updaterCheck(): Promise<{ hasUpdate?: boolean; error?: string }>
-  updaterDownload(): Promise<{ ok?: boolean; error?: string }>
-  updaterInstall(): Promise<void>
-  updaterIsDownloaded(): Promise<boolean>
-  onUpdaterAvailable(callback: (info: { version: string; releaseNotes: string; releaseDate: string }) => void): void
-  onUpdaterProgress(callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void): void
-  onUpdaterDownloaded(callback: (info: { version: string }) => void): void
-  onUpdaterError(callback: (message: string) => void): void
-  onUpdaterNotAvailable(callback: () => void): void
+  // Portable EXE updater
+  updaterDownloadPortable(opts: { url: string; sha256?: string }): Promise<{ ok?: boolean; path?: string; error?: string }>
+  updaterApplyPortable(): Promise<{ ok?: boolean; error?: string }>
+  updaterIsPortable?(): Promise<boolean>
+  updaterOpenReleases?(): Promise<void>
+  onUpdaterPortableProgress?(callback: (progress: { percent: number }) => void): void
+  onUpdaterPortableDownloaded?(callback: (info: { path: string; sha256: string }) => void): void
+  onUpdaterPortableError?(callback: (message: string) => void): void
 }
 
 declare interface Window {

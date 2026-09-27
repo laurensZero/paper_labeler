@@ -134,3 +134,69 @@ def delete_filtered(cfg: CloudConfig, table: str, filters: dict[str, str]) -> in
     if status >= 400:
         _raise(cfg, "DELETE", path, status, resp)
     return len(json.loads(resp)) if resp.strip() else 0
+
+
+def _auth_request(
+    cfg: CloudConfig,
+    method: str,
+    path: str,
+    payload: dict | None = None,
+) -> tuple[int, dict]:
+    url = f"{cfg.supabase_url}/auth/v1/{path.lstrip('/')}"
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers=_headers(cfg))
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+            body = resp.read()
+            return resp.status, (json.loads(body) if body.strip() else {})
+    except urllib.error.HTTPError as exc:
+        body = exc.read()
+        try:
+            parsed = json.loads(body) if body.strip() else {}
+        except Exception:
+            parsed = {"message": body.decode("utf-8", "replace")[:300]}
+        return exc.code, parsed
+
+
+def admin_create_user(cfg: CloudConfig, email: str, password: str, *, email_confirm: bool = True) -> dict:
+    """Create an auth user via GoTrue admin API (service role)."""
+    status, body = _auth_request(
+        cfg,
+        "POST",
+        "admin/users",
+        {"email": email, "password": password, "email_confirm": email_confirm},
+    )
+    if status >= 400:
+        raise SupabaseError(status, "POST", "auth/v1/admin/users", json.dumps(body, ensure_ascii=False))
+    return body
+
+
+def admin_invite_user(cfg: CloudConfig, email: str, redirect_to: str | None = None) -> dict:
+    """Send an invite email; the link lets the user set their own password."""
+    payload: dict = {"email": email}
+    if redirect_to:
+        payload["redirect_to"] = redirect_to
+    status, body = _auth_request(cfg, "POST", "invite", payload)
+    if status >= 400:
+        raise SupabaseError(status, "POST", "auth/v1/invite", json.dumps(body, ensure_ascii=False))
+    return body
+
+
+def admin_generate_invite_link(cfg: CloudConfig, email: str, redirect_to: str | None = None) -> str:
+    """Fallback when SMTP is unavailable: return the invite URL for manual send."""
+    options: dict = {}
+    if redirect_to:
+        options["redirect_to"] = redirect_to
+    payload: dict = {"type": "invite", "email": email}
+    if options:
+        payload["options"] = options
+    status, body = _auth_request(cfg, "POST", "admin/generate_link", payload)
+    if status >= 400:
+        raise SupabaseError(status, "POST", "auth/v1/admin/generate_link", json.dumps(body, ensure_ascii=False))
+    return str(body.get("action_link") or body.get("action_link".replace("_", "")) or "")
+
+
+def admin_delete_user(cfg: CloudConfig, user_id: str) -> None:
+    status, body = _auth_request(cfg, "DELETE", f"admin/users/{user_id}")
+    if status >= 400:
+        raise SupabaseError(status, "DELETE", f"auth/v1/admin/users/{user_id}", json.dumps(body, ensure_ascii=False))

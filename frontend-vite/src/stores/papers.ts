@@ -8,7 +8,8 @@ import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 import type { BoundingBox } from '@/types/common'
-import type { PaperListItem, PaperDetail, Page, OcrQuestionDraft, OcrBoxDraft, UploadPdfResult } from '@/types'
+import type { PaperListItem, PaperDetail, Page, UploadPdfResult } from '@/types'
+import { normalizeOcrDrafts, normalizeOcrBoxes } from '@/utils/paper'
 
 // Helpers matching old frontend/app/helpers.js
 function stripPdfSuffix(name: string): string {
@@ -72,8 +73,9 @@ function stashPendingOcrUploadResult(item: UploadPdfResult & { id?: number; ocr_
   const paperId = Number(item?.id ?? item?.paper_id)
   if (!Number.isFinite(paperId)) return null
 
-  const drafts = Array.isArray(item?.ocr_questions) ? item.ocr_questions : []
-  const boxes = Array.isArray(item?.ocr_boxes) ? item.ocr_boxes : []
+  // Drop unlabeled fallback drafts/boxes — never invent "题？" cards.
+  const drafts = normalizeOcrDrafts(item?.ocr_questions)
+  const boxes = normalizeOcrBoxes(item?.ocr_boxes)
   const warning = item?.ocr_warning ?? item?.ocr_warn ?? item?.warning ?? null
 
   if (drafts.length) {
@@ -216,30 +218,25 @@ export const usePapersStore = defineStore('papers', () => {
     let openedWithPendingMessage = false
 
     if (pendingOcrDraftByPaperId.has(paperId)) {
-      const drafts = pendingOcrDraftByPaperId.get(paperId) || []
-      if (Array.isArray(drafts) && drafts.length) {
-        const validDrafts = drafts.filter((d) => d != null) as OcrQuestionDraft[]
-        markStore.ocrDraftQuestions = validDrafts
-          .map((q) => ({
-            label: String(q?.label ?? '?').trim() || '?',
-            sections: Array.isArray(q?.sections) ? q.sections : (q?.section ? [q.section] : []),
-            source: q?.source,
-          }))
-          .filter((q) => q && q.label)
+      const drafts = normalizeOcrDrafts(pendingOcrDraftByPaperId.get(paperId) || [])
+      const savedIdx = pendingOcrDraftSelectedIdxByPaperId.get(paperId)
+      pendingOcrDraftByPaperId.delete(paperId)
+      pendingOcrDraftSelectedIdxByPaperId.delete(paperId)
+      if (drafts.length) {
+        markStore.ocrDraftQuestions = drafts.map((q) => ({
+          label: q.label,
+          sections: [],
+        }))
 
-        if (pendingOcrDraftSelectedIdxByPaperId.has(paperId)) {
-          markStore.selectedOcrDraftIdx = clampInt(
-            pendingOcrDraftSelectedIdxByPaperId.get(paperId),
-            0,
-            Math.max(0, markStore.ocrDraftQuestions.length - 1),
-          )
-        }
+        markStore.selectedOcrDraftIdx = clampInt(
+          savedIdx ?? 0,
+          0,
+          Math.max(0, markStore.ocrDraftQuestions.length - 1),
+        )
 
         const flat: { page: number; bbox: BoundingBox; source: string; label: string | null; draftIdx: number }[] = []
-        markStore.ocrDraftQuestions.forEach((q, draftIdx) => {
-          if (!q || !validDrafts[draftIdx]) return
-          const boxes = (validDrafts[draftIdx]?.boxes || [])
-          for (const item of boxes) {
+        drafts.forEach((q, draftIdx) => {
+          for (const item of q.boxes) {
             const page = Number(item?.page)
             const bbox = toBoundingBox(item?.bbox)
             if (Number.isFinite(page) && bbox) {
@@ -267,18 +264,15 @@ export const usePapersStore = defineStore('papers', () => {
         openedWithPendingMessage = true
       }
     } else if (pendingOcrBoxesByPaperId.has(paperId)) {
-      const ocrBoxes = pendingOcrBoxesByPaperId.get(paperId) || []
+      const ocrBoxes = normalizeOcrBoxes(pendingOcrBoxesByPaperId.get(paperId) || [])
       pendingOcrBoxesByPaperId.delete(paperId)
-      if (Array.isArray(ocrBoxes) && ocrBoxes.length) {
-        markStore.newBoxes = (ocrBoxes as OcrBoxDraft[])
-          .map((b) => {
-            const page = Number(b?.page)
-            const bbox = toBoundingBox(b?.bbox)
-            return Number.isFinite(page) && bbox
-              ? { page, bbox, source: 'ocr', label: b?.label ?? null }
-              : null
-          })
-          .filter((b): b is NonNullable<typeof b> => b != null)
+      if (ocrBoxes.length) {
+        markStore.newBoxes = ocrBoxes.map((b) => ({
+          page: b.page,
+          bbox: b.bbox as BoundingBox,
+          source: 'ocr',
+          label: b.label,
+        }))
         markStore.selectedNewBox = markStore.newBoxes[0] || null
         const firstPage = markStore.selectedNewBox ? markStore.selectedNewBox.page : null
         if (firstPage != null && pages.value.length) {

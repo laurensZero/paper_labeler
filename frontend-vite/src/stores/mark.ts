@@ -13,7 +13,8 @@ import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 import type { BoundingBox } from '@/types/common'
-import type { Question, QuestionBox, OcrQuestionDraft, OcrBoxDraft } from '@/types'
+import type { Question, QuestionBox } from '@/types'
+import { normalizeOcrDrafts, normalizeOcrBoxes } from '@/utils/paper'
 import { clamp01, clampInt, normalizeBox, pointInBox } from '@/utils/geometry'
 import {
   alignBoxesPayloadToBoundsX,
@@ -910,37 +911,32 @@ export const useMarkStore = defineStore('mark', () => {
       selectedNewBox.value = null
       resetMarkHistory()
 
-      const drafts = data?.ocr_questions || []
+      // Only keep drafts with a real question number — never invent "题？" from label=null.
+      const drafts = normalizeOcrDrafts(data?.ocr_questions || [])
       Array.isArray(data?.skipped_pages) ? data.skipped_pages : []
       const warn = data?.ocr_warning
 
-      if (Array.isArray(drafts) && drafts.length) {
-        ocrDraftQuestions.value = (drafts as OcrQuestionDraft[])
-          .map((q) => ({ label: String(q?.label ?? '?').trim() || '?', sections: [] }))
-          .filter((q) => q && q.label)
+      if (drafts.length) {
+        ocrDraftQuestions.value = drafts.map((q) => ({ label: q.label, sections: [] }))
 
         const flat: NewBox[] = []
-        ocrDraftQuestions.value.forEach((q, draftIdx) => {
-          if (!q || !drafts[draftIdx]) return
-          const boxes = ((drafts[draftIdx]?.boxes || []) as OcrBoxDraft[]).map((b) => ({
-            page: Number(b?.page),
-            bbox: Array.from(b?.bbox || []) as BoundingBox,
-            source: 'ocr',
-            label: q.label,
-            draftIdx,
-          }))
-          for (const b of boxes) {
-            if (Number.isFinite(b.page) && Array.isArray(b.bbox) && b.bbox.length === 4) flat.push(b)
+        drafts.forEach((q, draftIdx) => {
+          for (const item of q.boxes) {
+            const page = Number(item?.page)
+            const bbox = Array.from(item?.bbox || []) as BoundingBox
+            if (Number.isFinite(page) && Array.isArray(bbox) && bbox.length === 4) {
+              flat.push({ page, bbox, source: 'ocr', label: q.label, draftIdx })
+            }
           }
         })
         newBoxes.value = flat
       } else {
-        const flatBoxes = data?.ocr_boxes || []
-        if (Array.isArray(flatBoxes) && flatBoxes.length) {
-          newBoxes.value = (flatBoxes as OcrBoxDraft[])
-            .map((b) => ({ page: Number(b.page), bbox: Array.from(b.bbox || []) as BoundingBox, source: 'ocr', label: b?.label ?? null }))
-            .filter((b) => Number.isFinite(b.page) && Array.isArray(b.bbox) && b.bbox.length === 4)
-        }
+        newBoxes.value = normalizeOcrBoxes(data?.ocr_boxes || []).map((b) => ({
+          page: b.page,
+          bbox: b.bbox as BoundingBox,
+          source: 'ocr',
+          label: b.label,
+        }))
       }
 
       selectedNewBox.value = newBoxes.value.length ? newBoxes.value[0] : null

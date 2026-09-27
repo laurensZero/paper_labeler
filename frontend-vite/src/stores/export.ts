@@ -11,50 +11,58 @@ import type { SectionStat } from '@/types/question'
 import { extractYearFromPaperName } from '@/utils/paper'
 import type { ExportJobStatus } from '@/types'
 import { clampInt } from '@/utils/geometry'
+import {
+  DEFAULT_EXPORT_NAME_TEMPLATE,
+  applyAutoTimestamp,
+  commitExportSeqState,
+  formatDateYmd,
+  formatTimeHm,
+  nextExportSeq,
+  normalizeUniqueValues,
+  renderExportNameTemplate as renderExportNameTemplatePure,
+  sanitizeExportTokenValue,
+  templateUsesSeq as templateUsesSeqPure,
+  validateExportNameTemplate as validateExportNameTemplatePure,
+} from '@/utils/exportName'
+import {
+  EXPORT_CACHE_TTL_MS,
+  bumpCacheStat,
+  buildFilterExportCacheKey as buildFilterExportCacheKeyPure,
+  clearPersistedFilterIds,
+  describeCacheOverview,
+  loadCacheStats,
+  loadPersistedFilterIds,
+  readCacheVersion,
+  savePersistedFilterIds,
+  writeCacheVersion,
+} from '@/utils/exportCache'
+import type { ExportSeqState } from '@/utils/exportName'
 
-function normalizeUniqueValues(values: unknown[]): string[] {
-  const out: string[] = []
-  const seen = new Set<string>()
-  for (const value of values || []) {
-    const key = String(value ?? '').trim()
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    out.push(key)
+function storageAdapter() {
+  return {
+    getItem: (k: string) => {
+      try {
+        return localStorage.getItem(k)
+      } catch {
+        return null
+      }
+    },
+    setItem: (k: string, v: string) => {
+      try {
+        localStorage.setItem(k, v)
+      } catch {
+        /* ignore */
+      }
+    },
+    removeItem: (k: string) => {
+      try {
+        localStorage.removeItem(k)
+      } catch {
+        /* ignore */
+      }
+    },
   }
-  return out
 }
-
-function sanitizeExportTokenValue(value: unknown): string {
-  return String(value ?? '')
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, '_')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/_+/g, '_')
-    .replace(/^[-_.]+|[-_.]+$/g, '')
-}
-
-function sanitizeExportFileNameCore(value: unknown): string {
-  const normalized = String(value ?? '')
-    .replace(/[\\/:*?"<>|]+/g, '_')
-    .replace(/\s+/g, '_')
-  return normalized
-    .split('_')
-    .map((part) => part.trim().replace(/^[-.]+|[-.]+$/g, ''))
-    .filter(Boolean)
-    .join('_')
-}
-
-function formatDateYmd(now = new Date()): string {
-  return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-}
-
-function formatTimeHm(now = new Date()): string {
-  return `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
-}
-
-// localStorage key constants matching old frontend
-const DEFAULT_EXPORT_NAME_TEMPLATE = '{mode}_{section}_{paper}_{year}_{season}_{count}'
 
 export interface ExportJobProgress {
   jobId: string
@@ -246,31 +254,14 @@ export const useExportStore = defineStore('export', () => {
   }
 
   function validateExportNameTemplate(template: string): string {
-    const effective = String(template || '').trim() || DEFAULT_EXPORT_NAME_TEMPLATE
-    const allowed = new Set([
-      'mode', 'section', 'paper', 'year', 'season', 'fav', 'exclude', 'count',
-      'ts', 'date', 'time', 'seq', 'custom',
-    ])
-    const unknown: string[] = []
-    const seen = new Set<string>()
-    const tokenRe = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g
-    let m: RegExpExecArray | null
-    while ((m = tokenRe.exec(effective)) !== null) {
-      const key = String(m[1] || '').toLowerCase()
-      if (!allowed.has(key) && !seen.has(key)) {
-        seen.add(key)
-        unknown.push(`{${key}}`)
-      }
-    }
-    return unknown.length ? `导出文件名模板包含未知占位符：${unknown.join('、')}` : ''
+    return validateExportNameTemplatePure(template)
   }
 
   function templateUsesSeq(template: string): boolean {
-    const effective = String(template || '').trim() || DEFAULT_EXPORT_NAME_TEMPLATE
-    return /\{seq\}/i.test(effective)
+    return templateUsesSeqPure(template)
   }
 
-  function getExportSeqState(): { exportSeqDate: string; exportSeqNum: number } {
+  function getExportSeqState(): ExportSeqState {
     try {
       const raw = localStorage.getItem('setting:exportSeqState')
       const parsed = raw ? JSON.parse(raw) : null
@@ -284,18 +275,15 @@ export const useExportStore = defineStore('export', () => {
   }
 
   function getNextExportSeq(now = new Date()): number {
-    const today = formatDateYmd(now)
-    const seqState = getExportSeqState()
-    return seqState.exportSeqDate === today ? Math.max(0, seqState.exportSeqNum) + 1 : 1
+    return nextExportSeq(getExportSeqState(), now)
   }
 
   function commitExportSeq(now = new Date()) {
-    const today = formatDateYmd(now)
-    const next = getNextExportSeq(now)
+    const next = commitExportSeqState(getExportSeqState(), now)
     try {
-      localStorage.setItem('setting:exportSeqState', JSON.stringify({ exportSeqDate: today, exportSeqNum: next }))
+      localStorage.setItem('setting:exportSeqState', JSON.stringify(next))
     } catch {}
-    return next
+    return next.exportSeqNum
   }
 
   function getYearSelectionInfo() {
@@ -383,26 +371,11 @@ export const useExportStore = defineStore('export', () => {
   }
 
   function renderExportNameTemplate({ template, context }: { template: string; context: Record<string, unknown> }) {
-    const effectiveTemplate = String(template || '').trim() || DEFAULT_EXPORT_NAME_TEMPLATE
-    const templateError = validateExportNameTemplate(effectiveTemplate)
-    const usedTemplate = templateError ? DEFAULT_EXPORT_NAME_TEMPLATE : effectiveTemplate
-    const rendered = usedTemplate.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_m, rawKey) => {
-      const key = String(rawKey || '').toLowerCase()
-      return String(context?.[key] ?? '')
-    })
-    const name = sanitizeExportFileNameCore(rendered).slice(0, 150)
-    return {
-      name: name || `export_${context.ts || `${formatDateYmd()}_${formatTimeHm()}`}`,
-      usedFallback: !!templateError,
-      templateError,
-      templateUsed: usedTemplate,
-    }
+    return renderExportNameTemplatePure({ template, context })
   }
 
   function buildRecommendedExportFileNamePreview({ idsCount = 0, fromRandom = false } = {}) {
-    let template = String(exportNameTemplate.value || '').trim() || DEFAULT_EXPORT_NAME_TEMPLATE
-    const hasTimeToken = /\{(?:ts|date|time)\}/i.test(template)
-    if (exportNameAutoTimestamp.value && !hasTimeToken) template = `${template}_{ts}`
+    const template = applyAutoTimestamp(exportNameTemplate.value, exportNameAutoTimestamp.value)
     const context = buildExportNameContext({ idsCount, fromRandom, now: new Date() })
     return renderExportNameTemplate({ template, context })
   }
@@ -592,136 +565,65 @@ export const useExportStore = defineStore('export', () => {
     return doneData
   }
 
-  // --- export cache ---
-  function getExportCacheTtlMs() { return 6 * 60 * 60 * 1000 }
-
-  function loadExportCacheStatsFromStorage() {
-    try {
-      const raw = localStorage.getItem('cache:exportFilterIdsStats')
-      if (!raw) return { hit: 0, miss: 0, expired: 0, write: 0, lastHitAt: 0, lastMissAt: 0, lastWriteAt: 0 }
-      return JSON.parse(raw)
-    } catch { return { hit: 0, miss: 0, expired: 0, write: 0, lastHitAt: 0, lastMissAt: 0, lastWriteAt: 0 } }
-  }
+  // --- export cache (pure helpers in utils/exportCache) ---
+  function getExportCacheTtlMs() { return EXPORT_CACHE_TTL_MS }
 
   function bumpExportCacheStat(kind: 'hit' | 'miss' | 'expired' | 'write') {
-    const now = Date.now()
-    const s = loadExportCacheStatsFromStorage()
-    if (kind === 'hit') { s.hit += 1; s.lastHitAt = now }
-    else if (kind === 'miss') { s.miss += 1; s.lastMissAt = now }
-    else if (kind === 'expired') { s.expired += 1 }
-    else if (kind === 'write') { s.write += 1; s.lastWriteAt = now }
-    exportCacheStats.value = s
-    try { localStorage.setItem('cache:exportFilterIdsStats', JSON.stringify(s)) } catch {}
+    exportCacheStats.value = bumpCacheStat(storageAdapter(), kind)
   }
 
   function invalidateExportFilterCache() {
     exportFilterIdsCacheKey.value = ''
     exportFilterIdsCacheIds.value = []
     exportFilterIdsCacheAt.value = 0
-    const nextVersion = getExportFilterCacheVersion() + 1
-    saveExportFilterCacheVersion(nextVersion)
-    try {
-      localStorage.removeItem('cache:exportFilterIdsByKey')
-      localStorage.removeItem('cache:exportFilterIdsLatest')
-    } catch {}
+    clearPersistedFilterIds(storageAdapter())
+    saveExportFilterCacheVersion(readCacheVersion(storageAdapter()) + 1)
     refreshExportCacheOverview()
   }
 
   function getExportFilterCacheVersion(): number {
-    let version = Number(exportFilterCacheVersion.value || 0)
-    if (!Number.isFinite(version) || version < 0) version = 0
-    try {
-      const raw = localStorage.getItem('cache:exportFilterCacheVersion')
-      if (raw != null) {
-        const parsed = Number(raw)
-        if (Number.isFinite(parsed) && parsed >= 0) {
-          version = Math.floor(parsed)
-          exportFilterCacheVersion.value = version
-        }
-      }
-    } catch {}
+    const version = readCacheVersion(storageAdapter())
+    exportFilterCacheVersion.value = version
     return version
   }
 
   function saveExportFilterCacheVersion(version: number) {
-    const v = Math.max(0, Math.floor(Number(version) || 0))
+    const v = writeCacheVersion(storageAdapter(), version)
     exportFilterCacheVersion.value = v
-    try { localStorage.setItem('cache:exportFilterCacheVersion', String(v)) } catch {}
     return v
   }
 
   function buildFilterExportCacheKey(): string {
     const filterStore = useFilterStore()
-    const payload = {
+    return buildFilterExportCacheKeyPure({
       version: getExportFilterCacheVersion(),
       section: filterStore.filterSection || '',
-      paperMulti: normalizeUniqueValues(filterStore.filterPaperMulti.map(String)).sort(),
-      yearMulti: normalizeUniqueValues(filterStore.filterYearMulti.map(String)).sort(),
-      seasonMulti: normalizeUniqueValues(filterStore.filterSeasonMulti.map((v) => String(v).toLowerCase())).sort(),
+      paperMulti: normalizeUniqueValues(filterStore.filterPaperMulti.map(String)),
+      yearMulti: normalizeUniqueValues(filterStore.filterYearMulti.map(String)),
+      seasonMulti: normalizeUniqueValues(filterStore.filterSeasonMulti.map((v) => String(v).toLowerCase())),
       favOnly: !!filterStore.filterFavOnly,
       excludeMultiSection: !!filterStore.filterExcludeMultiSection,
-    }
-    try { return JSON.stringify(payload) } catch { return '' }
+    })
   }
 
   function loadPersistedFilterExportIds(cacheKey: string): number[] | null {
-    if (!cacheKey) return null
-    const ttlMs = getExportCacheTtlMs()
-    try {
-      const raw = localStorage.getItem('cache:exportFilterIdsByKey')
-      const parsed = raw ? (JSON.parse(raw) || {}) : {}
-      const item = parsed[cacheKey]
-      if (!item || !Array.isArray(item.ids)) return null
-      const ts = Number(item.ts || 0)
-      if (!ts || (Date.now() - ts) > ttlMs) {
-        bumpExportCacheStat('expired')
-        return null
-      }
-      return item.ids.map((x: unknown) => Number(x)).filter((x: number) => Number.isFinite(x))
-    } catch {
+    const ids = loadPersistedFilterIds(storageAdapter(), cacheKey)
+    if (ids == null) {
+      if (cacheKey) bumpExportCacheStat('expired')
       return null
     }
+    return ids
   }
 
   function savePersistedFilterExportIds(cacheKey: string, ids: number[]) {
-    if (!cacheKey) return
-    try {
-      const raw = localStorage.getItem('cache:exportFilterIdsByKey')
-      const parsed = raw ? (JSON.parse(raw) || {}) : {}
-      parsed[cacheKey] = { ids, ts: Date.now() }
-      const entries = Object.entries(parsed as Record<string, any>)
-        .sort((a, b) => Number(b[1]?.ts || 0) - Number(a[1]?.ts || 0))
-      const pruned = Object.fromEntries(entries.slice(0, 12))
-      localStorage.setItem('cache:exportFilterIdsByKey', JSON.stringify(pruned))
-      bumpExportCacheStat('write')
-      refreshExportCacheOverview()
-    } catch {}
+    savePersistedFilterIds(storageAdapter(), cacheKey, ids)
+    bumpExportCacheStat('write')
+    refreshExportCacheOverview()
   }
 
   function refreshExportCacheOverview() {
-    const ttlMs = getExportCacheTtlMs()
-    let entryCount = 0
-    let newestAgeMs: number | null = null
-    let oldestAgeMs: number | null = null
-    try {
-      const raw = localStorage.getItem('cache:exportFilterIdsByKey')
-      const parsed = raw ? (JSON.parse(raw) || {}) : {}
-      const now = Date.now()
-      const ages: number[] = []
-      for (const [, item] of Object.entries(parsed as Record<string, any>)) {
-        if (!item || !Array.isArray(item.ids)) continue
-        const ts = Number(item.ts || 0)
-        if (!ts || (now - ts) > ttlMs) continue
-        entryCount += 1
-        ages.push(now - ts)
-      }
-      if (ages.length) {
-        newestAgeMs = Math.min(...ages)
-        oldestAgeMs = Math.max(...ages)
-      }
-    } catch {}
-    exportCacheOverview.value = { entryCount, newestAgeMs, oldestAgeMs, ttlMs }
-    exportCacheStats.value = loadExportCacheStatsFromStorage()
+    exportCacheOverview.value = describeCacheOverview(storageAdapter())
+    exportCacheStats.value = loadCacheStats(storageAdapter())
   }
 
   async function prepareFilterExportIds(): Promise<number[]> {

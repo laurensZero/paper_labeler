@@ -13,16 +13,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   setTheme: (theme) => ipcRenderer.send('set-theme', theme),
 
-  // Auto-updater (electron-updater)
-  updaterCheck: () => ipcRenderer.invoke('updater:check'),
-  updaterDownload: () => ipcRenderer.invoke('updater:download'),
-  updaterInstall: () => ipcRenderer.invoke('updater:install'),
-  updaterIsDownloaded: () => ipcRenderer.invoke('updater:is-downloaded'),
+  // Portable EXE updater
+  updaterDownloadPortable: (opts) => ipcRenderer.invoke('updater:download-portable', opts),
+  updaterApplyPortable: () => ipcRenderer.invoke('updater:apply-portable'),
   updaterIsPortable: () => ipcRenderer.invoke('updater:is-portable'),
   updaterOpenReleases: () => ipcRenderer.invoke('updater:open-releases'),
-  onUpdaterAvailable: (cb) => ipcRenderer.on('updater:available', (_, info) => cb(info)),
-  onUpdaterProgress: (cb) => ipcRenderer.on('updater:progress', (_, progress) => cb(progress)),
-  onUpdaterDownloaded: (cb) => ipcRenderer.on('updater:downloaded', (_, info) => cb(info)),
-  onUpdaterError: (cb) => ipcRenderer.on('updater:error', (_, msg) => cb(msg)),
-  onUpdaterNotAvailable: (cb) => ipcRenderer.on('updater:not-available', () => cb()),
+  onUpdaterPortableProgress: (cb) => ipcRenderer.on('updater:portable-progress', (_, progress) => cb(progress)),
+  onUpdaterPortableDownloaded: (cb) => ipcRenderer.on('updater:portable-downloaded', (_, info) => cb(info)),
+  onUpdaterPortableError: (cb) => ipcRenderer.on('updater:portable-error', (_, msg) => cb(msg)),
 })

@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Paper Labeler 云端双端 · MVP 设计稿</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <div class="kicker">Architecture Spec · MVP</div>
+      <h1>标注端上云 + 网页组卷/题库<br />双系统设计稿</h1>
+      <p class="lede">
+        现有桌面工具退居「标注专用」，改完手动同步到云端；另写一套轻网页给同事做题库浏览、组卷与导出。
+        本稿根据已确认决策收敛：表结构、存储边界、权限模型、MVP 范围与实施顺序。
+      </p>
+      <div class="meta">
+        <span class="pill"><strong>栈</strong> Supabase + CF R2</span>
+        <span class="pill"><strong>同步</strong> 手动推送</span>
+        <span class="pill"><strong>标注</strong> 单管理员</span>
+        <span class="pill"><strong>阶段</strong> 内测 MVP</span>
+      </div>
+    </header>
+
+    <nav class="toc">
+      <h2>目录</h2>
+      <ol>
+        <li><a href="#decisions">已锁定决策</a></li>
+        <li><a href="#arch">系统边界</a></li>
+        <li><a href="#storage">存储策略（省空间）</a></li>
+        <li><a href="#sync">同步协议</a></li>
+        <li><a href="#schema">表结构草稿</a></li>
+        <li><a href="#perm">权限模型（MVP）</a></li>
+        <li><a href="#mvp">MVP 功能清单</a></li>
+        <li><a href="#todo">TODO 留档</a></li>
+        <li><a href="#phases">实施顺序</a></li>
+      </ol>
+    </nav>
+
+    <!-- 1. Decisions -->
+    <section id="decisions">
+      <h2>1. 已锁定决策</h2>
+      <p class="muted">全部来自上一轮问答，MVP 按此执行。</p>
+      <table>
+        <thead>
+          <tr><th>项</th><th>决定</th><th>备注</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>同步模型</td>
+            <td>本地改完 → 点「同步到云端」</td>
+            <td>非实时；同事只看到已推送内容</td>
+          </tr>
+          <tr>
+            <td>可见性</td>
+            <td>可配置「某某人能看哪些题目」</td>
+            <td>与未校对题隐藏同一套权限</td>
+          </tr>
+          <tr>
+            <td>标注角色</td>
+            <td>单管理员</td>
+            <td><span class="tag tag-todo">TODO</span> 多管理员</td>
+          </tr>
+          <tr>
+            <td>网页预览</td>
+            <td>只看题目裁剪图</td>
+            <td>不传切页图、不需原卷上下文</td>
+          </tr>
+          <tr>
+            <td>组卷可见性</td>
+            <td>可私有 / 可共享</td>
+            <td><span class="tag tag-todo">TODO</span> 版本冻结可选</td>
+          </tr>
+          <tr>
+            <td>导出 PDF</td>
+            <td>浏览器端生成（已实施）</td>
+            <td>pdf-lib + 黑体子集嵌入；R2 webp 由浏览器解码转 JPEG 后拼版；版式对齐 export.py。原「Edge Function 服务端」方案因 Deno webp 解码与部署链路放弃</td>
+          </tr>
+          <tr>
+            <td>随机抽题</td>
+            <td>纳入 MVP</td>
+            <td>后端已有 <code class="inline">random_by_sections</code></td>
+          </tr>
+          <tr>
+            <td>登录</td>
+            <td>邮箱 + 密码</td>
+            <td><span class="tag tag-todo">TODO</span> 企业微信 SSO</td>
+          </tr>
+          <tr>
+            <td>题库权限</td>
+            <td>对同事只读 + suggestion</td>
+            <td>纠错走建议表，不直接改题</td>
+          </tr>
+          <tr>
+            <td>本地缓存</td>
+            <td>保留 SQLite</td>
+            <td>量大后不全量存题图（见 §3）</td>
+          </tr>
+          <tr>
+            <td>权限精细度</td>
+            <td>第一版可糙，内部测试</td>
+            <td>先把链路打穿</td>
+          </tr>
+          <tr>
+            <td>云厂商</td>
+            <td>Supabase + R2</td>
+            <td>接受国内风险；CF Workers 加速</td>
+          </tr>
+          <tr>
+            <td>本地组卷</td>
+            <td>不同步，两套并存</td>
+            <td>网页组卷独立建表（uuid）；推送清单不含 compositions</td>
+          </tr>
+          <tr>
+            <td>网页端位置</td>
+            <td><code class="inline">web/</code> 单仓</td>
+            <td>与标注端 <code class="inline">frontend-vite/</code> 互不依赖</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- 2. Architecture -->
+    <section id="arch">
+      <h2>2. 系统边界</h2>
+      <p>两套前端、一套云端数据。<strong>标注端</strong>是唯一写入口（题库）；<strong>网页端</strong>只读题库 + 写组卷/建议。</p>
+
+      <div class="diagram">
+        <svg viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC, Microsoft YaHei, sans-serif">
+          <!-- Desktop -->
+          <rect x="40" y="80" width="220" height="260" rx="12" fill="#fff" stroke="#e4dfd6" stroke-width="1.5"/>
+          <text x="150" y="112" text-anchor="middle" font-size="14" font-weight="700" fill="#1c1b19">标注端（桌面）</text>
+          <text x="150" y="134" text-anchor="middle" font-size="11" fill="#6b6560">现有 Paper Labeler</text>
+          <rect x="60" y="152" width="180" height="36" rx="8" fill="#f3e0d4"/>
+          <text x="150" y="174" text-anchor="middle" font-size="12" fill="#c45c26">上传 PDF · 框选 · 答案</text>
+          <rect x="60" y="198" width="180" height="36" rx="8" fill="#f6f4f0" stroke="#e4dfd6"/>
+          <text x="150" y="220" text-anchor="middle" font-size="12" fill="#1c1b19">本地 SQLite + 文件</text>
+          <rect x="60" y="244" width="180" height="36" rx="8" fill="#dcebe3"/>
+          <text x="150" y="266" text-anchor="middle" font-size="12" fill="#2f6b4f">「同步到云端」按钮</text>
+          <text x="150" y="312" text-anchor="middle" font-size="11" fill="#6b6560">唯一题库写入口</text>
+
+          <!-- Cloud -->
+          <rect x="320" y="80" width="260" height="260" rx="12" fill="#1c1b19"/>
+          <text x="450" y="112" text-anchor="middle" font-size="14" font-weight="700" fill="#f0ebe3">云端</text>
+          <rect x="340" y="136" width="100" height="70" rx="8" fill="#2a2724" stroke="#4a4540"/>
+          <text x="390" y="166" text-anchor="middle" font-size="12" fill="#f0ebe3">Supabase</text>
+          <text x="390" y="186" text-anchor="middle" font-size="10" fill="#a89f96">Auth + Postgres</text>
+          <rect x="460" y="136" width="100" height="70" rx="8" fill="#2a2724" stroke="#4a4540"/>
+          <text x="510" y="166" text-anchor="middle" font-size="12" fill="#f0ebe3">CF R2</text>
+          <text x="510" y="186" text-anchor="middle" font-size="10" fill="#a89f96">题目裁剪图 · 导出</text>
+          <rect x="340" y="222" width="220" height="36" rx="8" fill="#2a2724" stroke="#4a4540"/>
+          <text x="450" y="244" text-anchor="middle" font-size="11" fill="#a89f96">导出 Worker · CF Workers CDN</text>
+          <text x="450" y="292" text-anchor="middle" font-size="11" fill="#a89f96">不存切页图 / 不存原 PDF</text>
+          <text x="450" y="312" text-anchor="middle" font-size="11" fill="#a89f96">省空间 · 题图全量上传</text>
+
+          <!-- Web -->
+          <rect x="640" y="80" width="220" height="260" rx="12" fill="#fff" stroke="#e4dfd6" stroke-width="1.5"/>
+          <text x="750" y="112" text-anchor="middle" font-size="14" font-weight="700" fill="#1c1b19">网页端（新写）</text>
+          <text x="750" y="134" text-anchor="middle" font-size="11" fill="#6b6560">同事日常入口</text>
+          <rect x="660" y="152" width="180" height="36" rx="8" fill="#f3e0d4"/>
+          <text x="750" y="174" text-anchor="middle" font-size="12" fill="#c45c26">题库浏览（只读）</text>
+          <rect x="660" y="198" width="180" height="36" rx="8" fill="#f3e0d4"/>
+          <text x="750" y="220" text-anchor="middle" font-size="12" fill="#c45c26">组卷 · 随机抽题</text>
+          <rect x="660" y="244" width="180" height="36" rx="8" fill="#dcebe3"/>
+          <text x="750" y="266" text-anchor="middle" font-size="12" fill="#2f6b4f">导出 PDF · 提建议</text>
+          <text x="750" y="312" text-anchor="middle" font-size="11" fill="#6b6560">邮箱密码登录</text>
+
+          <!-- Arrows -->
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 8 5 L 0 9" fill="none" stroke="#c45c26" stroke-width="1.5"/>
+            </marker>
+            <marker id="arrow-ink" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 8 5 L 0 9" fill="none" stroke="#1c1b19" stroke-width="1.5"/>
+            </marker>
+          </defs>
+          <!-- desktop -> cloud -->
+          <line x1="260" y1="200" x2="318" y2="200" stroke="#c45c26" stroke-width="1.5" marker-end="url(#arrow)"/>
+          <text x="289" y="190" text-anchor="middle" font-size="10" fill="#c45c26">推送</text>
+          <!-- cloud -> web -->
+          <line x1="580" y1="200" x2="638" y2="200" stroke="#1c1b19" stroke-width="1.5" marker-end="url(#arrow-ink)"/>
+          <text x="609" y="190" text-anchor="middle" font-size="10" fill="#1c1b19">读写</text>
+          <!-- web suggestion back -->
+          <path d="M 750 340 L 750 370 L 450 370 L 450 334" fill="none" stroke="#2f6b4f" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+          <text x="600" y="362" text-anchor="middle" font-size="10" fill="#2f6b4f">suggestion（只读题库的补充）</text>
+        </svg>
+        <div class="diagram-cap">图 1 · 双端边界：标注端写题库，网页端消费题库并写组卷</div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h4>标注端（改造现有）</h4>
+          <ul>
+            <li>继续用 SQLite + 本地文件干活</li>
+            <li>新增「同步到云端」：元数据 upsert + 题图上传 R2</li>
+            <li>暂不做「从云端拉同事数据」</li>
+            <li>路径字段逐步改成 R2 key（本地仍存本地路径）</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>云端（新建）</h4>
+          <ul>
+            <li>Supabase：Auth（邮箱密码）+ Postgres</li>
+            <li>R2：题目/答案裁剪图 + 导出 PDF</li>
+            <li>导出 Worker：拉 R2 题图 → 拼 PDF → 写回 R2</li>
+            <li>CF Workers：R2 公开读缓存加速</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>网页端（新建）</h4>
+          <ul>
+            <li>登录后筛题、看题图、收藏筛选</li>
+            <li>组卷（私有/共享）+ 随机抽题</li>
+            <li>触发服务端导出、下载 PDF</li>
+            <li>对题目提交 suggestion</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- 3. Storage -->
+    <section id="storage">
+      <h2>3. 存储策略（省空间）</h2>
+      <p>原则：<strong>网页只要题目裁剪图，所以 R2 只存裁剪图和导出产物</strong>。切页图与原 PDF 留在标注机本地。</p>
+
+      <table>
+        <thead>
+          <tr><th>资产</th><th>本地标注机</th><th>云端 R2</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>原 PDF</td>
+            <td><span class="tag tag-go">保留</span></td>
+            <td><span class="tag tag-no">不传</span></td>
+            <td>网页端用不到</td>
+          </tr>
+          <tr>
+            <td>切页图 pages/*</td>
+            <td><span class="tag tag-go">保留</span></td>
+            <td><span class="tag tag-no">不传</span></td>
+            <td>框选/OCR 依赖；网页无上下文需求</td>
+          </tr>
+          <tr>
+            <td>题目裁剪图</td>
+            <td><span class="tag tag-go">保留</span></td>
+            <td><span class="tag tag-go">全量上传</span></td>
+            <td><code class="inline">question_boxes.image</code></td>
+          </tr>
+          <tr>
+            <td>答案裁剪图</td>
+            <td><span class="tag tag-go">保留</span></td>
+            <td><span class="tag tag-go">全量上传</span></td>
+            <td>导出带答案时需要</td>
+          </tr>
+          <tr>
+            <td>导出 PDF</td>
+            <td>按需下载</td>
+            <td><span class="tag tag-go">任务产物</span></td>
+            <td>可设 7 天过期</td>
+          </tr>
+          <tr>
+            <td>元数据</td>
+            <td>SQLite</td>
+            <td>Postgres</td>
+            <td>同步时以云端为「已发布」真相</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>本地 SQLite 缓存边界（量大之后）</h3>
+      <div class="callout">
+        <p><strong>规则：</strong>元数据（题目、框、标签、组卷引用）全量留本地；<strong>题图文件</strong>不搞「云端全量镜像回本地」。</p>
+        <p class="small muted" style="margin:8px 0 0">MVP 单管理员时本地本来就有全部图，无需回拉。将来多管理员/换机时：本地只缓存最近编辑的题目图 + 可选 LRU，其余需要时从 R2 签 URL 读。表里存 <code class="inline">image_key</code>，不存绝对路径。</p>
+      </div>
+
+      <h3>R2 Key 约定</h3>
+<pre>papers/{paper_id}/q{question_id}_{box_id}.webp      -- 按试卷分文件夹
+papers/{ms_paper_id}/a{answer_id}_{box_id}.webp      -- 答案图按 MS 卷归档
+exports/{job_id}/paper.pdf
+exports/{job_id}/meta.json</pre>
+      <p class="small muted" style="margin-top:8px">R2 是扁平对象存储，"文件夹"只是 key 前缀，没有目录数量限制；按试卷分组便于浏览与清理。不按模块（section）分组：一题可多标签且会改标签，会导致 key 频繁变动重传。</p>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- 4. Sync -->
+    <section id="sync">
+      <h2>4. 同步协议（手动推送）</h2>
+      <p>标注端点「同步到云端」后执行一次幂等推送。失败可重跑；以 <code class="inline">updated_at</code> 做脏检查。</p>
+
+      <div class="diagram">
+        <svg viewBox="0 0 900 280" xmlns="http://www.w3.org/2000/svg" font-family="PingFang SC, Microsoft YaHei, sans-serif">
+          <rect x="30" y="40" width="140" height="44" rx="8" fill="#fff" stroke="#e4dfd6"/>
+          <text x="100" y="66" text-anchor="middle" font-size="12" fill="#1c1b19">1. 扫本地脏数据</text>
+          <line x1="170" y1="62" x2="210" y2="62" stroke="#c45c26" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <rect x="212" y="40" width="140" height="44" rx="8" fill="#fff" stroke="#e4dfd6"/>
+          <text x="282" y="66" text-anchor="middle" font-size="12" fill="#1c1b19">2. 元数据 upsert</text>
+          <line x1="352" y1="62" x2="392" y2="62" stroke="#c45c26" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <rect x="394" y="40" width="150" height="44" rx="8" fill="#fff" stroke="#e4dfd6"/>
+          <text x="469" y="66" text-anchor="middle" font-size="12" fill="#1c1b19">3. 题图传 R2</text>
+          <line x1="544" y1="62" x2="584" y2="62" stroke="#c45c26" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <rect x="586" y="40" width="150" height="44" rx="8" fill="#fff" stroke="#e4dfd6"/>
+          <text x="661" y="66" text-anchor="middle" font-size="12" fill="#1c1b19">4. 写 sync_log</text>
+          <line x1="736" y1="62" x2="776" y2="62" stroke="#2f6b4f" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+          <rect x="778" y="40" width="90" height="44" rx="8" fill="#dcebe3"/>
+          <text x="823" y="66" text-anchor="middle" font-size="12" fill="#2f6b4f">完成</text>
+
+          <!-- details -->
+          <rect x="30" y="120" width="838" height="130" rx="10" fill="#fff" stroke="#e4dfd6"/>
+          <text x="50" y="148" font-size="12" font-weight="600" fill="#1c1b19">推送内容</text>
+          <text x="50" y="172" font-size="12" fill="#6b6560">· papers 元数据（exam_code / year / season / is_answer / paired）</text>
+          <text x="50" y="194" font-size="12" fill="#6b6560">· questions + question_boxes（bbox、page、排序）+ question_sections</text>
+          <text x="50" y="216" font-size="12" fill="#6b6560">· answers + answer_boxes；section_defs / section_groups</text>
+          <text x="50" y="238" font-size="12" fill="#6b6560">· 上传变更题图到 R2（按 content hash 去重）；删除用 tombstone 软删，避免网页端引用悬空</text>
+        </svg>
+        <div class="diagram-cap">图 2 · 同步流水线：可重入、按 updated_at / hash 增量</div>
+      </div>
+
+      <div class="callout warn">
+        <p><strong>不回传：</strong>同事的组卷、suggestion、收藏不写回标注端本地库。网页是消费端；标注员在 Supabase 后台/网页 admin 页看 suggestion 即可。</p>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- 5. Schema -->
+    <section id="schema">
+      <h2>5. 表结构草稿（Postgres / Supabase）</h2>
+      <p class="muted">在现有 SQLite 模型上增量：加用户、权限、建议、组卷可见性；路径列改 key。</p>
+
+<pre>-- ===== 身份与权限 =====
+profiles (
+  id uuid primary key references auth.users,
+  email text unique not null,
+  role text not null default 'teacher',   -- 'admin' | 'teacher'
+  can_see_drafts boolean default false,   -- 未校对题是否可见
+  created_at timestamptz default now()
+);
+
+-- 题目可见性授予：不写行 = 按角色默认策略
+question_grants (
+  id bigserial primary key,
+  user_id uuid references profiles(id) on delete cascade,
+  scope text not null,          -- 'section' | 'paper' | 'question'
+  scope_value text not null,    -- 模块名 / paper_id / question_id
+  created_at timestamptz default now(),
+  unique (user_id, scope, scope_value)
+);
+
+-- ===== 题库（与现 SQLite 对齐，路径改 key）=====
+papers (
+  id bigint primary key,        -- 同步保留原 id，或用 uuid 重映射
+  filename text, exam_code text,
+  year_token text, season_token text,
+  is_answer boolean default false,
+  paired_paper_id bigint,
+  page_count int,
+  source_updated_at timestamptz,
+  deleted_at timestamptz        -- 软删
+);
+
+questions (
+  id bigint primary key,
+  paper_id bigint references papers(id),
+  question_no text, section text,
+  status text default 'draft',  -- 'draft' | 'confirmed'
+  notes text, is_favorite boolean default false,
+  updated_at timestamptz
+);
+
+question_boxes (
+  id bigint primary key,
+  question_id bigint references questions(id) on delete cascade,
+  paper_id bigint, page int,
+  bbox jsonb not null,
+  image_key text not null,      -- R2 key，不再存绝对路径
+  created_at timestamptz
+);
+
+answers (
+  id bigint primary key,
+  question_id bigint unique references questions(id),
+  ms_paper_id bigint references papers(id),
+  notes text, updated_at timestamptz
+);
+
+answer_boxes (
+  id bigint primary key,
+  answer_id bigint references answers(id) on delete cascade,
+  ms_paper_id bigint, page int,
+  bbox jsonb not null, image_key text not null
+);
+
+section_defs (id, name unique, content, color, updated_at);
+section_groups (id, name unique, show_in_filter, updated_at);
+section_group_members (group_id, section_name);
+question_sections (question_id, section_name, unique(question_id, section_name));
+
+-- ===== 组卷 =====
+compositions (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  title text, header_text text, footer_text text, cover_lines text,
+  include_answers boolean default false,
+  answers_placement text default 'end',
+  group_by_section boolean default true,
+  show_section_headers boolean default true,
+  show_question_info boolean default true,
+  show_page_numbers boolean default true,
+  owner_id uuid references profiles(id),
+  visibility text default 'private',  -- 'private' | 'shared'
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+composition_items (
+  id bigserial primary key,
+  composition_id uuid references compositions(id) on delete cascade,
+  question_id bigint references questions(id),
+  sort_order int not null,
+  item_type text default 'question',   -- 'question' | 'blank'
+  blank_pages int default 0,
+  score float, custom_header text,
+  unique (composition_id, question_id)
+);
+
+-- ===== 建议 =====
+suggestions (
+  id bigserial primary key,
+  question_id bigint references questions(id) on delete cascade,
+  user_id uuid references profiles(id),
+  body text not null,
+  status text default 'open',          -- 'open' | 'accepted' | 'rejected'
+  created_at timestamptz default now()
+);
+
+-- ===== 同步审计 =====
+sync_log (
+  id bigserial primary key,
+  entity text, entity_id text,
+  action text, payload_hash text,
+  created_at timestamptz default now()
+);</pre>
+
+      <div class="callout ok">
+        <p><strong>id 策略建议：</strong>云端 <code class="inline">papers/questions</code> 继续用整数 id（同步时一一对应），组卷/用户用 uuid。若担心碰撞，同步可带 <code class="inline">source='desktop-001'</code> 前缀，MVP 不必。</p>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- 6. Permissions -->
+    <section id="perm">
+      <h2>6. 权限模型（MVP 可糙）</h2>
+      <p>第一版目标是<strong>你自己内部测通</strong>，策略简单可解释；RLS 先写规则，不够再加。</p>
+
+      <div class="grid">
+        <div class="card">
+          <h4>admin（你）</h4>
+          <ul>
+            <li>题库读写（经同步，不在网页改题）</li>
+            <li>可见全部，含 draft</li>
+            <li>管理 profiles / grants</li>
+            <li>处理 suggestion</li>
+            <li>可看所有组卷</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>teacher（同事）</h4>
+          <ul>
+            <li>题库<strong>只读</strong></li>
+            <li>默认见 confirmed 题</li>
+            <li>可被 grant 额外 section/paper/question</li>
+            <li>组卷：自己的 private + 标为 shared 的</li>
+            <li>可提 suggestion、导出</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>可见性判定（伪代码）</h3>
+<pre>def can_see(user, q):
+  if user.role == 'admin': return True
+  if q.status != 'confirmed' and not user.can_see_drafts: return False
+  if has_grant(user, 'question', q.id): return True
+  if has_grant(user, 'paper', q.paper_id): return True
+  if has_grant(user, 'section', q.section): return True
+  # 未配置任何 grant 的用户：见全部 confirmed（内测默认）
+  return not user_has_any_grant(user) or False_policy</pre>
+
+      <div class="callout">
+        <p><strong>内测默认：</strong><code class="inline">teacher</code> 无 grant 行时可见全部 <code class="inline">confirmed</code> 题——先让人跑通。要收紧时，改成「无 grant 则全不可见」，并配管理界面批量授予 section。</p>
+        <p style="margin:8px 0 0"><strong>隐藏未校对：</strong>与上述同一开关（<code class="inline">can_see_drafts</code> + status 过滤），不单做一套。</p>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- 7. MVP -->
+    <section id="mvp">
+      <h2>7. MVP 功能清单</h2>
+
+      <h3>必须有</h3>
+      <ul class="check">
+        <li>
+          <strong>邮箱密码登录</strong>
+          <span>Supabase Auth；注册可先关闭，由 admin 邀请/建号</span>
+        </li>
+        <li>
+          <strong>题库浏览</strong>
+          <span>按模块/试卷/年份/季节筛选；列表只出裁剪图；题号跳转</span>
+        </li>
+        <li>
+          <strong>组卷</strong>
+          <span>建卷、加题、排序、插入空白页、私有/共享；复用现有 composition 字段</span>
+        </li>
+        <li>
+          <strong>随机抽题</strong>
+          <span>按 section 数量抽题进当前卷</span>
+        </li>
+        <li>
+          <strong>服务端导出 PDF</strong>
+          <span>Worker 从 R2 取题图拼卷（可含答案）；浏览器下载</span>
+        </li>
+        <li>
+          <strong>标注端同步</strong>
+          <span>脏数据扫描 → Postgres upsert → R2 传图</span>
+        </li>
+        <li>
+          <strong>suggestion</strong>
+          <span>对题提意见；admin 在简单列表里接受/忽略</span>
+        </li>
+      </ul>
+
+      <h3>明确不做（本版）</h3>
+      <ul class="check">
+        <li>
+          <strong>实时同步 / 云端改题</strong>
+          <span>题库写入口只在标注端</span>
+        </li>
+        <li>
+          <strong>原卷上下文 / 切页图</strong>
+          <span>不上 R2，网页不展示</span>
+        </li>
+        <li>
+          <strong>多管理员协同标注</strong>
+          <span>单管理员 + TODO</span>
+        </li>
+        <li>
+          <strong>组卷版本冻结</strong>
+          <span>题目更新后卷面跟着变；TODO 加开关</span>
+        </li>
+        <li>
+          <strong>企业微信 SSO</strong>
+          <span>先邮箱密码</span>
+        </li>
+        <li>
+          <strong>复杂审计/配额</strong>
+          <span>sync_log 有即可</span>
+        </li>
+      </ul>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- 8. TODO -->
+    <section id="todo">
+      <h2>8. TODO 留档</h2>
+      <table>
+        <thead>
+          <tr><th>优先级</th><th>事项</th><th>触发条件</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="tag tag-todo">P1</span></td>
+            <td>组卷题目版本冻结（快照 image_key + bbox）</td>
+            <td>正式对外出卷、不能被后续改题影响</td>
+          </tr>
+          <tr>
+            <td><span class="tag tag-todo">P1</span></td>
+            <td>权限管理界面（按人勾 section/paper）</td>
+            <td>同事多起来、需要精细可见性</td>
+          </tr>
+          <tr>
+            <td><span class="tag tag-todo">P2</span></td>
+            <td>多管理员 + 标注分工（按 paper 锁）</td>
+            <td>标注量一个人扛不住</td>
+          </tr>
+          <tr>
+            <td><span class="tag tag-todo">P2</span></td>
+            <td>企业微信扫码登录</td>
+            <td>同事嫌邮箱麻烦</td>
+          </tr>
+          <tr>
+            <td><span class="tag tag-todo">P2</span></td>
+            <td>本地题图 LRU / 不回拉全量</td>
+            <td>题库变大或换机协作</td>
+          </tr>
+          <tr>
+            <td><span class="tag tag-todo">P3</span></td>
+            <td>CF Workers 鉴权代理（防盗链 R2）</td>
+            <td>题图外链泄露或要按用户签名</td>
+          </tr>
+          <tr>
+            <td><span class="tag tag-todo">P3</span></td>
+            <td>suggestion → 标注端任务列表</td>
+            <td>纠错流程成熟</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- 9. Phases -->
+    <section id="phases">
+      <h2>9. 实施顺序</h2>
+      <div class="phases">
+        <div class="phase">
+          <div class="phase-n">0</div>
+          <div>
+            <h4>云上底座</h4>
+            <p>建 Supabase 项目 → profiles/Auth → 迁移表结构 → 建 R2 bucket + Workers 缓存。用假数据打通读写。</p>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-n">1</div>
+          <div>
+            <h4>标注端同步</h4>
+            <p>路径改 image_key、写 sync 命令（元数据 upsert + R2 传图 + sync_log）。你自己先把现有题库推上去。</p>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-n">2</div>
+          <div>
+            <h4>网页端骨架</h4>
+            <p>登录 → 题库筛选/预览 → 最简组卷（增删排序、私有/共享）。此时已可给同事「看题 + 搭卷」。</p>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-n">3</div>
+          <div>
+            <h4>随机抽题 + 导出</h4>
+            <p>移植 random_pick；导出 Worker 从 R2 取图拼 PDF；网页下载。MVP 功能闭环。</p>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-n">4</div>
+          <div>
+            <h4>权限与建议收尾</h4>
+            <p>grants 生效、draft 开关、suggestion 列表。内测反馈后再开注册/加同事。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout ok">
+        <p><strong>建议第一个可交付里程碑：</strong>Phase 1 完成后，你应能在 Supabase 表里看到现有题库，在 R2 里看到裁剪图。这一条通了，网页端就是纯消费，风险最低。</p>
+      </div>
+    </section>
+
+    <footer>
+      Paper Labeler · 云端双端 MVP 设计稿 · 基于「手动同步 / 单管理员 / 题图上 R2 / 切页不上传 / 服务端导出」决策收敛 · Supabase + Cloudflare R2
+    </footer>
+  </div>
+</body>
+</html>

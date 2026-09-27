@@ -268,11 +268,6 @@ def debug_paths():
 @app.get("/version")
 def get_version():
     import json
-    from backend.config import DATA_DIR
-    # Hot update version takes priority
-    ver_file = DATA_DIR / ".hot_update_version"
-    if ver_file.exists():
-        return {"version": ver_file.read_text(encoding="utf-8").strip()}
     # Packaged app: Electron passes its own version via environment
     env_ver = os.environ.get("PAPER_LABELER_APP_VERSION", "").strip()
     if env_ver:
@@ -331,108 +326,6 @@ async def import_data(request: Request):
     init_db()
 
     return {"ok": True, "imported": copied}
-
-
-@app.post("/admin/apply-update")
-async def apply_update(request: Request, version: str = ""):
-    """Receive a ZIP with ui/ and backend/ dirs, extract to APP_DIR.
-    ZIP structure:
-      ui/...       → APP_DIR/frontend-vite/dist/
-      backend/...  → APP_DIR/backend/
-
-    Includes rollback: backs up before overwriting, restores on failure.
-    """
-    import io, shutil, zipfile, time
-    from backend.config import APP_DIR, BUNDLE_DIR
-
-    body = await request.body()
-    if not body:
-        return JSONResponse({"error": "empty body"}, status_code=400)
-
-    # Parse ZIP first to validate
-    try:
-        with zipfile.ZipFile(io.BytesIO(body)) as zf:
-            names = zf.namelist()
-    except Exception as e:
-        return JSONResponse({"error": f"bad zip: {e}"}, status_code=400)
-
-    # Backup directories before overwriting
-    backup_dir = APP_DIR / "data" / ".update_backup"
-    ui_target = BUNDLE_DIR / "frontend-vite" / "dist"
-    backend_target = APP_DIR / "backend"
-
-    # Clean old backup
-    if backup_dir.exists():
-        shutil.rmtree(backup_dir, ignore_errors=True)
-    backup_dir.mkdir(parents=True, exist_ok=True)
-
-    # Backup current files
-    try:
-        if ui_target.exists():
-            shutil.copytree(ui_target, backup_dir / "ui", dirs_exist_ok=True)
-        if backend_target.exists():
-            shutil.copytree(backend_target, backup_dir / "backend", dirs_exist_ok=True)
-    except Exception as e:
-        # Non-fatal: log but continue (backup is best-effort)
-        print(f"[update] backup warning: {e}")
-
-    def _resolve_entry(base: Path, rel: str, name: str) -> Path:
-        # Reject absolute paths, drive letters and any entry that escapes
-        # the target directory (zip-slip).
-        rel_path = Path(rel)
-        if rel_path.is_absolute() or rel_path.drive:
-            raise ValueError(f"unsafe zip entry: {name}")
-        base_resolved = base.resolve()
-        target = (base_resolved / rel_path).resolve()
-        try:
-            target.relative_to(base_resolved)
-        except ValueError:
-            raise ValueError(f"unsafe zip entry: {name}") from None
-        return target
-
-    # Apply update
-    try:
-        with zipfile.ZipFile(io.BytesIO(body)) as zf:
-            for name in names:
-                if name.startswith('ui/'):
-                    base, rel = ui_target, name[3:]
-                elif name.startswith('backend/'):
-                    base, rel = backend_target, name[8:]
-                else:
-                    continue
-                if not rel:
-                    continue
-                target = _resolve_entry(base, rel, name)
-                if name.endswith('/'):
-                    target.mkdir(parents=True, exist_ok=True)
-                else:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    with zf.open(name) as src, open(target, 'wb') as dst:
-                        shutil.copyfileobj(src, dst)
-    except Exception as e:
-        # Rollback: restore from backup
-        print(f"[update] apply failed, rolling back: {e}")
-        try:
-            if (backup_dir / "ui").exists():
-                if ui_target.exists():
-                    shutil.rmtree(ui_target)
-                shutil.copytree(backup_dir / "ui", ui_target)
-            if (backup_dir / "backend").exists():
-                if backend_target.exists():
-                    shutil.rmtree(backend_target)
-                shutil.copytree(backup_dir / "backend", backend_target)
-        except Exception as rb_err:
-            return JSONResponse({"error": f"update failed and rollback also failed: {e} / rollback: {rb_err}"}, status_code=500)
-        return JSONResponse({"error": f"update failed, rolled back: {e}"}, status_code=400)
-
-    # Save installed version
-    if version:
-        ver_path = APP_DIR / "data" / ".hot_update_version"
-        ver_path.parent.mkdir(parents=True, exist_ok=True)
-        ver_path.write_text(version, encoding="utf-8")
-
-    # Cleanup backup on success (keep for 1 session just in case, delete on next update)
-    return {"ok": True}
 
 
 # Include API Routers

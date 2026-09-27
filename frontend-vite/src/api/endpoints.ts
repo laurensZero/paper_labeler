@@ -749,7 +749,7 @@ export const cloudApi = {
   },
 }
 
-function cloudAuthHeaders(): Record<string, string> {
+export function cloudAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {}
   try {
     const token = localStorage.getItem('setting:cloudToken') || ''

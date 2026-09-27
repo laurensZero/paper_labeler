@@ -174,7 +174,7 @@
     "permEmail": "Email",
     "permRole": "Role",
     "permRoleAdmin": "Admin",
-    "permRoleTeacher": "Teacher",
+    "permRoleTeacher": "User",
     "permDrafts": "See drafts",
     "permGrants": "Visibility grants",
     "permHint": "Select a user on the left to edit grants; with no grants, the beta default applies (all confirmed questions).",
@@ -187,7 +187,21 @@
     "permEmpty": "No grants configured (default: all confirmed questions)",
     "permSelect": "← Select a user first",
     "permAdded": "Added",
-    "permDeleted": "Deleted"
+    "permDeleted": "Deleted",
+    "fbLocate": "Locate",
+    "fbLocateMissing": "Linked paper not found",
+    "fbDelete": "Delete",
+    "fbDeleteConfirm": "Permanently delete this feedback?",
+    "userCreate": "Add account",
+    "userEmail": "Email",
+    "userPassword": "Password (min 8)",
+    "userSubmit": "Send invite",
+    "userInvalid": "Enter a valid email",
+    "userInviteHint": "A verification email will be sent; the user sets their own password.",
+    "userInviteSent": "Invite sent to {email}. They can set a password from the email.",
+    "userInviteLink": "Email unavailable — send this invite link manually: {url}",
+    "fbDeleteNeedRestart": "Backend missing DELETE route — restart the local server",
+    "permScopeGroup": "Group"
   },
   "mark": {
     "title": "Question Marking",
@@ -654,7 +668,7 @@
     "openReleasePage": "Go to download",
     "dismiss": "Later",
     "downloading": "Downloading...",
-    "applying": "Applying update...",
+    "applying": "Replacing and restarting...",
     "restartHint": "Update complete, restarting...",
     "forceHint": "This is a mandatory update",
     "checking": "Checking for updates...",
@@ -662,9 +676,8 @@
     "checkForUpdates": "Check for Updates",
     "releaseNotes": "Release Notes",
     "readyToInstall": "Update ready to install",
-    "quickUpdate": "Quick Update",
-    "downloadedHint": "Update has been downloaded. Restart to apply.",
-    "restartToInstall": "Restart to Update"
+    "downloadedHint": "Update package downloaded. Click update to replace and restart.",
+    "restartToInstall": "Replace & Restart"
   },
   "compose": {
     "title": "Compose",
@@ -715,6 +728,8 @@
     "presetTimeTemplate": "Time allowed:",
     "showQuestionInfo": "Show question info",
     "showPageNumbers": "Show page numbers",
-    "showSectionHeaders": "Show section headers"
+    "showSectionHeaders": "Show section headers",
+    "localOnlyHint": "Local compositions are not synced to the cloud web app",
+    "noCompositions": "No compositions yet"
   }
 }

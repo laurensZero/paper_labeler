@@ -75,5 +75,76 @@ def test_admin_write_endpoints_rejected_without_token(no_token):
     assert res.status_code in (401, 403), f"PATCH /cloud/profiles -> {res.status_code}"
     res = client.patch("/cloud/suggestions/1", json={"status": "accepted"})
     assert res.status_code in (401, 403), f"PATCH /cloud/suggestions -> {res.status_code}"
+    res = client.delete("/cloud/suggestions/1")
+    assert res.status_code in (401, 403), f"DELETE /cloud/suggestions -> {res.status_code}"
     res = client.delete("/cloud/grants/1")
     assert res.status_code in (401, 403), f"DELETE /cloud/grants -> {res.status_code}"
+    res = client.post("/cloud/users", json={"email": "a@b.com", "password": "12345678"})
+    assert res.status_code in (401, 403), f"POST /cloud/users -> {res.status_code}"
+
+
+def test_delete_suggestion_requires_token(no_token):
+    res = client.delete("/cloud/suggestions/9")
+    assert res.status_code == 403
+
+
+def test_create_user_validates_payload(with_token, monkeypatch):
+    monkeypatch.setattr("backend.routers.cloud.cloud_enabled", lambda: True)
+
+    class _Cfg:
+        supabase_url = "https://x.supabase.co"
+        service_role_key = "svc"
+        r2_account_id = "a"
+        r2_access_key_id = "k"
+        r2_secret_access_key = "s"
+        r2_bucket = "b"
+        r2_public_base = "https://pub"
+
+    monkeypatch.setattr("backend.routers.cloud.get_cloud_config", lambda: _Cfg())
+
+    res = client.post(
+        "/cloud/users",
+        json={"email": "bad", "role": "teacher"},
+        headers={"X-Paper-Token": "secret"},
+    )
+    assert res.status_code == 400
+
+    res = client.post(
+        "/cloud/users",
+        json={"email": "ok@example.com", "role": "root"},
+        headers={"X-Paper-Token": "secret"},
+    )
+    assert res.status_code == 400
+
+
+def test_create_user_invite_flow_with_token(with_token, monkeypatch):
+    monkeypatch.setattr("backend.routers.cloud.cloud_enabled", lambda: True)
+
+    class _Cfg:
+        supabase_url = "https://x.supabase.co"
+        service_role_key = "svc"
+        r2_account_id = "a"
+        r2_access_key_id = "k"
+        r2_secret_access_key = "s"
+        r2_bucket = "b"
+        r2_public_base = "https://pub"
+
+    monkeypatch.setattr("backend.routers.cloud.get_cloud_config", lambda: _Cfg())
+
+    from backend.cloud import supabase as sb
+
+    monkeypatch.setattr(sb, "admin_invite_user", lambda cfg, email, redirect_to=None: {"id": "uid-1", "email": email})
+    monkeypatch.setattr(sb, "select", lambda cfg, table, **k: [{"id": "uid-1"}])
+    monkeypatch.setattr(sb, "patch", lambda cfg, table, filters, body: 1)
+
+    res = client.post(
+        "/cloud/users",
+        json={"email": "ok@example.com", "role": "teacher", "can_see_drafts": True},
+        headers={"X-Paper-Token": "secret"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["email"] == "ok@example.com"
+    assert body["invited"] is True
+    assert body["invite_url"] is None

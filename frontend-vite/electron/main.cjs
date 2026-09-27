@@ -3,15 +3,17 @@ const { spawn } = require('child_process')
 const path = require('path')
 const net = require('net')
 const http = require('http')
+const https = require('https')
 const fs = require('fs')
+const os = require('os')
 const crypto = require('crypto')
-const { autoUpdater } = require('electron-updater')
 
 let backendProcess = null
 let backendPort = 0
 let mainWindow = null
-let isUpdateDownloaded = false
 let depsInstallError = ''
+let portableExePath = null
+let pendingUpdateFile = null
 
 // Directory next to the executable (portable dir when applicable), dev root otherwise.
 function getExeDir() {
@@ -328,104 +330,186 @@ function makeErrorHtml(isDark, detail) {
   <button onclick="window.electronAPI.restartApp()">重试</button></body></html>`
 }
 
-// ── Auto-updater (electron-updater, VS Code style) ──
-function setupAutoUpdater() {
-  // Disable auto-download — we control it from the renderer via IPC
-  autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
-
-  autoUpdater.on('checking-for-update', () => {
-    console.log('[updater] checking for update...')
-  })
-
-  autoUpdater.on('update-available', (info) => {
-    console.log('[updater] update available:', info.version)
-    if (mainWindow) {
-      mainWindow.webContents.send('updater:available', {
-        version: info.version,
-        releaseNotes: info.releaseNotes || '',
-        releaseDate: info.releaseDate || '',
-      })
-    }
-  })
-
-  autoUpdater.on('update-not-available', (info) => {
-    console.log('[updater] up to date:', info.version)
-    if (mainWindow) {
-      mainWindow.webContents.send('updater:not-available')
-    }
-  })
-
-  autoUpdater.on('download-progress', (progress) => {
-    if (mainWindow) {
-      mainWindow.webContents.send('updater:progress', {
-        percent: Math.round(progress.percent),
-        bytesPerSecond: progress.bytesPerSecond,
-        transferred: progress.transferred,
-        total: progress.total,
-      })
-    }
-  })
-
-  autoUpdater.on('update-downloaded', (info) => {
-    console.log('[updater] downloaded:', info.version)
-    isUpdateDownloaded = true
-    if (mainWindow) {
-      mainWindow.webContents.send('updater:downloaded', {
-        version: info.version,
-      })
-    }
-  })
-
-  autoUpdater.on('error', (err) => {
-    console.error('[updater] error:', err.message)
-    if (mainWindow) {
-      mainWindow.webContents.send('updater:error', err.message)
-    }
-  })
-
-  // IPC: renderer triggers
-  ipcMain.handle('updater:check', async () => {
+// ── Portable EXE updater (download + helper replace) ──
+function detectPortableExe() {
+  if (!app.isPackaged) return null
+  const envFile = process.env.PORTABLE_EXECUTABLE_FILE
+  if (envFile && fs.existsSync(envFile)) return envFile
+  const dir = process.env.PORTABLE_EXECUTABLE_DIR
+  if (dir && fs.existsSync(dir)) {
     try {
-      const result = await autoUpdater.checkForUpdates()
-      return { hasUpdate: !!result?.updateInfo }
-    } catch (e) {
-      return { error: e.message }
-    }
+      const names = fs.readdirSync(dir).filter((n) => /\.exe$/i.test(n))
+      const hit = names.find((n) => /portable\.exe$/i.test(n))
+        || names.find((n) => /paper.?labeler/i.test(n))
+        || names[0]
+      if (hit) return path.join(dir, hit)
+    } catch {}
+  }
+  return null
+}
+
+function downloadFile(url, dest, onProgress, redirectsLeft = 5) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https:') ? https : http
+    const request = mod.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
+        res.resume()
+        downloadFile(res.headers.location, dest, onProgress, redirectsLeft - 1).then(resolve, reject)
+        return
+      }
+      if (res.statusCode !== 200) {
+        res.resume()
+        reject(new Error('HTTP ' + res.statusCode))
+        return
+      }
+      const total = Number(res.headers['content-length']) || 0
+      let received = 0
+      const file = fs.createWriteStream(dest)
+      res.on('data', (chunk) => {
+        received += chunk.length
+        if (total && onProgress) {
+          onProgress(Math.min(100, Math.round((received / total) * 100)), received, total)
+        }
+      })
+      res.pipe(file)
+      file.on('finish', () => {
+        file.close(() => resolve({ path: dest, size: received }))
+      })
+      file.on('error', (err) => {
+        try { fs.unlinkSync(dest) } catch {}
+        reject(err)
+      })
+      res.on('error', (err) => {
+        try { file.close() } catch {}
+        try { fs.unlinkSync(dest) } catch {}
+        reject(err)
+      })
+    })
+    request.on('error', reject)
   })
+}
 
-  ipcMain.handle('updater:download', async () => {
-    try {
-      await autoUpdater.downloadUpdate()
-      return { ok: true }
-    } catch (e) {
-      return { error: e.message }
-    }
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256')
+    const stream = fs.createReadStream(filePath)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('end', () => resolve(hash.digest('hex')))
+    stream.on('error', reject)
   })
+}
 
-  ipcMain.handle('updater:install', () => {
-    if (isUpdateDownloaded) {
-      // Kill backend before installing
-      killBackend()
-      autoUpdater.quitAndInstall(false, true)
-    }
-  })
+function writeReplaceHelper(oldExe, newExe, pidToWait) {
+  const scriptPath = path.join(os.tmpdir(), `paper-labeler-update-${Date.now()}.ps1`)
+  const script = `
+$ErrorActionPreference = 'Stop'
+$old = $args[0]
+$new = $args[1]
+$pidWait = [int]$args[2]
+$deadline = (Get-Date).AddSeconds(90)
+while ((Get-Date) -lt $deadline) {
+  $p = Get-Process -Id $pidWait -ErrorAction SilentlyContinue
+  if (-not $p) { break }
+  Start-Sleep -Milliseconds 250
+}
+Start-Sleep -Milliseconds 500
+if (Test-Path -LiteralPath $new) {
+  if (Test-Path -LiteralPath $old) {
+    Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+  }
+  Move-Item -LiteralPath $new -Destination $old -Force
+  Start-Process -FilePath $old
+}
+Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+`
+  fs.writeFileSync(scriptPath, script, 'utf-8')
+  return scriptPath
+}
 
-  ipcMain.handle('updater:is-downloaded', () => isUpdateDownloaded)
+function setupPortableUpdater() {
+  portableExePath = detectPortableExe()
+  if (portableExePath) {
+    console.log('[updater] portable exe:', portableExePath)
+  }
 
-  // Portable builds cannot self-update via electron-updater (no installer / latest.yml)
-  ipcMain.handle('updater:is-portable', () => !!process.env.PORTABLE_EXECUTABLE_DIR)
+  ipcMain.handle('updater:is-portable', () => !!portableExePath || !!process.env.PORTABLE_EXECUTABLE_DIR)
 
   ipcMain.handle('updater:open-releases', () => {
     shell.openExternal('https://github.com/laurensZero/paper_labeler/releases/latest')
   })
 
-  // Check on startup (after window is shown)
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((e) => {
-      console.log('[updater] startup check failed (non-fatal):', e.message)
-    })
-  }, 5000)
+  ipcMain.handle('updater:download-portable', async (_event, opts) => {
+    const url = String(opts?.url || '')
+    const expected = String(opts?.sha256 || '').replace(/^sha256:/i, '').toLowerCase()
+    if (!url) return { error: 'missing url' }
+    if (!app.isPackaged || !portableExePath) {
+      return { error: 'not a portable build' }
+    }
+
+    const dest = path.join(os.tmpdir(), `paper-labeler-${Date.now()}-update.exe`)
+    try {
+      await downloadFile(url, dest, (percent) => {
+        if (mainWindow) {
+          mainWindow.webContents.send('updater:portable-progress', { percent })
+        }
+      })
+
+      if (expected) {
+        const actual = await sha256File(dest)
+        if (actual !== expected) {
+          try { fs.unlinkSync(dest) } catch {}
+          return { error: 'SHA-256 mismatch' }
+        }
+      }
+
+      pendingUpdateFile = dest
+      if (mainWindow) {
+        mainWindow.webContents.send('updater:portable-downloaded', {
+          path: dest,
+          sha256: expected || '',
+        })
+      }
+      return { ok: true, path: dest }
+    } catch (e) {
+      try { if (fs.existsSync(dest)) fs.unlinkSync(dest) } catch {}
+      return { error: e.message || String(e) }
+    }
+  })
+
+  ipcMain.handle('updater:apply-portable', async () => {
+    if (!pendingUpdateFile || !fs.existsSync(pendingUpdateFile)) {
+      return { error: 'update file not ready' }
+    }
+    if (!portableExePath) {
+      return { error: 'portable exe path unknown' }
+    }
+
+    try {
+      const helper = writeReplaceHelper(portableExePath, pendingUpdateFile, process.pid)
+      const child = spawn('powershell.exe', [
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', helper,
+        portableExePath,
+        pendingUpdateFile,
+        String(process.pid),
+      ], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      child.unref()
+      console.log('[updater] helper launched, quitting app')
+      pendingUpdateFile = null
+      setTimeout(() => {
+        killBackend()
+        app.quit()
+      }, 300)
+      return { ok: true }
+    } catch (e) {
+      return { error: e.message || String(e) }
+    }
+  })
 }
 
 function createWindow() {
@@ -517,7 +601,7 @@ function killBackend() {
 
 app.whenReady().then(async () => {
   createWindow()
-  setupAutoUpdater()
+  setupPortableUpdater()
 
   try {
     await startBackend()

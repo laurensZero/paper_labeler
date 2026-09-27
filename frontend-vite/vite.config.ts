@@ -9,7 +9,8 @@ const apiPaths = [
   '/data', '/papers', '/upload_pdf', '/upload_pdfs', '/answer_papers',
   '/questions', '/sections', '/section_defs', '/section_groups',
   '/section_stats', '/random_by_sections', '/stats', '/export', '/maintenance',
-  '/admin', '/cie_import', '/compositions', '/health',
+  '/admin', '/cie_import', '/compositions', '/health', '/cloud', '/logs',
+  '/version', '/debug',
 ]
 
 const proxy = Object.fromEntries(
@@ -26,7 +27,7 @@ export default defineConfig({
         navigateFallback: '/ui/index.html',
         navigateFallbackDenylist: [/^\/ui\/api/],
         runtimeCaching: [{
-          urlPattern: /^https?:\/\/.*\/(data|papers|upload|answer|questions|sections|stats|export|admin|cie|health)/i,
+          urlPattern: /^https?:\/\/.*\/(data|papers|upload|answer|questions|sections|stats|export|admin|cie|health|cloud|logs)/i,
           handler: 'NetworkOnly',
         }],
       },

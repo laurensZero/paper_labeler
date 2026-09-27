@@ -6,6 +6,7 @@ import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
 import { pendingOcrBoxesByPaperId, pendingOcrDraftByPaperId, pendingOcrWarningByPaperId } from './papers'
+import { normalizeOcrDrafts, normalizeOcrBoxes } from '@/utils/paper'
 import { clampInt } from '@/utils/geometry'
 import { safeStorage } from '@/utils/storage'
 import type { PaperListItem, AnswerPaperListItem } from '@/types'
@@ -412,10 +413,13 @@ export const useCieImportStore = defineStore('cieImport', () => {
             }
             if (!r?.paper?.id) continue
             const paperId = r.paper.id
-            if (Array.isArray(r.ocr_questions) && r.ocr_questions.length) {
-              pendingOcrDraftByPaperId.set(paperId, r.ocr_questions)
-            } else if (Array.isArray(r.ocr_boxes) && r.ocr_boxes.length) {
-              pendingOcrBoxesByPaperId.set(paperId, r.ocr_boxes)
+            // Unlabeled fallback drafts/boxes must never become "题？" cards.
+            const usableDrafts = normalizeOcrDrafts(r.ocr_questions)
+            const usableBoxes = normalizeOcrBoxes(r.ocr_boxes)
+            if (usableDrafts.length) {
+              pendingOcrDraftByPaperId.set(paperId, usableDrafts)
+            } else if (usableBoxes.length) {
+              pendingOcrBoxesByPaperId.set(paperId, usableBoxes)
             }
             if (r.ocr_warn || r.ocr_warning) {
               pendingOcrWarningByPaperId.set(paperId, String(r.ocr_warn || r.ocr_warning))

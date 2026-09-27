@@ -174,7 +174,7 @@
     "permEmail": "邮箱",
     "permRole": "角色",
     "permRoleAdmin": "管理员",
-    "permRoleTeacher": "同事",
+    "permRoleTeacher": "用户",
     "permDrafts": "可见草稿",
     "permGrants": "可见范围授权",
     "permHint": "点击左侧用户查看/修改其授权；无授权时按内测默认可见全部已确认题目。",
@@ -187,7 +187,21 @@
     "permEmpty": "未配置任何授权（默认可见全部已确认题目）",
     "permSelect": "← 先选择一个用户",
     "permAdded": "已添加",
-    "permDeleted": "已删除"
+    "permDeleted": "已删除",
+    "fbLocate": "定位题目",
+    "fbLocateMissing": "找不到关联试卷，无法定位",
+    "fbDelete": "删除",
+    "fbDeleteConfirm": "确定永久删除这条反馈？",
+    "userCreate": "添加账号",
+    "userEmail": "邮箱",
+    "userPassword": "密码（至少 8 位）",
+    "userSubmit": "发送邀请",
+    "userInvalid": "请输入有效邮箱",
+    "userInviteHint": "发送后系统会发验证邮件，对方点链接自行设置密码。",
+    "userInviteSent": "邀请邮件已发送至 {email}，请对方查收并设置密码。",
+    "userInviteLink": "邮件服务不可用，请手动把邀请链接发给对方：{url}",
+    "fbDeleteNeedRestart": "后端还没有删除接口，请重启本地服务后再试",
+    "permScopeGroup": "大类"
   },
   "mark": {
     "title": "题目标注",
@@ -654,7 +668,7 @@
     "openReleasePage": "前往下载",
     "dismiss": "稍后再说",
     "downloading": "正在下载...",
-    "applying": "正在应用更新...",
+    "applying": "正在替换并重启...",
     "restartHint": "更新完成，即将重启",
     "forceHint": "此为强制更新，不可跳过",
     "checking": "正在检查更新...",
@@ -662,9 +676,8 @@
     "checkForUpdates": "检查更新",
     "releaseNotes": "更新说明",
     "readyToInstall": "更新已就绪",
-    "quickUpdate": "快速更新",
-    "downloadedHint": "更新已下载完成，重启应用即可生效。",
-    "restartToInstall": "重启以更新"
+    "downloadedHint": "更新包已下载完成，点击更新将自动替换并重启。",
+    "restartToInstall": "替换并重启"
   },
   "compose": {
     "title": "组卷",
@@ -715,6 +728,8 @@
     "presetTimeTemplate": "考试时间：",
     "showQuestionInfo": "显示题目信息",
     "showPageNumbers": "显示页码",
-    "showSectionHeaders": "显示 Section 标题"
+    "showSectionHeaders": "显示 Section 标题",
+    "localOnlyHint": "本机组卷不会同步到云端网页端",
+    "noCompositions": "暂无方案"
   }
 }

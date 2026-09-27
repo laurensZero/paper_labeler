@@ -282,6 +282,67 @@ export function buildAnswerSaveBoxes(options: {
   return [...keptExisting, ...newBoxes.map((b) => ({ page: b.page, bbox: [...b.bbox] }))]
 }
 
+/** A real OCR question label — not null/empty and not the '?' placeholder. */
+export function isUsableOcrLabel(label: unknown): boolean {
+  const s = String(label ?? '').trim()
+  return !!s && s !== '?'
+}
+
+export interface OcrDraftBoxLike {
+  page?: number | string | null
+  bbox?: number[] | null
+  label?: string | null
+}
+
+export interface OcrDraftLike {
+  label?: string | null
+  boxes?: OcrDraftBoxLike[] | null
+}
+
+export interface NormalizedOcrDraft {
+  label: string
+  boxes: OcrDraftBoxLike[]
+}
+
+/**
+ * Keep only OCR drafts that carry a real question number.
+ *
+ * Garbled-text fallbacks used to arrive as `{label: null, boxes:[page-sized]}`.
+ * Those must never become "题？" cards — drop the whole draft, boxes included.
+ */
+export function normalizeOcrDrafts(input: unknown): NormalizedOcrDraft[] {
+  const drafts = Array.isArray(input) ? input : []
+  const out: NormalizedOcrDraft[] = []
+  for (const d of drafts) {
+    if (!d || typeof d !== 'object') continue
+    const raw = d as OcrDraftLike
+    if (!isUsableOcrLabel(raw.label)) continue
+    const boxes = Array.isArray(raw.boxes) ? raw.boxes.filter((b) => b && Array.isArray(b.bbox) && b.bbox.length === 4) : []
+    if (!boxes.length) continue
+    out.push({ label: String(raw.label).trim(), boxes })
+  }
+  return out
+}
+
+/**
+ * Keep only OCR boxes that carry a real question label.
+ * Unlabeled boxes from the old per-page fallback are discarded.
+ */
+export function normalizeOcrBoxes(input: unknown): { page: number; bbox: number[]; label: string }[] {
+  const boxes = Array.isArray(input) ? input : []
+  const out: { page: number; bbox: number[]; label: string }[] = []
+  for (const b of boxes) {
+    if (!b || typeof b !== 'object') continue
+    const raw = b as OcrDraftBoxLike
+    if (!isUsableOcrLabel(raw.label)) continue
+    const page = Number(raw.page)
+    const bbox = Array.isArray(raw.bbox) ? raw.bbox.map(Number) : []
+    if (!Number.isFinite(page) || bbox.length !== 4 || bbox.some((n) => !Number.isFinite(n))) continue
+    out.push({ page, bbox, label: String(raw.label).trim() })
+  }
+  return out
+}
+
 /**
  * Extract the two-digit year string from a paper's exam_code + filename.
  * Returns null if no year pattern is found.
