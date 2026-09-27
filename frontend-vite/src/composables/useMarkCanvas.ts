@@ -294,11 +294,23 @@ export function useMarkCanvas(options: UseMarkCanvasOptions) {
   }
 
   // --- pointer handlers ---
+  function tryCaptureMarkPointer(canvas: HTMLCanvasElement, pointerId: number) {
+    if (!canvas.isConnected || typeof canvas.setPointerCapture !== 'function') return
+    try {
+      canvas.setPointerCapture(pointerId)
+    } catch (error) {
+      if (!(error instanceof DOMException) || !['InvalidStateError', 'NotFoundError'].includes(error.name)) {
+        throw error
+      }
+    }
+  }
+
   function onPointerDown(evt: PointerEvent) {
     if (currentPageIndex.value < 0) return
     evt.preventDefault()
-    const canvas = overlayCanvas.value
-    if (canvas) canvas.setPointerCapture?.(evt.pointerId)
+    const target = evt.currentTarget
+    const canvas = target instanceof HTMLCanvasElement ? target : overlayCanvas.value
+    if (canvas) tryCaptureMarkPointer(canvas, evt.pointerId)
 
     const [x, y] = canvasPointToNorm(evt)
     const hit = hitTestNewBoxes(x, y)

@@ -14,13 +14,24 @@ export function useFullscreen() {
   let fsDragOffX = 0
   let fsDragOffY = 0
 
+  function tryCaptureFullscreenPointer(el: HTMLElement, pointerId: number) {
+    if (!el.isConnected || typeof el.setPointerCapture !== 'function') return
+    try {
+      el.setPointerCapture(pointerId)
+    } catch (error) {
+      if (!(error instanceof DOMException) || !['InvalidStateError', 'NotFoundError'].includes(error.name)) {
+        throw error
+      }
+    }
+  }
+
   function onFsBarPointerDown(e: PointerEvent) {
     if ((e.target as HTMLElement).closest('button')) return
     const el = e.currentTarget as HTMLElement
     fsDragging = true
     fsDragOffX = e.clientX - el.offsetLeft
     fsDragOffY = e.clientY - el.offsetTop
-    el.setPointerCapture(e.pointerId)
+    tryCaptureFullscreenPointer(el, e.pointerId)
   }
 
   function onFsBarPointerMove(e: PointerEvent) {
