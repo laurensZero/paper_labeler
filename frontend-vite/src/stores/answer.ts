@@ -157,7 +157,9 @@ export const useAnswerStore = defineStore('answer', () => {
   // --- state ---
   const msPaperId = ref<number | null>(null)
   const msPages = ref<Page[]>([])
-  const msCanvasByPage = ref(new Map<number, HTMLCanvasElement>())
+  // DOM node registry only; mutations to the Map must not trigger component
+  // renders from template ref callbacks (especially during OCR page swaps).
+  const msCanvasByPage = shallowRef(new Map<number, HTMLCanvasElement>())
   const answerQuestions = ref<Question[]>([])
   const answerQIndex = ref(-1)
   const answerExistingBoxes = ref<AnswerBoxState[]>([])

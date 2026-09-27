@@ -348,11 +348,33 @@ function hitTestNewBoxes(pageNum: number, normX: number, normY: number) {
 }
 
 // --- pointer event handlers ---
+function canvasForAnswerPointerEvent(pageNum: number, evt: PointerEvent) {
+  // The ref map can briefly contain a detached canvas while the virtualized
+  // MS page window is re-rendering. The event target is the authoritative node
+  // for this gesture, so prefer it over the cached map entry.
+  const target = evt.currentTarget
+  if (target instanceof HTMLCanvasElement) return target
+  return msCanvasByPage.value.get(pageNum) ?? null
+}
+
+function tryCaptureAnswerPointer(canvas: HTMLCanvasElement, pointerId: number) {
+  if (!canvas.isConnected || typeof canvas.setPointerCapture !== 'function') return
+  try {
+    canvas.setPointerCapture(pointerId)
+  } catch (error) {
+    // Pointer capture is an enhancement. A detached canvas or a pointer that
+    // ended during a DOM update must not abort the marking gesture.
+    if (!(error instanceof DOMException) || !['InvalidStateError', 'NotFoundError'].includes(error.name)) {
+      throw error
+    }
+  }
+}
+
 function onAnswerPointerDown(pageNum: number, evt: PointerEvent) {
-  const canvas = msCanvasByPage.value.get(pageNum)
+  const canvas = canvasForAnswerPointerEvent(pageNum, evt)
   if (!canvas) return
   evt.preventDefault()
-  canvas.setPointerCapture?.(evt.pointerId)
+  tryCaptureAnswerPointer(canvas, evt.pointerId)
   _answerGestureActive = true
 
   const [x, y] = canvasPointToNorm(evt, canvas)
@@ -378,7 +400,7 @@ function onAnswerPointerDown(pageNum: number, evt: PointerEvent) {
 }
 
 function onAnswerPointerMove(pageNum: number, evt: PointerEvent) {
-  const canvas = msCanvasByPage.value.get(pageNum)
+  const canvas = canvasForAnswerPointerEvent(pageNum, evt)
   if (!canvas) return
   evt.preventDefault()
   const [x, y] = canvasPointToNorm(evt, canvas)
@@ -436,7 +458,7 @@ function onAnswerPointerMove(pageNum: number, evt: PointerEvent) {
 }
 
 function onAnswerPointerUp(pageNum: number, evt: PointerEvent) {
-  const canvas = msCanvasByPage.value.get(pageNum)
+  const canvas = canvasForAnswerPointerEvent(pageNum, evt)
   if (!canvas) return
   evt.preventDefault()
 
