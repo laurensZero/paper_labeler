@@ -108,7 +108,9 @@
     "signingIn": "Signing in…",
     "hint": "Accounts are created by an admin in the Supabase dashboard. Contact the admin if you don't have one.",
     "errRequired": "Please enter email and password",
-    "errInvalid": "Incorrect email or password"
+    "errInvalid": "Incorrect email or password",
+    "errBanned": "This account has been disabled. Contact the admin.",
+    "errConfirm": "Email not verified — click the verification link in your inbox first."
   },
   "bank": {
     "allModules": "All modules",
@@ -256,5 +258,21 @@
     "exportWeekReached": "Weekly export limit reached — ask the admin to raise it, or try again next week.",
     "exportMonthReached": "Monthly export limit reached — ask the admin to raise it, or try again next month.",
     "exportItemsReached": "At most {max} questions per export — remove some questions and try again."
+  },
+  "callback": {
+    "failed": "This link is invalid or has expired. Ask the admin to send a new invite."
+  },
+  "setPassword": {
+    "title": "Set password",
+    "sub": "Email verified — choose a password for your account",
+    "new": "New password (min 8 characters)",
+    "confirm": "Confirm password",
+    "submit": "Set password & continue",
+    "setting": "Setting…",
+    "mismatch": "Passwords do not match",
+    "tooShort": "Password must be at least 8 characters",
+    "weak": "Password too weak — please choose a longer one",
+    "success": "Done — opening the question bank…",
+    "errPrefix": "Failed"
   }
 }

@@ -25,7 +25,12 @@
     "minimize": "最小化",
     "maximize": "最大化",
     "restore": "还原",
-    "close": "关闭"
+    "close": "关闭",
+    "quickSync": "快速推送云端",
+    "quickSyncRunning": "同步中…",
+    "quickSyncOk": "推送成功",
+    "quickSyncErr": "推送失败：{error}",
+    "quickSyncUnknown": "未知错误"
   },
   "status": {
     "ready": "就绪"
@@ -202,6 +207,12 @@
     "userInviteLink": "邮件服务不可用，请手动把邀请链接发给对方：{url}",
     "fbDeleteNeedRestart": "后端还没有删除接口，请重启本地服务后再试",
     "permScopeGroup": "大类",
+    "permStatus": "状态",
+    "permActive": "正常",
+    "permInactive": "已停用",
+    "permDisable": "停用",
+    "permEnable": "启用",
+    "permDisableConfirm": "停用 {email}？该账号将无法登录网页端，进行中的会话也会失效。",
     "tabComps": "组卷查看",
     "tabGuard": "导出管控",
     "compsOwner": "所属用户",
@@ -217,6 +228,10 @@
     "compsDetailFailed": "明细加载失败",
     "compBlank": "空白页 × {n}",
     "compNoQno": "未编号",
+    "compsExport": "导出 PDF",
+    "compsExporting": "生成中…",
+    "compsExportFailed": "导出失败",
+    "compsExportHint": "在本机渲染并带水印下载",
     "guardWatermarkOn": "已开启",
     "guardWatermarkOff": "已关闭",
     "guardWatermarkFailed": "水印设置读取失败",
@@ -417,15 +432,15 @@
     "cloud": {
       "title": "云端同步",
       "desc": "把本地题库推送到云端，供网页端浏览与组卷。同事只看到已推送内容。",
-      "disabled": "未开启：在项目根目录 .env 中设置 PAPER_CLOUD_ENABLED=1",
+      "disabled": "云端同步未开启：打开上方开关并保存即可",
       "missing": "缺少配置：{items}",
       "ready": "已就绪 · {url} · R2: {bucket}",
       "sync": "同步到云端",
       "syncing": "同步中…",
       "startFailed": "启动失败：{error}",
       "never": "尚未同步过",
-      "lastOk": "上次同步成功 · 耗时 {seconds}s",
-      "lastFail": "上次同步有 {errors} 条错误 · 耗时 {seconds}s",
+      "lastOk": "上次同步成功 · {time} · 耗时 {seconds}s",
+      "lastFail": "上次同步有 {errors} 条错误 · {time} · 耗时 {seconds}s",
       "resurrected": "警告：{count} 条记录云端已删但本地存在，已按复活推送（注意 id 复用）",
       "errorsLabel": "错误",
       "phase": {
@@ -453,9 +468,15 @@
         "qbox_upserted": "题框推送",
         "abox_upserted": "答框推送"
       },
-      "tokenLabel": "管理 Token",
-      "tokenPlaceholder": "与 .env 中 PAPER_CLOUD_TOKEN 一致",
-      "tokenSave": "保存 Token"
+      "cfgEnabled": "启用云端同步",
+      "cfgEnabledDesc": "关闭后隐藏同步入口，云端管理写操作停用",
+      "cfgTokenKey": "本地管理令牌",
+      "cfgTokenHint": "云端管理（反馈/权限/导出管控）写操作的凭据；留空 = 停用写操作。",
+      "cfgHint": "保存即写入本机 .env 并立即生效，无需重启；密钥只保存在本机。",
+      "cfgSave": "保存配置",
+      "cfgSaving": "保存中…",
+      "cfgSaved": "已保存，已即时生效",
+      "cfgSaveFailed": "保存失败：{error}"
     },
     "shortcuts": {
       "label": "快捷方式",
@@ -478,8 +499,7 @@
       "exportOk": "已导出 {count} 项设置",
       "exportFail": "导出失败：{error}",
       "importOk": "已导入 {count} 项设置",
-      "importFail": "导入失败：{error}",
-      "tokenSaved": "云端 token 已保存"
+      "importFail": "导入失败：{error}"
     }
   },
   "exportWizard": {

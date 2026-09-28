@@ -117,9 +117,53 @@ interface EmbeddedImg {
   hPx: number
 }
 
-/** 下载 + 转 JPEG 字节（带缓存）。优先 OffscreenCanvas.convertToBlob（比 toDataURL+atob 快）。 */
-async function urlToJpegBytes(url: string): Promise<Uint8Array | null> {
-  const hit = jpegBytesCache.get(url)
+/** 缓存 key：水印文本 + URL（不同水印的图分开缓存） */
+function jpegCacheKey(url: string, wmText: string): string {
+  return wmText + '\u0000' + url
+}
+
+/**
+ * 把水印平铺烤进 canvas 像素——嵌入 PDF 后即使图片被单独复制出也带水印。
+ * 斜向交错平铺、低透明度灰，不遮挡题目阅读。
+ */
+function stampCanvasWatermark(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  w: number,
+  h: number,
+  text: string,
+): void {
+  if (!text || w <= 0 || h <= 0) return
+  try {
+    const fontSize = Math.max(11, Math.round(Math.min(w, h) * 0.055))
+    ctx.save()
+    ctx.font = `${fontSize}px Arial, Helvetica, sans-serif`
+    ctx.fillStyle = 'rgba(110, 110, 110, 0.16)'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const textW = ctx.measureText(text).width
+    const colStep = textW + Math.max(48, fontSize * 3)
+    const rowStep = fontSize * 5
+    ctx.translate(w / 2, h / 2)
+    ctx.rotate((-24 * Math.PI) / 180)
+    const diag = Math.sqrt(w * w + h * h)
+    const halfCols = Math.ceil(diag / colStep / 2)
+    const halfRows = Math.ceil(diag / rowStep / 2)
+    for (let r = -halfRows; r <= halfRows; r++) {
+      const offset = Math.abs(r) % 2 === 1 ? colStep / 2 : 0
+      for (let c = -halfCols; c <= halfCols; c++) {
+        ctx.fillText(text, c * colStep + offset, r * rowStep)
+      }
+    }
+    ctx.restore()
+  } catch {
+    /* 画水印失败不阻断导出 */
+  }
+}
+
+/** 下载 + 转 JPEG 字节（带缓存）；wmText 非空时烤入平铺水印。优先 OffscreenCanvas.convertToBlob。 */
+async function urlToJpegBytes(url: string, wmText = ''): Promise<Uint8Array | null> {
+  const key = jpegCacheKey(url, wmText)
+  const hit = jpegBytesCache.get(key)
   if (hit) return hit
   try {
     let res: Response
@@ -139,6 +183,7 @@ async function urlToJpegBytes(url: string): Promise<Uint8Array | null> {
       const ctx = canvas.getContext('2d')
       if (ctx) {
         ctx.drawImage(bmp, 0, 0)
+        stampCanvasWatermark(ctx, bmp.width, bmp.height, wmText)
         bmp.close()
         const out = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.9 })
         bytes = new Uint8Array(await out.arrayBuffer())
@@ -152,13 +197,14 @@ async function urlToJpegBytes(url: string): Promise<Uint8Array | null> {
       const ctx = canvas.getContext('2d')
       if (ctx) {
         ctx.drawImage(bmp, 0, 0)
+        stampCanvasWatermark(ctx, bmp.width, bmp.height, wmText)
         bytes = b64ToBytes(canvas.toDataURL('image/jpeg', 0.9).split(',')[1] || '')
       }
       bmp.close()
       canvas.width = 0
       canvas.height = 0
     }
-    if (bytes) jpegBytesCache.set(url, bytes)
+    if (bytes) jpegBytesCache.set(key, bytes)
     return bytes
   } catch {
     return null
@@ -166,7 +212,11 @@ async function urlToJpegBytes(url: string): Promise<Uint8Array | null> {
 }
 
 /** 并行预取（默认 6 路），布局阶段只做 embed（很快） */
-async function prefetchJpegs(urls: string[], cancel?: { value: boolean }): Promise<void> {
+async function prefetchJpegs(
+  urls: string[],
+  cancel?: { value: boolean },
+  wmText = '',
+): Promise<void> {
   const queue = [...new Set(urls)]
   const workerCount = Math.max(1, Math.min(6, queue.length))
   const workers = Array.from({ length: workerCount }, async () => {
@@ -174,15 +224,19 @@ async function prefetchJpegs(urls: string[], cancel?: { value: boolean }): Promi
       assertNotCancelled(cancel)
       const url = queue.shift()
       if (!url) break
-      if (!jpegBytesCache.has(url)) await urlToJpegBytes(url)
+      if (!jpegBytesCache.has(jpegCacheKey(url, wmText))) await urlToJpegBytes(url, wmText)
     }
   })
   await Promise.all(workers)
 }
 
-async function fetchAsJpeg(doc: PDFDocument, url: string): Promise<EmbeddedImg | null> {
+async function fetchAsJpeg(
+  doc: PDFDocument,
+  url: string,
+  wmText = '',
+): Promise<EmbeddedImg | null> {
   try {
-    const bytes = await urlToJpegBytes(url)
+    const bytes = await urlToJpegBytes(url, wmText)
     if (!bytes) return null
     const image = await doc.embedJpg(bytes)
     return { image, wPx: image.width, hPx: image.height }
@@ -287,7 +341,7 @@ export async function buildQuestionsPdf(
 
   // 图片并行预取（与首页绘制重叠），布局阶段直接命中字节缓存
   const allUrls = list.flatMap((i) => [...i.boxes, ...i.answerBoxes].map((b) => b.url))
-  const prefetch = prefetchJpegs(allUrls, opts.cancel)
+  const prefetch = prefetchJpegs(allUrls, opts.cancel, opts.watermarkText ?? '')
 
   // ---- 首页：筛选信息 ----
   if (opts.includeFilterSummary) {
@@ -358,7 +412,7 @@ export async function buildQuestionsPdf(
     // 返回使用的图片数（无图跳过，与管理端一致）
     const imgs: EmbeddedImg[] = []
     for (const b of q.boxes) {
-      const im = await fetchAsJpeg(doc, b.url)
+      const im = await fetchAsJpeg(doc, b.url, opts.watermarkText ?? '')
       if (im) imgs.push(im)
     }
     if (!imgs.length) return 0
@@ -401,7 +455,7 @@ export async function buildQuestionsPdf(
     assertNotCancelled(opts.cancel)
     const imgs: EmbeddedImg[] = []
     for (const b of q.answerBoxes) {
-      const im = await fetchAsJpeg(doc, b.url)
+      const im = await fetchAsJpeg(doc, b.url, opts.watermarkText ?? '')
       if (im) imgs.push(im)
     }
     if (!imgs.length) return 0
@@ -543,9 +597,9 @@ export async function buildQuestionsPdf(
     })
   }
 
-  // ---- 导出水印：整页斜向浅灰（含封面/空白页），防盗追溯用 ----
+  // ---- 导出水印：整页斜向平铺浅灰（含封面/空白页），防盗追溯用 ----
   if (opts.watermarkText) {
-    const wmSize = 22
+    const wmSize = 15
     const angle = (30 * Math.PI) / 180
     let wmWidth = 0
     try {
@@ -554,18 +608,29 @@ export async function buildQuestionsPdf(
       wmWidth = 0 // 字体缺字时跳过水印，不阻断导出
     }
     if (wmWidth > 0) {
-      const cx = A4_W / 2
-      const cy = A4_H / 2
+      const colStep = wmWidth + 120
+      const rowStep = 130
+      const cols = Math.ceil(A4_W / colStep) + 1
+      const rows = Math.ceil(A4_H / rowStep) + 1
       for (const page of doc.getPages()) {
-        page.drawText(opts.watermarkText, {
-          x: cx - (Math.cos(angle) * wmWidth) / 2,
-          y: cy - (Math.sin(angle) * wmWidth) / 2,
-          size: wmSize,
-          font,
-          color: GRAY,
-          rotate: degrees(30),
-          opacity: 0.12,
-        })
+        for (let r = 0; r <= rows; r++) {
+          const cy = r * rowStep - rowStep / 2
+          const offset = r % 2 === 1 ? colStep / 2 : 0
+          for (let c = 0; c <= cols; c++) {
+            const cx = c * colStep - colStep / 2 + offset
+            if (cx < -wmWidth || cx > A4_W + wmWidth) continue
+            if (cy < -wmSize * 2 || cy > A4_H + wmSize * 2) continue
+            page.drawText(opts.watermarkText, {
+              x: cx - (Math.cos(angle) * wmWidth) / 2,
+              y: cy - (Math.sin(angle) * wmWidth) / 2,
+              size: wmSize,
+              font,
+              color: GRAY,
+              rotate: degrees(30),
+              opacity: 0.1,
+            })
+          }
+        }
       }
     }
   }

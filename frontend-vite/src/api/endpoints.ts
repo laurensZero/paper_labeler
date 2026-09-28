@@ -730,9 +730,23 @@ export const compositionsApi = {
 // ---------------------------------------------------------------------------
 
 export const cloudApi = {
-  /** 云端配置自检（是否开启、缺哪些项） */
+  /** 云端配置自检（是否开启、缺哪些项 + 表单回显） */
   config(): Promise<CloudConfigInfo> {
     return api('/cloud/config')
+  },
+
+  /** 图形化保存云端配置（写本机 .env 并即时生效） */
+  updateConfig(patch: Record<string, string>): Promise<{
+    ok: boolean
+    enabled: boolean
+    missing: string[]
+    token_configured: boolean
+  }> {
+    return api('/cloud/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...cloudAuthHeaders() },
+      body: JSON.stringify(patch),
+    })
   },
 
   /** 启动一次后台同步（需本地管理 token） */

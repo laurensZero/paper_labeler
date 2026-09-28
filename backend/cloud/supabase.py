@@ -200,3 +200,23 @@ def admin_delete_user(cfg: CloudConfig, user_id: str) -> None:
     status, body = _auth_request(cfg, "DELETE", f"admin/users/{user_id}")
     if status >= 400:
         raise SupabaseError(status, "DELETE", f"auth/v1/admin/users/{user_id}", json.dumps(body, ensure_ascii=False))
+
+
+def admin_set_banned(cfg: CloudConfig, user_id: str, banned: bool) -> dict:
+    """停用/启用账号（GoTrue admin API）。
+
+    banned=True  → ban_duration=876000h（100 年，等效永久封禁）
+    banned=False → ban_duration=0s（time.ParseDuration 通用解析，
+                   banned_until=now 即立即解封，兼容所有 GoTrue 版本）
+    被封禁用户无法登录，refresh token 全部失效。
+    """
+    payload = {"ban_duration": "876000h" if banned else "0s"}
+    status, body = _auth_request(cfg, "PUT", f"admin/users/{user_id}", payload)
+    if status >= 400:
+        raise SupabaseError(
+            status,
+            "PUT",
+            f"auth/v1/admin/users/{user_id}",
+            json.dumps(body, ensure_ascii=False),
+        )
+    return body

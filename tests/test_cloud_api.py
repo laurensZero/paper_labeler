@@ -31,6 +31,18 @@ def test_config_exposes_token_flag(with_token):
     assert "token_configured" in body
     assert body["token_configured"] is True
     assert body["management_disabled"] is False
+    # 图形化配置表单回显字段齐全
+    assert set(body["form"]) == {
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "R2_ACCOUNT_ID",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET",
+        "R2_PUBLIC_BASE",
+        "PAPER_CLOUD_ENABLED",
+        "PAPER_CLOUD_TOKEN",
+    }
 
 
 def test_config_without_token_marks_management_disabled(no_token):
@@ -47,6 +59,20 @@ def test_sync_status_public_read():
     body = res.json()
     assert "running" in body
     assert "token_configured" in body
+
+
+def test_sync_status_disk_state_normalized(monkeypatch):
+    # 重启后前端靠 disk_state 回显「上次同步」；旧落盘文件只有 success，需归一化出 ok
+    monkeypatch.setattr(
+        cloud_router,
+        "load_sync_state",
+        lambda: {"success": True, "duration_s": 12, "counts": {}, "errors": [], "error_count": 0},
+    )
+    res = client.get("/cloud/sync/status")
+    assert res.status_code == 200
+    disk = res.json()["disk_state"]
+    assert disk is not None
+    assert disk["ok"] is True
 
 
 def test_start_sync_requires_token_when_unset(no_token):
@@ -168,6 +194,7 @@ def _enable_cloud(monkeypatch):
         r2_secret_access_key = "s"
         r2_bucket = "b"
         r2_public_base = "https://pub"
+        web_url = "https://web.example.com"
 
     monkeypatch.setattr("backend.routers.cloud.get_cloud_config", lambda: _Cfg())
 
@@ -408,3 +435,196 @@ def test_composition_detail_sorted(with_token, monkeypatch):
     assert [r["id"] for r in body] == [1, 2]  # sort_order 升序
     assert body[1]["exam_code"] == "2024A"
     assert body[0]["item_type"] == "blank_page"
+
+
+def test_composition_pdf_requires_token(no_token):
+    res = client.get("/cloud/compositions/11111111-1111-1111-1111-111111111111/pdf")
+    assert res.status_code in (401, 403)
+
+
+def test_composition_pdf_renders(with_token, monkeypatch):
+    import io as _io
+
+    from PIL import Image
+
+    from backend.cloud import compose_pdf, supabase as sb
+
+    _enable_cloud(monkeypatch)
+    cid = "11111111-1111-1111-1111-111111111111"
+
+    def fake_select(cfg, table, columns="", filters=None, **k):
+        if table == "compositions":
+            return [
+                {
+                    "name": "测试卷 / A:B",
+                    "title": None,
+                    "header_text": None,
+                    "footer_text": None,
+                    "cover_lines": None,
+                    "include_answers": False,
+                    "answers_placement": "end",
+                    "show_page_numbers": True,
+                    "show_question_info": True,
+                    "show_section_headers": True,
+                    "owner_id": _UID,
+                    "profiles": {"email": "a@b.com"},
+                }
+            ]
+        if table == "composition_items":
+            return [
+                {"sort_order": 1, "item_type": "question", "blank_pages": 0, "question_id": 7},
+                {"sort_order": 2, "item_type": "blank_page", "blank_pages": 1, "question_id": None},
+            ]
+        if table == "questions":
+            return [{"id": 7, "question_no": "5", "section": "函数", "paper_id": 1}]
+        if table == "papers":
+            return [{"id": 1, "exam_code": "2024A", "filename": "x.pdf"}]
+        if table == "question_boxes":
+            return [{"question_id": 7, "page": 1, "image_key": "q/1.webp"}]
+        if table == "app_config":
+            # 开启自定义水印，覆盖图片烤水印 + 整页叠层两条路径
+            return [
+                {
+                    "value": {
+                        "export_watermark": {"enabled": True, "mode": "custom", "text": "TOP {date}"}
+                    }
+                }
+            ]
+        raise AssertionError(f"unexpected table {table}")
+
+    monkeypatch.setattr(sb, "select", fake_select)
+
+    buf = _io.BytesIO()
+    Image.new("RGB", (320, 200), (255, 255, 255)).save(buf, format="PNG")
+    png = buf.getvalue()
+    monkeypatch.setattr(
+        compose_pdf,
+        "_fetch_image",
+        lambda cfg, key: Image.open(_io.BytesIO(png)),
+    )
+
+    res = client.get(f"/cloud/compositions/{cid}/pdf", headers={"X-Paper-Token": "secret"})
+    assert res.status_code == 200, res.text
+    assert res.headers["content-type"] == "application/pdf"
+    assert res.content[:4] == b"%PDF"
+    disp = res.headers.get("content-disposition", "")
+    assert "filename*=UTF-8''" in disp
+    assert "%20_%20" in disp  # "测试卷 / A:B" 清洗为 "测试卷 _ A_B" 后的 URL 编码
+
+
+# ---------------------------------------------------------------------------
+# 停用用户（is_active + GoTrue ban）与邀请回跳
+# ---------------------------------------------------------------------------
+
+
+def test_update_profile_ban_unban(with_token, monkeypatch):
+    _enable_cloud(monkeypatch)
+    from backend.cloud import supabase as sb
+
+    monkeypatch.setattr(sb, "patch", lambda cfg, table, filters, body: 1)
+    bans: list[bool] = []
+    monkeypatch.setattr(sb, "admin_set_banned", lambda cfg, uid, banned: bans.append(banned) or {})
+
+    res = client.patch(
+        f"/cloud/profiles/{_UID}", json={"is_active": False}, headers={"X-Paper-Token": "secret"}
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["is_active"] is False
+
+    res = client.patch(
+        f"/cloud/profiles/{_UID}", json={"is_active": True}, headers={"X-Paper-Token": "secret"}
+    )
+    assert res.status_code == 200
+    assert bans == [True, False]
+
+
+def test_update_profile_ban_failure_502(with_token, monkeypatch):
+    from backend.cloud import supabase as sb
+
+    _enable_cloud(monkeypatch)
+    monkeypatch.setattr(sb, "patch", lambda cfg, table, filters, body: 1)
+
+    def _boom(cfg, uid, banned):
+        raise sb.SupabaseError(400, "PUT", "auth/v1/admin/users/x", "bad")
+
+    monkeypatch.setattr(sb, "admin_set_banned", _boom)
+    res = client.patch(
+        f"/cloud/profiles/{_UID}", json={"is_active": False}, headers={"X-Paper-Token": "secret"}
+    )
+    assert res.status_code == 502
+    assert "封禁" in res.json()["detail"]
+
+
+def test_profiles_include_is_active(with_token, monkeypatch):
+    from backend.cloud import supabase as sb
+
+    _enable_cloud(monkeypatch)
+    monkeypatch.setattr(
+        sb,
+        "select",
+        lambda cfg, table, **k: (
+            [
+                {
+                    "id": _UID,
+                    "email": "a@b.com",
+                    "role": "teacher",
+                    "can_see_drafts": False,
+                    "is_active": False,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "max_compositions": None,
+                    "max_exports_per_week": None,
+                    "max_exports_per_month": None,
+                    "max_export_items": None,
+                }
+            ]
+            if table == "profiles"
+            else []
+        ),
+    )
+    res = client.get("/cloud/profiles")
+    assert res.status_code == 200
+    assert res.json()[0]["is_active"] is False
+
+
+# ---------------------------------------------------------------------------
+# 图形化配置（PUT /cloud/config 写 .env）
+# ---------------------------------------------------------------------------
+
+
+def test_put_config_first_setup_open_without_token(monkeypatch):
+    # token 未配置：放行作为首次配置入口
+    monkeypatch.setattr(cloud_router, "get_cloud_token", lambda: "")
+    monkeypatch.setattr("backend.cloud.config.get_cloud_token", lambda: "")
+    saved: dict = {}
+    monkeypatch.setattr(cloud_router, "save_env_values", lambda v: saved.update(v))
+    res = client.put("/cloud/config", json={"PAPER_CLOUD_ENABLED": "1"})
+    assert res.status_code == 200, res.text
+    assert saved == {"PAPER_CLOUD_ENABLED": "1"}
+
+
+def test_put_config_protected_when_token_set(with_token, monkeypatch):
+    saved: dict = {}
+    monkeypatch.setattr(cloud_router, "save_env_values", lambda v: saved.update(v))
+    res = client.put("/cloud/config", json={"SUPABASE_URL": "https://x.supabase.co"})
+    assert res.status_code in (401, 403)
+    res = client.put(
+        "/cloud/config",
+        json={"SUPABASE_URL": "https://x.supabase.co"},
+        headers={"X-Paper-Token": "secret"},
+    )
+    assert res.status_code == 200, res.text
+    assert saved["SUPABASE_URL"] == "https://x.supabase.co"
+    assert res.json()["ok"] is True
+
+
+def test_put_config_validates(with_token, monkeypatch):
+    def _no_save(v):
+        raise AssertionError("should not save")
+
+    monkeypatch.setattr(cloud_router, "save_env_values", _no_save)
+    res = client.put("/cloud/config", json={}, headers={"X-Paper-Token": "secret"})
+    assert res.status_code == 400
+    res = client.put(
+        "/cloud/config", json={"PAPER_CLOUD_ENABLED": "2"}, headers={"X-Paper-Token": "secret"}
+    )
+    assert res.status_code == 400

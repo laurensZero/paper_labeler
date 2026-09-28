@@ -7,6 +7,8 @@ export interface Profile {
   email: string
   role: 'admin' | 'teacher'
   can_see_drafts: boolean
+  /** 停用标记（管理端「权限管理」；GoTrue ban 已拦登录，这里是旧会话兜底） */
+  is_active: boolean
   /** 组卷存量上限（null = 不限；管理端「导出管控」配置） */
   max_compositions: number | null
   /** 导出次数·本周上限（周期制，防批量导出） */
@@ -35,11 +37,15 @@ async function loadProfile(userId: string): Promise<void> {
   const { data } = await getSupabase()
     .from('profiles')
     .select(
-      'id,email,role,can_see_drafts,max_compositions,max_exports_per_week,max_exports_per_month,max_export_items',
+      'id,email,role,can_see_drafts,is_active,max_compositions,max_exports_per_week,max_exports_per_month,max_export_items',
     )
     .eq('id', userId)
     .maybeSingle()
   state.profile = (data as Profile | null) ?? null
+  // 已停用账号：立刻登出（正常情况下 GoTrue ban 已拦住，这里兜底旧会话）
+  if (data && (data as Profile).is_active === false) {
+    void getSupabase().auth.signOut()
+  }
 }
 
 export function initAuth(): Promise<void> {

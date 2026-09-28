@@ -108,7 +108,9 @@
     "signingIn": "登录中…",
     "hint": "账号由管理员在 Supabase 后台创建；没有账号请联系管理员。",
     "errRequired": "请输入邮箱和密码",
-    "errInvalid": "邮箱或密码不正确"
+    "errInvalid": "邮箱或密码不正确",
+    "errBanned": "该账号已被停用，请联系管理员。",
+    "errConfirm": "邮箱尚未验证，请先点击邮件中的验证链接。"
   },
   "bank": {
     "allModules": "全部模块",
@@ -256,5 +258,21 @@
     "exportWeekReached": "本周导出次数已达上限，请联系管理员调高上限，或下周一再试。",
     "exportMonthReached": "本月导出次数已达上限，请联系管理员调高上限，或下月再试。",
     "exportItemsReached": "单次导出最多 {max} 题，请减少题目后再试。"
+  },
+  "callback": {
+    "failed": "链接无效或已过期，请联系管理员重新发送邀请。"
+  },
+  "setPassword": {
+    "title": "设置密码",
+    "sub": "邮箱验证成功，请为你的账号设置登录密码",
+    "new": "新密码（至少 8 位）",
+    "confirm": "确认密码",
+    "submit": "设置并进入",
+    "setting": "设置中…",
+    "mismatch": "两次输入的密码不一致",
+    "tooShort": "密码至少 8 位",
+    "weak": "密码强度不够，请换一个更长的密码",
+    "success": "设置成功，正在进入题库…",
+    "errPrefix": "设置失败"
   }
 }

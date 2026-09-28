@@ -5,6 +5,10 @@ export interface CloudConfigInfo {
   missing: string[]
   supabase_url: string
   r2_bucket: string
+  token_configured: boolean
+  management_disabled: boolean
+  /** 图形化配置表单回显（.env 键 → 当前值） */
+  form: Record<string, string>
 }
 
 export interface CloudSyncSummary {
@@ -23,4 +27,6 @@ export interface CloudSyncStatus {
   running: boolean
   current: CloudSyncSummary | null
   last: CloudSyncSummary | null
+  /** 磁盘落盘的上次结果（重启后回显用；后端已归一化 ok 字段） */
+  disk_state: CloudSyncSummary | null
 }

@@ -25,7 +25,12 @@
     "minimize": "Minimize",
     "maximize": "Maximize",
     "restore": "Restore",
-    "close": "Close"
+    "close": "Close",
+    "quickSync": "Quick push to cloud",
+    "quickSyncRunning": "Syncing…",
+    "quickSyncOk": "Push succeeded",
+    "quickSyncErr": "Push failed: {error}",
+    "quickSyncUnknown": "unknown error"
   },
   "status": {
     "ready": "Ready"
@@ -202,6 +207,12 @@
     "userInviteLink": "Email unavailable — send this invite link manually: {url}",
     "fbDeleteNeedRestart": "Backend missing DELETE route — restart the local server",
     "permScopeGroup": "Group",
+    "permStatus": "Status",
+    "permActive": "Active",
+    "permInactive": "Disabled",
+    "permDisable": "Disable",
+    "permEnable": "Enable",
+    "permDisableConfirm": "Disable {email}? They will no longer be able to sign in to the web app, and active sessions will end.",
     "tabComps": "Compositions",
     "tabGuard": "Export Control",
     "compsOwner": "Owner",
@@ -217,6 +228,10 @@
     "compsDetailFailed": "Failed to load details",
     "compBlank": "Blank page × {n}",
     "compNoQno": "no number",
+    "compsExport": "Export PDF",
+    "compsExporting": "Rendering…",
+    "compsExportFailed": "Export failed",
+    "compsExportHint": "Rendered locally with watermark",
     "guardWatermarkOn": "On",
     "guardWatermarkOff": "Off",
     "guardWatermarkFailed": "Failed to load watermark setting",
@@ -417,15 +432,15 @@
     "cloud": {
       "title": "Cloud Sync",
       "desc": "Push the local question bank to the cloud for the web app. Colleagues only see pushed content.",
-      "disabled": "Disabled: set PAPER_CLOUD_ENABLED=1 in the project root .env",
+      "disabled": "Cloud sync is off — flip the switch above and save",
       "missing": "Missing config: {items}",
       "ready": "Ready · {url} · R2: {bucket}",
       "sync": "Sync to Cloud",
       "syncing": "Syncing…",
       "startFailed": "Failed to start: {error}",
       "never": "Never synced",
-      "lastOk": "Last sync succeeded · {seconds}s",
-      "lastFail": "Last sync had {errors} errors · {seconds}s",
+      "lastOk": "Last sync succeeded · {time} · {seconds}s",
+      "lastFail": "Last sync had {errors} errors · {time} · {seconds}s",
       "resurrected": "Warning: {count} records deleted in cloud but present locally were re-pushed (check id reuse)",
       "errorsLabel": "Errors",
       "phase": {
@@ -453,9 +468,15 @@
         "qbox_upserted": "Q boxes",
         "abox_upserted": "A boxes"
       },
-      "tokenLabel": "Admin token",
-      "tokenPlaceholder": "Same as PAPER_CLOUD_TOKEN in .env",
-      "tokenSave": "Save token"
+      "cfgEnabled": "Enable cloud sync",
+      "cfgEnabledDesc": "When off, the sync entry is hidden and cloud-management writes are disabled",
+      "cfgTokenKey": "Local management token",
+      "cfgTokenHint": "Credential for cloud-management write ops (feedback / permissions / export control); empty = writes disabled.",
+      "cfgHint": "Saved straight into this machine's .env and effective immediately — no restart. Secrets stay on this machine.",
+      "cfgSave": "Save config",
+      "cfgSaving": "Saving…",
+      "cfgSaved": "Saved — effective immediately",
+      "cfgSaveFailed": "Save failed: {error}"
     },
     "shortcuts": {
       "label": "Shortcuts",
@@ -478,8 +499,7 @@
       "exportOk": "Exported {count} settings",
       "exportFail": "Export failed: {error}",
       "importOk": "Imported {count} settings",
-      "importFail": "Import failed: {error}",
-      "tokenSaved": "Cloud token saved"
+      "importFail": "Import failed: {error}"
     }
   },
   "exportWizard": {

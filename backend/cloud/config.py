@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -67,10 +68,24 @@ def cloud_enabled() -> bool:
     return _env("PAPER_CLOUD_ENABLED") == "1"
 
 
+# 自动生成的管理令牌（.env 未配置 PAPER_CLOUD_TOKEN 时使用；进程内稳定，
+# 前端通过 GET /cloud/config 的 form.PAPER_CLOUD_TOKEN 收取并存 localStorage）
+_auto_token: str | None = None
+
+
 def get_cloud_token() -> str:
-    """Local management token for /cloud/* write endpoints (PAPER_CLOUD_TOKEN)."""
+    """Local management token for /cloud/* write endpoints (PAPER_CLOUD_TOKEN).
+
+    优先级：.env 配置值 → 自动生成（免手动配置）。
+    """
+    global _auto_token
     _load_dotenv()
-    return _env("PAPER_CLOUD_TOKEN")
+    tok = _env("PAPER_CLOUD_TOKEN")
+    if tok:
+        return tok
+    if _auto_token is None:
+        _auto_token = secrets.token_urlsafe(16)
+    return _auto_token
 
 
 def missing_config(cfg: CloudConfig) -> list[str]:
@@ -84,3 +99,45 @@ def missing_config(cfg: CloudConfig) -> list[str]:
         ("R2_PUBLIC_BASE", cfg.r2_public_base),
     ]
     return [name for name, value in checks if not value]
+
+
+def _quote_env_value(val: str) -> str:
+    if val == "":
+        return ""
+    if any(ch in val for ch in " \t#\"'"):
+        escaped = val.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return val
+
+
+def save_env_values(values: dict[str, str]) -> None:
+    """把键值 upsert 进根 .env（保留注释与无关行），并同步刷新 os.environ —— 免重启生效。
+
+    空字符串语义 = 清除该配置（写成 KEY=，同时从 os.environ 移除）。
+    管理端「设置 → 云端」的图形化保存走这里，发行版用户不手编文件。
+    """
+    path = _ROOT / ".env"
+    lines: list[str] = []
+    if path.exists():
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+    pending = dict(values)
+    out: list[str] = []
+    for line in lines:
+        s = line.strip()
+        if s and not s.startswith("#") and "=" in s:
+            key = s.partition("=")[0].strip()
+            if key in pending:
+                out.append(f"{key}={_quote_env_value(pending.pop(key))}")
+                continue
+        out.append(line)
+    for key, val in pending.items():
+        out.append(f"{key}={_quote_env_value(val)}")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    for key, val in values.items():
+        if val == "":
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = val

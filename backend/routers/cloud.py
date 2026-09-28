@@ -4,10 +4,17 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote as urlquote
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
-from backend.cloud.config import cloud_enabled, get_cloud_config, get_cloud_token, missing_config
+from backend.cloud.config import (
+    cloud_enabled,
+    get_cloud_config,
+    get_cloud_token,
+    missing_config,
+    save_env_values,
+)
 from backend.cloud.state import load_sync_state, record_sync_result
 from backend.cloud.sync import SyncSummary, run_sync
 
@@ -77,6 +84,63 @@ def config_info():
         "r2_bucket": cfg.r2_bucket,
         "token_configured": token_configured,
         "management_disabled": not token_configured,
+        # 图形化配置表单回显（本机管理端；与直接读 .env 等价，非跨网机密）
+        "form": {
+            "SUPABASE_URL": cfg.supabase_url,
+            "SUPABASE_SERVICE_ROLE_KEY": cfg.service_role_key,
+            "R2_ACCOUNT_ID": cfg.r2_account_id,
+            "R2_ACCESS_KEY_ID": cfg.r2_access_key_id,
+            "R2_SECRET_ACCESS_KEY": cfg.r2_secret_access_key,
+            "R2_BUCKET": cfg.r2_bucket,
+            "R2_PUBLIC_BASE": cfg.r2_public_base,
+            "PAPER_CLOUD_ENABLED": "1" if cloud_enabled() else "0",
+            "PAPER_CLOUD_TOKEN": get_cloud_token(),
+        },
+    }
+
+
+# 可通过设置页编辑的 .env 键
+_EDITABLE_ENV = (
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "R2_ACCOUNT_ID",
+    "R2_ACCESS_KEY_ID",
+    "R2_SECRET_ACCESS_KEY",
+    "R2_BUCKET",
+    "R2_PUBLIC_BASE",
+    "PAPER_CLOUD_ENABLED",
+    "PAPER_CLOUD_TOKEN",
+)
+
+
+@router.put("/config")
+def update_config(payload: dict, request: Request):
+    """图形化写配置：upsert 根 .env 并即时生效（免重启）。
+
+    已配置 PAPER_CLOUD_TOKEN 后必须带对；未配置时放行作为首次配置入口
+    （同机进程本就能直接改 .env；浏览器跨站请求被 CORS 拦截）。
+    """
+    if get_cloud_token():
+        _require_token(request)
+    updates: dict[str, str] = {}
+    for key in _EDITABLE_ENV:
+        if key not in payload or payload[key] is None:
+            continue  # null/缺失 = 不改
+        val = str(payload[key]).strip()
+        if len(val) > 4096:
+            raise HTTPException(status_code=400, detail=f"{key} 过长")
+        if key == "PAPER_CLOUD_ENABLED" and val not in {"", "0", "1"}:
+            raise HTTPException(status_code=400, detail="PAPER_CLOUD_ENABLED 必须是 0/1")
+        updates[key] = val
+    if not updates:
+        raise HTTPException(status_code=400, detail="没有可更新的字段")
+    save_env_values(updates)
+    cfg = get_cloud_config()
+    return {
+        "ok": True,
+        "enabled": cloud_enabled(),
+        "missing": missing_config(cfg),
+        "token_configured": bool(get_cloud_token()),
     }
 
 
@@ -111,6 +175,9 @@ def sync_status():
         last = _state["last"]
         running = _state["running"]
     disk_state = load_sync_state()
+    if disk_state and "ok" not in disk_state:
+        # 旧版落盘文件只有 success/failed，归一化给前端统一用 ok
+        disk_state["ok"] = bool(disk_state.get("success"))
     token_configured = bool(get_cloud_token())
     return {
         "running": running,
@@ -224,7 +291,7 @@ def list_profiles():
             cfg,
             "profiles",
             columns=(
-                "id,email,role,can_see_drafts,created_at,"
+                "id,email,role,can_see_drafts,created_at,is_active,"
                 "max_compositions,max_exports_per_week,max_exports_per_month,max_export_items"
             ),
         )
@@ -277,6 +344,8 @@ def create_user(payload: dict, request: Request):
     from backend.cloud import supabase as sb
 
     cfg = _require_cloud()
+    # 邮件链接回跳 = Supabase Auth 的 Site URL（Dashboard 一次性配置，零 .env）。
+    # 网页端路由守卫按抢存的链接类型分流到设置密码页。
     invite_url = None
     user_id = ""
     try:
@@ -331,9 +400,8 @@ def _parse_quota(value: object, field: str) -> int | None:
 
 @router.patch("/profiles/{user_id}")
 def update_profile(user_id: str, payload: dict, request: Request):
-    # TODO(停用用户/封号)：支持 payload.is_active —— 写 profiles.is_active，
-    # 并调用 GoTrue admin API（PUT /auth/v1/admin/users/{id}, ban_duration）
-    # 真正禁止登录/刷新；网页端登录时再校验 is_active 兜底。本版先不做。
+    # 停用用户（封禁）：profiles.is_active 打标 + GoTrue ban_duration 真正禁止登录。
+    # 顺序：先落库再封禁；封禁失败返回 502（is_active 已是新值，重试幂等）。
     _require_token(request)
     body: dict = {}
     if "role" in payload:
@@ -342,6 +410,8 @@ def update_profile(user_id: str, payload: dict, request: Request):
         body["role"] = payload["role"]
     if "can_see_drafts" in payload:
         body["can_see_drafts"] = bool(payload["can_see_drafts"])
+    if "is_active" in payload:
+        body["is_active"] = bool(payload["is_active"])
     for field in (
         "max_compositions",
         "max_exports_per_week",
@@ -352,6 +422,7 @@ def update_profile(user_id: str, payload: dict, request: Request):
             body[field] = _parse_quota(payload[field], field)
     if not body:
         raise HTTPException(status_code=400, detail="没有可更新的字段")
+
     from backend.cloud import supabase as sb
 
     cfg = _require_cloud()
@@ -361,6 +432,15 @@ def update_profile(user_id: str, payload: dict, request: Request):
         raise HTTPException(status_code=502, detail=str(exc)) from None
     if n == 0:
         raise HTTPException(status_code=404, detail="profile not found")
+
+    if "is_active" in body:
+        try:
+            sb.admin_set_banned(cfg, user_id, banned=not body["is_active"])
+        except sb.SupabaseError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"状态已标记，但登录封禁操作失败（可重试）：{exc}",
+            ) from None
     return {"ok": True, **body}
 
 
@@ -515,6 +595,39 @@ def composition_detail(composition_id: str):
         )
     out.sort(key=lambda r: int(r.get("sort_order") or 0))
     return out
+
+
+@router.get("/compositions/{composition_id}/pdf")
+def export_composition_pdf(
+    composition_id: str,
+    request: Request,
+    include_answers: bool | None = None,
+):
+    """下载组卷 PDF：云端拉数据 + R2 拉图，本地渲染，图片与页面均带水印。"""
+    import uuid as uuid_mod
+
+    from backend.cloud import supabase as sb
+    from backend.cloud.compose_pdf import build_composition_pdf
+
+    _require_token(request)
+    try:
+        uuid_mod.UUID(composition_id)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=400, detail="composition_id 无效") from None
+    cfg = _require_cloud()
+    try:
+        pdf_bytes, filename = build_composition_pdf(cfg, composition_id, include_answers)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="组卷不存在") from None
+    except sb.SupabaseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{urlquote(filename)}",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

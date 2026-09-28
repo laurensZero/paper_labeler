@@ -125,9 +125,8 @@ const {
   exportCropWorkers,
 } = storeToRefs(exportStore)
 
-// Settings snapshot export / import + cloud token
+// Settings snapshot export / import
 const settingsSnapshotResult = ref('')
-const cloudTokenInput = ref('')
 
 function onExportSettings() {
   try {
@@ -161,11 +160,6 @@ function onImportSettingsFile(ev: Event) {
     }
   }
   reader.readAsText(file)
-}
-
-function onSaveCloudToken() {
-  settingsStore.saveCloudToken(cloudTokenInput.value)
-  settingsSnapshotResult.value = t('settings.snapshot.tokenSaved')
 }
 
 // Toggle handlers — call store actions to persist + enforce mutual exclusion
@@ -285,6 +279,11 @@ const cloudStarting = ref(false)
 const cloudStartError = ref('')
 let cloudPollTimer: number | null = null
 
+// 图形化配置表单（.env 键 → 值；loadCloudInfo 回填，保存后免重启生效）
+const cloudForm = ref<Record<string, string>>({})
+const cloudSaving = ref(false)
+const cloudSaveMsg = ref('')
+
 const cloudReady = computed(
   () => !!cloudConfig.value && cloudConfig.value.enabled && cloudConfig.value.missing.length === 0,
 )
@@ -302,6 +301,12 @@ function cloudCountLabel(key: string): string {
   const k = `settings.cloud.counts.${key}`
   const label = t(k)
   return label === k ? key : label
+}
+
+/** 同步完成时间展示：2026-09-28 14:03 */
+function fmtSyncTime(summary: CloudSyncSummary | null): string {
+  const ts = summary?.finished_at || summary?.started_at || ''
+  return ts ? ts.replace('T', ' ').slice(0, 16) : '—'
 }
 
 function apiErrDetail(e: unknown): string {
@@ -329,7 +334,9 @@ async function pollCloudStatus() {
     const s = await cloudApi.syncStatus()
     cloudRunning.value = s.running
     cloudCurrent.value = s.current
-    if (s.last) cloudLast.value = s.last
+    // 进程内 last 优先；重启后内存清空则回填磁盘落盘的上次结果
+    const latest = s.last ?? s.disk_state ?? null
+    if (latest) cloudLast.value = latest
     if (!s.running) stopCloudPoll()
   } catch {
     stopCloudPoll()
@@ -355,17 +362,39 @@ async function startCloudSync() {
 async function loadCloudInfo() {
   try {
     cloudConfig.value = await cloudApi.config()
+    if (cloudConfig.value?.form) {
+      cloudForm.value = { ...cloudConfig.value.form }
+      // 后端自动生成的令牌：本地还没有就直接收下（cloudAuthHeaders 读同一键）
+      if (!settingsStore.cloudToken && cloudConfig.value.form.PAPER_CLOUD_TOKEN) {
+        settingsStore.saveCloudToken(cloudConfig.value.form.PAPER_CLOUD_TOKEN)
+      }
+    }
   } catch {
     cloudConfig.value = null
   }
   void pollCloudStatus()
 }
 
+async function onSaveCloudConfig() {
+  cloudSaving.value = true
+  cloudSaveMsg.value = ''
+  try {
+    await cloudApi.updateConfig({ ...cloudForm.value })
+    // 管理令牌同步进本地存储，后续 /cloud/* 写请求带新值
+    settingsStore.saveCloudToken(cloudForm.value.PAPER_CLOUD_TOKEN ?? '')
+    cloudSaveMsg.value = t('settings.cloud.cfgSaved')
+    await loadCloudInfo()
+  } catch (e) {
+    cloudSaveMsg.value = t('settings.cloud.cfgSaveFailed', { error: apiErrDetail(e) })
+  } finally {
+    cloudSaving.value = false
+  }
+}
+
 // Load persisted values on mount
 onMounted(() => {
   settingsStore.loadFromStorage()
   settingsStore.loadCloudToken()
-  if (CLOUD_ADMIN_ENABLED) cloudTokenInput.value = settingsStore.cloudToken
   exportStore.loadExportSettings()
   exportStore.refreshExportCacheOverview()
   appUpdateStore.init()
@@ -590,15 +619,81 @@ onUnmounted(() => {
         {{ t('settings.cloud.desc') }}
       </div>
 
-      <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px">
-        <span style="font-size: 13px; color: var(--text-secondary); white-space: nowrap">{{ t('settings.cloud.tokenLabel') }}</span>
-        <input
-          v-model="cloudTokenInput"
-          type="password"
-          :placeholder="t('settings.cloud.tokenPlaceholder')"
-          style="flex: 1; min-width: 180px; padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; color: var(--text-primary); font-family: inherit; outline: none"
-        />
-        <button class="btn" @click="onSaveCloudToken">{{ t('settings.cloud.tokenSave') }}</button>
+      <!-- 图形化配置：写本机 .env，保存即生效（发行版无需手编文件） -->
+      <div class="cfg-form">
+        <div class="cfg-row">
+          <div>
+            <div class="cfg-label">{{ t('settings.cloud.cfgEnabled') }}</div>
+            <div class="cfg-desc">{{ t('settings.cloud.cfgEnabledDesc') }}</div>
+          </div>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              :checked="cloudForm.PAPER_CLOUD_ENABLED === '1'"
+              @change="
+                cloudForm.PAPER_CLOUD_ENABLED = ($event.target as HTMLInputElement).checked ? '1' : '0'
+              "
+            />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="cfg-group">
+          <div class="cfg-group-title">Supabase</div>
+          <div class="cfg-grid">
+            <label class="cfg-field">
+              <span class="cfg-key">SUPABASE_URL</span>
+              <input v-model="cloudForm.SUPABASE_URL" type="text" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="cfg-field">
+              <span class="cfg-key">SUPABASE_SERVICE_ROLE_KEY</span>
+              <input v-model="cloudForm.SUPABASE_SERVICE_ROLE_KEY" type="password" autocomplete="off" />
+            </label>
+          </div>
+        </div>
+
+        <div class="cfg-group">
+          <div class="cfg-group-title">Cloudflare R2</div>
+          <div class="cfg-grid">
+            <label class="cfg-field">
+              <span class="cfg-key">R2_ACCOUNT_ID</span>
+              <input v-model="cloudForm.R2_ACCOUNT_ID" type="text" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="cfg-field">
+              <span class="cfg-key">R2_ACCESS_KEY_ID</span>
+              <input v-model="cloudForm.R2_ACCESS_KEY_ID" type="text" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="cfg-field">
+              <span class="cfg-key">R2_SECRET_ACCESS_KEY</span>
+              <input v-model="cloudForm.R2_SECRET_ACCESS_KEY" type="password" autocomplete="off" />
+            </label>
+            <label class="cfg-field">
+              <span class="cfg-key">R2_BUCKET</span>
+              <input v-model="cloudForm.R2_BUCKET" type="text" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="cfg-field">
+              <span class="cfg-key">R2_PUBLIC_BASE</span>
+              <input v-model="cloudForm.R2_PUBLIC_BASE" type="text" autocomplete="off" spellcheck="false" />
+            </label>
+          </div>
+        </div>
+
+        <div class="cfg-group">
+          <div class="cfg-group-title">PAPER_CLOUD_TOKEN</div>
+          <label class="cfg-field">
+            <span class="cfg-key">{{ t('settings.cloud.cfgTokenKey') }}</span>
+            <input v-model="cloudForm.PAPER_CLOUD_TOKEN" type="password" autocomplete="off" />
+          </label>
+          <div class="cfg-desc">{{ t('settings.cloud.cfgTokenHint') }}</div>
+        </div>
+
+        <div class="cfg-actions">
+          <button class="btn btn-primary" :disabled="cloudSaving" @click="onSaveCloudConfig">
+            {{ cloudSaving ? t('settings.cloud.cfgSaving') : t('settings.cloud.cfgSave') }}
+          </button>
+          <span v-if="cloudSaveMsg" class="cfg-msg">{{ cloudSaveMsg }}</span>
+        </div>
+        <div class="cfg-desc">{{ t('settings.cloud.cfgHint') }}</div>
       </div>
 
       <div style="font-size: 13px; padding-top: 10px; color: var(--text-secondary)">
@@ -628,8 +723,8 @@ onUnmounted(() => {
       <div v-if="cloudActiveSummary" style="margin-top: 12px; font-size: 13px; color: var(--text-secondary); line-height: 1.6">
         <span v-if="!cloudRunning" :style="{ color: cloudActiveSummary.ok ? '#22c55e' : '#ef4444' }">
           {{ cloudActiveSummary.ok
-            ? t('settings.cloud.lastOk', { seconds: cloudActiveSummary.duration_s })
-            : t('settings.cloud.lastFail', { errors: cloudActiveSummary.error_count, seconds: cloudActiveSummary.duration_s }) }}
+            ? t('settings.cloud.lastOk', { time: fmtSyncTime(cloudActiveSummary), seconds: cloudActiveSummary.duration_s })
+            : t('settings.cloud.lastFail', { errors: cloudActiveSummary.error_count, time: fmtSyncTime(cloudActiveSummary), seconds: cloudActiveSummary.duration_s }) }}
         </span>
         <div v-if="cloudActiveSummary.resurrected.length" style="color: var(--warning)">
           {{ t('settings.cloud.resurrected', { count: cloudActiveSummary.resurrected.length }) }}
@@ -793,6 +888,104 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* ── 云端配置表单 ── */
+.cfg-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.cfg-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.cfg-label {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.cfg-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+.cfg-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 10px 12px;
+}
+
+.cfg-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+  letter-spacing: 0.3px;
+}
+
+.cfg-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+}
+
+.cfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cfg-key {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cfg-field input {
+  padding: 6px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cfg-field input:focus {
+  border-color: var(--accent);
+}
+
+.cfg-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cfg-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .cfg-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .toggle {
   position: relative;
   display: inline-flex;

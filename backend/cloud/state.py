@@ -62,6 +62,7 @@ def save_sync_state(state: dict) -> None:
 def record_sync_result(summary_dict: dict) -> dict:
     """Persist a SyncSummary dict as the latest sync state and return it."""
     state = {
+        "ok": bool(summary_dict.get("ok")),
         "last_run": summary_dict.get("finished_at") or datetime.now(timezone.utc).isoformat(),
         "success": bool(summary_dict.get("ok")),
         "failed": not bool(summary_dict.get("ok")),

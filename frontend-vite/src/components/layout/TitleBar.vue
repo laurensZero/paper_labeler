@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { usePapersStore } from '@/stores/papers'
 import { computed } from 'vue'
+import { cloudApi } from '@/api/endpoints'
+import { CLOUD_ADMIN_ENABLED } from '@/features'
 
 defineProps<{
   isDark: boolean
@@ -22,6 +24,127 @@ const papersStore = usePapersStore()
 
 const isMaximized = ref(false)
 const isElectron = ref(false)
+
+// ---- 快速推送云端（一键同步 + 按钮下方悬浮状态窗）----
+const syncUi = ref<'idle' | 'syncing' | 'ok' | 'err'>('idle')
+const syncMsg = ref('')
+const syncPopover = ref(false)
+const syncPhase = ref('')
+const syncDuration = ref<number | null>(null)
+let syncPollTimer: number | null = null
+let syncResetTimer: number | null = null
+
+const syncPhaseLabel = computed(() => {
+  const ph = syncPhase.value
+  if (!ph) return ''
+  const key = `settings.cloud.phase.${ph}`
+  const label = t(key)
+  return label === key ? ph : label
+})
+
+const syncPopText = computed(() => {
+  if (syncUi.value === 'syncing') {
+    const ph = syncPhaseLabel.value
+    return ph ? `${t('titlebar.quickSyncRunning')} · ${ph}` : t('titlebar.quickSyncRunning')
+  }
+  if (syncUi.value === 'ok') {
+    return syncDuration.value != null
+      ? `${t('titlebar.quickSyncOk')} · ${syncDuration.value}s`
+      : t('titlebar.quickSyncOk')
+  }
+  return syncMsg.value || t('titlebar.quickSyncErr', { error: '' })
+})
+
+function errDetail(e: unknown): string {
+  if (e && typeof e === 'object' && 'body' in e) {
+    try {
+      const body = JSON.parse(String((e as { body: string }).body))
+      if (body?.detail) return String(body.detail)
+    } catch {
+      /* fallthrough */
+    }
+    return String((e as { body?: string }).body || e)
+  }
+  return e instanceof Error ? e.message : String(e)
+}
+
+function stopSyncPoll() {
+  if (syncPollTimer != null) {
+    clearInterval(syncPollTimer)
+    syncPollTimer = null
+  }
+}
+
+function scheduleSyncHide(delayMs: number) {
+  if (syncResetTimer != null) clearTimeout(syncResetTimer)
+  syncResetTimer = window.setTimeout(() => {
+    if (syncUi.value !== 'syncing') {
+      syncPopover.value = false
+      syncUi.value = 'idle'
+      syncMsg.value = ''
+      syncPhase.value = ''
+      syncDuration.value = null
+    }
+  }, delayMs)
+}
+
+function closeSyncPop() {
+  if (syncUi.value === 'syncing') return // 同步中状态窗常驻
+  if (syncResetTimer != null) clearTimeout(syncResetTimer)
+  syncPopover.value = false
+  syncUi.value = 'idle'
+  syncMsg.value = ''
+  syncPhase.value = ''
+  syncDuration.value = null
+}
+
+async function quickSync() {
+  if (!CLOUD_ADMIN_ENABLED || syncUi.value === 'syncing') return
+  syncUi.value = 'syncing'
+  syncMsg.value = ''
+  syncPhase.value = ''
+  syncDuration.value = null
+  syncPopover.value = true
+  try {
+    await cloudApi.startSync()
+  } catch (e) {
+    syncUi.value = 'err'
+    syncMsg.value = t('titlebar.quickSyncErr', { error: errDetail(e) })
+    scheduleSyncHide(10_000)
+    return
+  }
+  syncPollTimer = window.setInterval(async () => {
+    try {
+      const s = await cloudApi.syncStatus()
+      if (s.running) {
+        syncPhase.value = s.current?.phase || ''
+        return
+      }
+      stopSyncPoll()
+      const last = s.last ?? s.disk_state
+      syncDuration.value = last?.duration_s ?? null
+      if (last?.ok) {
+        syncUi.value = 'ok'
+        scheduleSyncHide(4_000)
+      } else {
+        syncUi.value = 'err'
+        syncMsg.value = t('titlebar.quickSyncErr', {
+          error: last?.errors?.[0] || t('titlebar.quickSyncUnknown'),
+        })
+        scheduleSyncHide(10_000)
+      }
+    } catch {
+      stopSyncPoll()
+      syncUi.value = 'idle'
+      syncPopover.value = false
+    }
+  }, 1500)
+}
+
+onUnmounted(() => {
+  stopSyncPoll()
+  if (syncResetTimer != null) clearTimeout(syncResetTimer)
+})
 
 const activeKey = computed(() => (route.name as string) || 'filter')
 const statusLabel = computed(() => appStore.statusText || appStore.statsText || t('status.ready'))
@@ -90,6 +213,48 @@ function close() { window.electronAPI?.close() }
         <span class="status-pulse"></span>
         <span class="status-label">{{ statusLabel }}</span>
       </div>
+      <div v-if="CLOUD_ADMIN_ENABLED" class="titlebar-sync-wrap">
+        <button
+          class="titlebar-ghost-btn"
+          :class="{
+            'titlebar-ghost-btn--spin': syncUi === 'syncing',
+            'titlebar-ghost-btn--ok': syncUi === 'ok',
+            'titlebar-ghost-btn--err': syncUi === 'err',
+          }"
+          v-tooltip="syncUi === 'idle' ? t('titlebar.quickSync') : syncPopText"
+          @click="quickSync"
+        >
+          <svg v-if="syncUi === 'ok'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <svg v-else-if="syncUi === 'err'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 16l-4-4-4 4" /><path d="M12 12v9" /><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+          </svg>
+        </button>
+
+        <!-- 点击后悬浮的状态卡片（同步中常驻，完成后自动收起） -->
+        <div v-if="syncPopover" class="titlebar-sync-pop" @click="closeSyncPop">
+          <span
+            class="titlebar-sync-pop-icon"
+            :class="{ 'is-spin': syncUi === 'syncing', 'is-ok': syncUi === 'ok', 'is-err': syncUi === 'err' }"
+          >
+            <svg v-if="syncUi === 'ok'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <svg v-else-if="syncUi === 'err'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 16l-4-4-4 4" /><path d="M12 12v9" /><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+            </svg>
+          </span>
+          <span class="titlebar-sync-pop-text">{{ syncPopText }}</span>
+          <button v-if="syncUi !== 'syncing'" class="titlebar-sync-pop-x" @click.stop="closeSyncPop">×</button>
+        </div>
+      </div>
       <button class="titlebar-ghost-btn" @click="emit('toggleTheme', $event)" v-tooltip="isDark ? t('sidebar.lightMode') : t('sidebar.darkMode')">
         <svg v-if="isDark" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
@@ -119,6 +284,8 @@ function close() { window.electronAPI?.close() }
 
 <style scoped>
 .titlebar {
+  position: relative;
+  z-index: 100;
   display: flex;
   align-items: center;
   height: 36px;
@@ -210,6 +377,99 @@ function close() { window.electronAPI?.close() }
 .titlebar-ghost-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* ---- 快速推送云端：按钮状态 + 悬浮状态卡 ---- */
+.titlebar-sync-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-ghost-btn--spin {
+  color: var(--accent, #4f46e5);
+}
+
+.titlebar-ghost-btn--spin svg {
+  animation: sync-spin 1s linear infinite;
+}
+
+.titlebar-ghost-btn--ok {
+  color: var(--success, #10b981);
+}
+
+.titlebar-ghost-btn--err {
+  color: var(--danger, #ef4444);
+}
+
+.titlebar-sync-pop {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: -6px;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 216px;
+  max-width: 320px;
+  padding: 11px 12px;
+  background: var(--bg-elevated, #ffffff);
+  border: 1px solid var(--border, #e4e4e7);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  font-size: 12.5px;
+  color: var(--text-primary, #18181b);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-sync-pop-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--text-secondary, #52525b);
+}
+
+.titlebar-sync-pop-icon.is-spin {
+  color: var(--accent, #4f46e5);
+  animation: sync-spin 1s linear infinite;
+}
+
+.titlebar-sync-pop-icon.is-ok {
+  color: var(--success, #10b981);
+}
+
+.titlebar-sync-pop-icon.is-err {
+  color: var(--danger, #ef4444);
+}
+
+.titlebar-sync-pop-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.titlebar-sync-pop-x {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--text-tertiary, #a1a1aa);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 1px;
+  cursor: pointer;
+}
+
+.titlebar-sync-pop-x:hover {
+  color: var(--text-primary, #18181b);
+}
+
+@keyframes sync-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .titlebar-sep {

@@ -178,17 +178,14 @@ function statusTag(status: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// 权限管理
+// 权限管理（停用 = profiles.is_active 打标 + 后端 GoTrue ban 禁止登录）
 // ---------------------------------------------------------------------------
-// TODO(停用用户/封号)：用户行后续加「停用/启用」按钮 → PATCH /cloud/profiles/{id}
-// { is_active: false }，后端落 profiles.is_active 并调用 GoTrue admin ban
-// （ban_duration）真正禁止登录，网页端登录时再校验兜底。本版先不做，
-// 见 backend/routers/cloud.py update_profile 的同名 TODO。
 interface ProfileRow {
   id: string
   email: string
   role: 'admin' | 'teacher'
   can_see_drafts: boolean
+  is_active: boolean
   created_at: string
   max_compositions: number | null
   max_exports_per_week: number | null
@@ -350,6 +347,12 @@ function scopeLabel(scope: string): string {
   return 'question'
 }
 
+async function toggleActive(p: ProfileRow) {
+  const next = !p.is_active
+  if (!next && !window.confirm(t('cloud.permDisableConfirm', { email: p.email }))) return
+  await patchProfile(p, { is_active: next })
+}
+
 async function addGrant() {
   if (!selectedUserId.value) return
   const raw = grantValue.value || grantPaperValue.value
@@ -473,6 +476,42 @@ function compItemLabel(it: CompItem): string {
   if (it.section) parts.push(it.section)
   const label = parts.join(' · ')
   return it.score != null ? `${label}（${it.score} 分）` : label
+}
+
+// ---- 云卷下载：后端本地渲染带水印 PDF（需管理 token）----
+const compExporting = ref<string | null>(null)
+
+async function exportCompPdf(row: CompRow) {
+  compExporting.value = row.id
+  error.value = ''
+  try {
+    const res = await fetch(`/cloud/compositions/${row.id}/pdf`, {
+      headers: cloudAuthHeaders(),
+    })
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`
+      try {
+        const body = (await res.json()) as { detail?: string }
+        if (body?.detail) detail = body.detail
+      } catch {
+        /* 非 JSON 错误体 */
+      }
+      throw new Error(detail)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${(row.name || 'composition').replace(/[\\/:*?"<>|]/g, '_')}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  } catch (e) {
+    error.value = t('cloud.compsExportFailed') + ': ' + errText(e)
+  } finally {
+    compExporting.value = null
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -739,8 +778,10 @@ onMounted(() => {
           <thead>
             <tr>
               <th>{{ t('cloud.permEmail') }}</th>
-              <th style="width: 110px">{{ t('cloud.permRole') }}</th>
-              <th style="width: 90px">{{ t('cloud.permDrafts') }}</th>
+              <th style="width: 96px">{{ t('cloud.permRole') }}</th>
+              <th style="width: 76px">{{ t('cloud.permDrafts') }}</th>
+              <th style="width: 76px">{{ t('cloud.permStatus') }}</th>
+              <th style="width: 70px"></th>
             </tr>
           </thead>
           <tbody>
@@ -771,9 +812,24 @@ onMounted(() => {
                   @change="patchProfile(p, { can_see_drafts: ($event.target as HTMLInputElement).checked })"
                 />
               </td>
+              <td @click.stop>
+                <span class="cl-tag" :class="p.is_active ? 'tag-ok' : 'tag-warn'">
+                  {{ p.is_active ? t('cloud.permActive') : t('cloud.permInactive') }}
+                </span>
+              </td>
+              <td @click.stop>
+                <button
+                  class="cl-btn"
+                  :class="p.is_active ? 'cl-btn--danger' : ''"
+                  :disabled="busyUserId === p.id"
+                  @click="toggleActive(p)"
+                >
+                  {{ p.is_active ? t('cloud.permDisable') : t('cloud.permEnable') }}
+                </button>
+              </td>
             </tr>
             <tr v-if="!profiles.length">
-              <td colspan="3" class="cl-empty">—</td>
+              <td colspan="5" class="cl-empty">—</td>
             </tr>
           </tbody>
         </table>
@@ -861,6 +917,20 @@ onMounted(() => {
               </tr>
               <tr v-if="expandedComp === row.id" class="cl-detail-row">
                 <td colspan="5">
+                  <div class="cl-comp-detail-head">
+                    <button
+                      class="cl-btn cl-btn--primary"
+                      :disabled="compExporting === row.id"
+                      @click.stop="exportCompPdf(row)"
+                    >
+                      {{
+                        compExporting === row.id
+                          ? t('cloud.compsExporting')
+                          : t('cloud.compsExport')
+                      }}
+                    </button>
+                    <span class="cl-muted">{{ t('cloud.compsExportHint') }}</span>
+                  </div>
                   <div v-if="compDetailLoading" class="cl-empty">…</div>
                   <ul v-else class="cl-comp-detail">
                     <li v-for="it in compDetail" :key="it.id">
@@ -1380,6 +1450,13 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.cl-comp-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 8px;
 }
 
 .cl-comp-detail li {

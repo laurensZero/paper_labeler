@@ -10,7 +10,8 @@ const { t } = useI18n()
 
 const email = ref('')
 const password = ref('')
-const error = ref('')
+// 邮件链接无效/过期时，守卫会带 auth_error=1 落到本页
+const error = ref(route.query.auth_error ? t('callback.failed') : '')
 const loading = ref(false)
 
 async function onSubmit() {
@@ -23,7 +24,14 @@ async function onSubmit() {
   const err = await signIn(email.value.trim(), password.value)
   loading.value = false
   if (err) {
-    error.value = err === 'Invalid login credentials' ? t('login.errInvalid') : err
+    error.value =
+      err === 'Invalid login credentials'
+        ? t('login.errInvalid')
+        : err.toLowerCase().includes('banned')
+          ? t('login.errBanned')
+          : err.includes('Email not confirmed')
+            ? t('login.errConfirm')
+            : err
     return
   }
   const redirect = (route.query.redirect as string) || '/bank'

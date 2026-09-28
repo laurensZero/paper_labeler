@@ -43,6 +43,35 @@ def test_missing_config_all_present():
     assert missing_config(_cfg()) == []
 
 
+def test_save_env_values_upsert_quote_and_clear(tmp_path, monkeypatch):
+    import os
+
+    from backend.cloud import config as cfgmod
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "# keep me\nSUPABASE_URL=https://old.example\nR2_BUCKET=paper-labeler\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cfgmod, "_ROOT", tmp_path)
+    # 预置 env 让 monkeypatch 在 teardown 恢复
+    monkeypatch.setenv("SUPABASE_URL", "https://old.example")
+    monkeypatch.setenv("R2_PUBLIC_BASE", "https://old.pub")
+
+    cfgmod.save_env_values({"SUPABASE_URL": "https://new.example", "R2_PUBLIC_BASE": "https://img x y"})
+    text = env_file.read_text(encoding="utf-8")
+    assert "# keep me" in text
+    assert "SUPABASE_URL=https://new.example" in text
+    assert 'R2_PUBLIC_BASE="https://img x y"' in text  # 含空格 → 加引号
+    assert os.environ["SUPABASE_URL"] == "https://new.example"
+
+    cfgmod.save_env_values({"SUPABASE_URL": ""})
+    text = env_file.read_text(encoding="utf-8")
+    assert "SUPABASE_URL=" in text
+    assert "old.example" not in text and "new.example" not in text
+    assert "SUPABASE_URL" not in os.environ
+
+
 # ---------- 时间戳 ----------
 
 
