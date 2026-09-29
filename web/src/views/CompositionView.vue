@@ -64,6 +64,9 @@ interface CompListItem {
   name: string
   visibility: string
   item_count?: number
+  owner_id: string | null
+  owner_email: string | null
+  is_mine: boolean
 }
 
 const route = useRoute()
@@ -78,7 +81,7 @@ const showListModal = ref(false)
 const newName = ref('')
 const compositions = ref<CompListItem[]>([])
 const selectedItemId = ref<number | null>(null)
-const previewMode = ref<'grouped' | 'free'>('grouped')
+const previewMode = ref<'grouped' | 'free'>('free')
 
 const bank = reactive({
   section: '',
@@ -166,8 +169,10 @@ const isAdmin = computed(() => auth.profile?.role === 'admin')
 const canEdit = computed(() => {
   if (!comp.value) return false
   if (isOwner.value || isAdmin.value) return true
-  return comp.value.visibility === 'edit'
+  return normalizeVis(comp.value.visibility) === 'edit'
 })
+/** 可改共享范围：仅本人（admin 可代管） */
+const canShare = computed(() => isOwner.value || isAdmin.value)
 /** 可查看（只要能打开就成立） */
 const canView = computed(() => !!comp.value)
 
@@ -178,6 +183,33 @@ function normalizeVis(v: string): Comp['visibility'] {
 function visLabel(v: string): string {
   const n = normalizeVis(v)
   return n === 'edit' ? t('compose.vis.edit') : n === 'view' ? t('compose.vis.view') : t('compose.vis.private')
+}
+
+const shareError = ref('')
+const shareBusy = ref(false)
+
+/** 切换共享范围（仅 owner/admin）。失败时回滚并提示。 */
+async function setVisibility(v: Comp['visibility']) {
+  if (!comp.value || !canShare.value || shareBusy.value) return
+  if (normalizeVis(comp.value.visibility) === v) return
+  const prev = comp.value.visibility
+  comp.value.visibility = v
+  shareBusy.value = true
+  shareError.value = ''
+  try {
+    const { error } = await getSupabase()
+      .from('compositions')
+      .update({ visibility: v })
+      .eq('id', comp.value.id)
+    if (error) {
+      comp.value.visibility = prev
+      shareError.value = error.message
+      return
+    }
+    await loadCompositions()
+  } finally {
+    shareBusy.value = false
+  }
 }
 
 // ---------- 统计 ----------
@@ -212,7 +244,8 @@ const coverLinePresets = computed(() => [
 function saveCoverLines(list: string[]) {
   if (!comp.value) return
   comp.value.cover_lines = list.length ? JSON.stringify(list) : null
-  void persistComp(['cover_lines'])
+  // 封面行编辑高频，防抖落库
+  persistCompSoft(['cover_lines'])
 }
 
 function addCoverLine(template = '') {
@@ -276,10 +309,18 @@ function paperOf(it: Item): string {
 }
 
 // ---------- 方案加载 ----------
+const onlyMine = ref(false)
+
+const visibleCompositions = computed(() => {
+  if (!onlyMine.value) return compositions.value
+  return compositions.value.filter((c) => c.is_mine)
+})
+
 async function loadCompositions() {
+  const uid = auth.session?.user.id
   const { data, error } = await getSupabase()
     .from('compositions')
-    .select('id,name,visibility,composition_items(count)')
+    .select('id,name,visibility,owner_id,composition_items(count),profiles(email)')
     .order('updated_at', { ascending: false })
   if (error) {
     pageError.value = error.message
@@ -289,13 +330,22 @@ async function loadCompositions() {
     id: string
     name: string
     visibility: string
+    owner_id: string | null
     composition_items: { count: number }[] | null
-  }[]).map((c) => ({
-    id: c.id,
-    name: c.name,
-    visibility: c.visibility,
-    item_count: c.composition_items?.[0]?.count ?? 0,
-  }))
+    profiles: { email: string | null } | { email: string | null }[] | null
+  }[]).map((c) => {
+    const profRaw = c.profiles
+    const prof = Array.isArray(profRaw) ? (profRaw[0] ?? null) : profRaw
+    return {
+      id: c.id,
+      name: c.name,
+      visibility: c.visibility,
+      item_count: c.composition_items?.[0]?.count ?? 0,
+      owner_id: c.owner_id,
+      owner_email: prof?.email ?? null,
+      is_mine: !!uid && c.owner_id === uid,
+    }
+  })
 }
 
 async function openComposition(id: string) {
@@ -460,7 +510,19 @@ function normalizeQ(q: unknown): QLite | null {
 }
 
 // ---------- 属性保存 ----------
-async function persistComp(fields: (keyof Comp)[]) {
+/** 文本类保存防抖，避免每次按键打库 */
+function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return (...args: A) => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      fn(...args)
+    }, ms)
+  }
+}
+
+async function persistCompNow(fields: (keyof Comp)[]) {
   if (!comp.value || !canEdit.value) return
   const body: Record<string, unknown> = {}
   for (const f of fields) body[f as string] = comp.value[f]
@@ -468,8 +530,21 @@ async function persistComp(fields: (keyof Comp)[]) {
   if (error) pageError.value = error.message
 }
 
+/** 设置字段：UI 已由 v-model 乐观更新，这里只负责落库 */
+function persistComp(fields: (keyof Comp)[]) {
+  void persistCompNow(fields)
+}
+
+const persistCompDebounced = debounce((fields: (keyof Comp)[]) => {
+  void persistCompNow(fields)
+}, 350)
+
+function persistCompSoft(fields: (keyof Comp)[]) {
+  persistCompDebounced(fields)
+}
+
 async function renameComp() {
-  await persistComp(['name'])
+  await persistCompNow(['name'])
   await loadCompositions()
 }
 
@@ -515,7 +590,7 @@ async function searchBank(resetPage = true) {
     bankAll.value = (data ?? []) as unknown as BankQ[]
   } catch (e) {
     pageError.value = e instanceof Error ? e.message : String(e)
-    bankAll.value = []
+    // 失败保留旧列表，避免面板闪空
   } finally {
     bankLoading.value = false
   }
@@ -632,18 +707,21 @@ function renumber() {
   })
 }
 
-async function persistOrder() {
+/** 排序落库：乐观已改 UI，这里防抖批量写，失败只提示不回滚列表 */
+const persistOrder = debounce(() => {
   if (!canEdit.value) return
   const sb = getSupabase()
-  await Promise.all(
-    items.value.map((it, idx) =>
-      sb.from('composition_items').update({ sort_order: idx }).eq('id', it.id).then(({ error }) => {
-        if (error) throw error
-        it.sort_order = idx
-      }),
-    ),
+  const snapshot = items.value.map((it) => ({ id: it.id, sort_order: it.sort_order }))
+  void Promise.all(
+    snapshot
+      .filter((it) => it.id > 0) // 跳过乐观临时 id
+      .map((it) =>
+        sb.from('composition_items').update({ sort_order: it.sort_order }).eq('id', it.id).then(({ error }) => {
+          if (error) pageError.value = error.message
+        }),
+      ),
   )
-}
+}, 180)
 
 async function insertBlankAfter(index: number) {
   if (!canEdit.value || !comp.value || index < 0) return
@@ -988,13 +1066,13 @@ onMounted(() => {
             </label>
           </div>
           <div class="cv-bank-list">
-            <div v-if="bankLoading" class="muted" style="padding: 20px; text-align: center; font-size: 13px">{{ t('compose.loading') }}</div>
+            <div v-if="bankLoading && !bankRows.length" class="muted" style="padding: 20px; text-align: center; font-size: 13px">{{ t('compose.loading') }}</div>
             <template v-else>
               <div
                 v-for="q in bankRows"
                 :key="q.id"
                 class="cv-bank-item"
-                :class="{ 'cv-bank-item--added': isInComposition(q.id), 'cv-bank-item--fav': favIds.has(q.id) }"
+                :class="{ 'cv-bank-item--added': isInComposition(q.id), 'cv-bank-item--fav': favIds.has(q.id), 'cv-bank-item--busy': bankLoading }"
                 :title="q.question_sections?.map((s) => s.section_name).join(', ')"
                 @click="toggleQuestion(q)"
               >
@@ -1017,8 +1095,8 @@ onMounted(() => {
         <section class="cv-panel cv-panel--preview">
           <div class="cv-preview-toolbar">
             <div class="cv-mode-toggle">
-              <button :class="{ active: previewMode === 'grouped' }" @click="previewMode = 'grouped'">{{ t('compose.grouped') }}</button>
               <button :class="{ active: previewMode === 'free' }" @click="previewMode = 'free'">{{ t('compose.free') }}</button>
+              <button :class="{ active: previewMode === 'grouped' }" @click="previewMode = 'grouped'">{{ t('compose.grouped') }}</button>
             </div>
             <div class="cv-stats-inline">
               <span class="cv-stat-pill"><b>{{ questionItemCount }}</b><span>{{ t('compose.stats.questions') }}</span></span>
@@ -1191,10 +1269,10 @@ onMounted(() => {
           </div>
           <div class="cv-modal-body">
             <label class="cv-prop-label">{{ t('compose.settings.titleLabel') }}</label>
-            <input v-model="comp.title" class="cv-prop-input" :disabled="!canEdit" :placeholder="t('compose.settings.titlePh')" @change="persistComp(['title'])" />
+            <input v-model="comp.title" class="cv-prop-input" :disabled="!canEdit" :placeholder="t('compose.settings.titlePh')" @input="persistCompSoft(['title'])" @change="persistComp(['title'])" />
 
             <label class="cv-prop-label">{{ t('compose.settings.header') }}</label>
-            <input v-model="comp.header_text" class="cv-prop-input" :disabled="!canEdit" @change="persistComp(['header_text'])" />
+            <input v-model="comp.header_text" class="cv-prop-input" :disabled="!canEdit" @input="persistCompSoft(['header_text'])" @change="persistComp(['header_text'])" />
 
             <label class="cv-prop-label">{{ t('compose.settings.coverLines') }}</label>
             <div class="cv-cover-lines-editor">
@@ -1211,7 +1289,7 @@ onMounted(() => {
             </div>
 
             <label class="cv-prop-label">{{ t('compose.settings.footer') }}</label>
-            <input v-model="comp.footer_text" class="cv-prop-input" :disabled="!canEdit" @change="persistComp(['footer_text'])" />
+            <input v-model="comp.footer_text" class="cv-prop-input" :disabled="!canEdit" @input="persistCompSoft(['footer_text'])" @change="persistComp(['footer_text'])" />
 
             <label class="cv-prop-check">
               <input v-model="comp.include_answers" type="checkbox" :disabled="!canEdit" @change="persistComp(['include_answers'])" />
@@ -1242,37 +1320,41 @@ onMounted(() => {
             <div class="cv-prop-divider"></div>
             <label class="cv-prop-label">{{ t('compose.settings.shareLevel') }}</label>
             <div class="cv-share-opts">
-              <label class="cv-prop-check" :class="{ 'is-active': comp.visibility === 'private' }">
+              <label class="cv-prop-check" :class="{ 'is-active': normalizeVis(comp.visibility) === 'private' }">
                 <input
                   type="radio"
                   name="cv-share"
-                  :checked="comp.visibility === 'private'"
-                  :disabled="!isOwner"
-                  @change="comp.visibility = 'private'; persistComp(['visibility'])"
+                  value="private"
+                  :checked="normalizeVis(comp.visibility) === 'private'"
+                  :disabled="!canShare || shareBusy"
+                  @change="setVisibility('private')"
                 />
                 <span>{{ t('compose.vis.private') }}</span>
               </label>
-              <label class="cv-prop-check" :class="{ 'is-active': comp.visibility === 'view' }">
+              <label class="cv-prop-check" :class="{ 'is-active': normalizeVis(comp.visibility) === 'view' }">
                 <input
                   type="radio"
                   name="cv-share"
-                  :checked="comp.visibility === 'view'"
-                  :disabled="!isOwner"
-                  @change="comp.visibility = 'view'; persistComp(['visibility'])"
+                  value="view"
+                  :checked="normalizeVis(comp.visibility) === 'view'"
+                  :disabled="!canShare || shareBusy"
+                  @change="setVisibility('view')"
                 />
                 <span>{{ t('compose.vis.view') }}</span>
               </label>
-              <label class="cv-prop-check" :class="{ 'is-active': comp.visibility === 'edit' }">
+              <label class="cv-prop-check" :class="{ 'is-active': normalizeVis(comp.visibility) === 'edit' }">
                 <input
                   type="radio"
                   name="cv-share"
-                  :checked="comp.visibility === 'edit'"
-                  :disabled="!isOwner"
-                  @change="comp.visibility = 'edit'; persistComp(['visibility'])"
+                  value="edit"
+                  :checked="normalizeVis(comp.visibility) === 'edit'"
+                  :disabled="!canShare || shareBusy"
+                  @change="setVisibility('edit')"
                 />
                 <span>{{ t('compose.vis.edit') }}</span>
               </label>
             </div>
+            <p v-if="shareError" class="cv-share-error">{{ shareError }}</p>
             <p class="muted" style="font-size: 12px; margin: 8px 0 0">{{ t('compose.settings.shareHint') }}</p>
           </div>
         </div>
@@ -1292,9 +1374,16 @@ onMounted(() => {
               <input v-model="newName" class="cv-prop-input" :placeholder="t('compose.modal.namePh')" @keydown.enter="createNew" />
               <button class="btn btn-primary btn-sm" :disabled="!newName.trim()" @click="createNew">{{ t('compose.modal.create') }}</button>
             </div>
+            <div class="cv-list-toolbar">
+              <label class="cv-prop-check cv-list-check">
+                <input v-model="onlyMine" type="checkbox" />
+                <span>{{ t('compose.modal.onlyMine') }}</span>
+              </label>
+              <span class="muted">{{ t('compose.modal.count', { n: visibleCompositions.length }) }}</span>
+            </div>
             <div class="cv-comp-list">
               <div
-                v-for="c in compositions"
+                v-for="c in visibleCompositions"
                 :key="c.id"
                 class="cv-comp-item"
                 :class="{ 'cv-comp-item--active': c.id === compId }"
@@ -1302,14 +1391,29 @@ onMounted(() => {
               >
                 <div style="flex: 1; min-width: 0">
                   <div class="cv-comp-name">{{ c.name }}</div>
-                  <div class="cv-comp-meta">{{ t('compose.meta', { n: c.item_count ?? 0, v: visLabel(c.visibility) }) }}</div>
+                  <div class="cv-comp-meta">
+                    {{
+                      t('compose.meta', {
+                        n: c.item_count ?? 0,
+                        v: visLabel(c.visibility),
+                        owner: c.is_mine
+                          ? t('compose.modal.ownerMe')
+                          : c.owner_email || t('compose.modal.ownerOther'),
+                      })
+                    }}
+                  </div>
                 </div>
                 <div class="cv-row-actions">
                   <button class="btn btn-soft btn-sm" :title="t('compose.toolbar.copy')" @click.stop="duplicateComposition(c.id)">{{ t('compose.toolbar.copy') }}</button>
-                  <button class="btn btn-danger btn-sm" :title="t('compose.toolbar.delete')" @click.stop="deleteComposition(c.id)">{{ t('compose.toolbar.delete') }}</button>
+                  <button
+                    class="btn btn-danger btn-sm"
+                    :title="t('compose.toolbar.delete')"
+                    :disabled="!c.is_mine && !isAdmin"
+                    @click.stop="deleteComposition(c.id)"
+                  >{{ t('compose.toolbar.delete') }}</button>
                 </div>
               </div>
-              <div v-if="!compositions.length" class="muted" style="padding: 24px; text-align: center">{{ t('compose.modal.empty') }}</div>
+              <div v-if="!visibleCompositions.length" class="muted" style="padding: 24px; text-align: center">{{ t('compose.modal.empty') }}</div>
             </div>
           </div>
         </div>

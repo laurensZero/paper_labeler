@@ -107,7 +107,11 @@
     "subject": "Subject",
     "subjectPh": "Search subject code or name…",
     "year": "Year",
-    "season": "Season",
+    "season": {
+      "Mar": "Mar",
+      "Jun": "Jun",
+      "Nov": "Nov"
+    },
     "seasonLabel": "Season",
     "typeFilter": "Type",
     "typeAll": "All",
@@ -142,11 +146,6 @@
       "er": "Examiner Report",
       "gt": "Grade Thresholds",
       "other": "File"
-    },
-    "season": {
-      "Mar": "Mar",
-      "Jun": "Jun",
-      "Nov": "Nov"
     }
   },
   "radar": {
@@ -296,9 +295,13 @@
       "title": "Open composition",
       "namePh": "Composition name, e.g. 2024 Mock",
       "create": "Create",
-      "empty": "No compositions yet"
+      "empty": "No compositions yet",
+      "onlyMine": "Only mine",
+      "count": "{n}",
+      "ownerMe": "Me",
+      "ownerOther": "Others"
     },
-    "meta": "{n} questions · {v}",
+    "meta": "{n} questions · {v} · {owner}",
     "vis": {
       "shared": "Shared",
       "private": "Private",

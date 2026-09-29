@@ -107,7 +107,11 @@
     "subject": "科目",
     "subjectPh": "搜索科目代码或名称…",
     "year": "年份",
-    "season": "考季",
+    "season": {
+      "Mar": "3 月",
+      "Jun": "6 月",
+      "Nov": "11 月"
+    },
     "seasonLabel": "考季",
     "typeFilter": "类型",
     "typeAll": "全部",
@@ -142,11 +146,6 @@
       "er": "考官报告",
       "gt": "分数线",
       "other": "附件"
-    },
-    "season": {
-      "Mar": "3 月",
-      "Jun": "6 月",
-      "Nov": "11 月"
     }
   },
   "radar": {
@@ -296,9 +295,13 @@
       "title": "打开方案",
       "namePh": "方案名称，如：2024 模拟卷",
       "create": "新建",
-      "empty": "暂无方案"
+      "empty": "暂无方案",
+      "onlyMine": "只看我的",
+      "count": "{n} 个",
+      "ownerMe": "我",
+      "ownerOther": "他人"
     },
-    "meta": "{n} 题 · {v}",
+    "meta": "{n} 题 · {v} · {owner}",
     "vis": {
       "shared": "共享",
       "private": "私有",
