@@ -2593,6 +2593,10 @@ input[type="checkbox"]:focus-visible {
     height: 48px;
   }
 
+  .brand {
+    flex-shrink: 0;
+  }
+
   .brand-name {
     display: none;
   }
@@ -2648,6 +2652,18 @@ input[type="checkbox"]:focus-visible {
   .bank-filters {
     gap: 5px;
     grid-template-columns: 1fr 1fr;
+  }
+
+  /* 手机端所有筛选控件按网格等宽，避免沿用桌面端的 max-width */
+  .bank-toolbar .bank-ctl,
+  .bank-toolbar .bank-ctl.bank-ctl--cascade,
+  .bank-toolbar .bank-ctl.bank-ctl--paper,
+  .bank-toolbar .bank-ctl.bank-ctl--sm,
+  .bank-toolbar .bank-check {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    flex: none;
   }
 
   /* 压缩选择器高度，首屏优先露出题目图片 */
