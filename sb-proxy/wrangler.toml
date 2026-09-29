@@ -1,0 +1,13 @@
+name = "paperlabeler-sb-proxy"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+workers_dev = false
+
+# 自定义域：国内优先走 de5.net，避开 *.workers.dev / *.supabase.co 抖动
+[[routes]]
+pattern = "cf.paperlabeler.de5.net"
+custom_domain = true
+
+[vars]
+# 上游 Supabase 项目（只反代 API，不代管 Auth 邮件里的跳转）
+SUPABASE_ORIGIN = "https://thcormurgwrgekrrgpnj.supabase.co"

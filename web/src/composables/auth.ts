@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 import type { Session } from '@supabase/supabase-js'
-import { getSupabase } from '@/lib/supabase'
+import { getSupabase, initSupabase } from '@/lib/supabase'
 
 export interface Profile {
   id: string
@@ -50,8 +50,9 @@ async function loadProfile(userId: string): Promise<void> {
 
 export function initAuth(): Promise<void> {
   if (initPromise) return initPromise
-  const sb = getSupabase()
   initPromise = (async () => {
+    await initSupabase()
+    const sb = getSupabase()
     const { data } = await sb.auth.getSession()
     state.session = data.session
     if (data.session) await loadProfile(data.session.user.id)
