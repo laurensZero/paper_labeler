@@ -10,6 +10,7 @@ import { useAppStore } from '@/stores/app'
 import { useAnswerStore } from '@/stores/answer'
 import { useFilterStore } from '@/stores/filter'
 import SectionTagEditor from '@/components/ui/SectionTagEditor.vue'
+import StarRating from '@/components/ui/StarRating.vue'
 import { useMarkKeyboard } from '@/composables/useMarkKeyboard'
 import { useMarkCanvas } from '@/composables/useMarkCanvas'
 import type { TagOptionGroup } from '@/components/ui/SectionTagEditor.vue'
@@ -565,6 +566,16 @@ onBeforeUnmount(() => {
             />
           </div>
 
+          <!-- Difficulty -->
+          <div v-if="!hasOcrDraftMode" class="prop-section">
+            <label class="form-label">{{ t('common.difficulty') }}</label>
+            <StarRating
+              :model-value="markStore.qDifficulty"
+              @update:model-value="markStore.qDifficulty = $event"
+            />
+            <div class="difficulty-hint">{{ markStore.qDifficulty ? t('common.difficultyValue', { n: markStore.qDifficulty }) : t('common.difficultyUnset') }}</div>
+          </div>
+
           <div class="divider"></div>
 
           <!-- Box list -->
@@ -683,6 +694,9 @@ onBeforeUnmount(() => {
                     <button class="btn btn-ghost btn-xs" @click="highlightQuestion(q)">高亮</button>
                     <button class="btn btn-ghost btn-xs" @click="markStore.deleteQuestion(q)">删除</button>
                   </div>
+                </div>
+                <div v-if="q.difficulty" class="question-difficulty">
+                  <StarRating :model-value="q.difficulty" readonly :size="14" />
                 </div>
                 <div v-if="q.notes" class="question-notes">{{ q.notes }}</div>
               </div>
@@ -1123,6 +1137,16 @@ onBeforeUnmount(() => {
 .section-pill.muted {
   color: var(--text-tertiary);
   background: var(--bg-hover);
+}
+
+.difficulty-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted, #888);
+}
+
+.question-difficulty {
+  margin-top: 4px;
 }
 
 .question-notes {

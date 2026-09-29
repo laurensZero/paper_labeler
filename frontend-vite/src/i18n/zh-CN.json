@@ -1,4 +1,9 @@
 {
+  "common": {
+    "difficulty": "难度",
+    "difficultyUnset": "未标注（再点同一颗星可清除）",
+    "difficultyValue": "{n} 星"
+  },
   "app": {
     "title": "Paper Labeler"
   },
@@ -672,6 +677,7 @@
     "sectionGroup": "分类",
     "notes": "备注",
     "notesPlaceholder": "备注...",
+    "difficulty": "难度",
     "save": "保存",
     "goToMark": "去框选修改",
     "cancel": "取消",

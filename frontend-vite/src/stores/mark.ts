@@ -54,8 +54,8 @@ export interface SavedMarkEntry {
   type: 'create' | 'update'
   paperId: number
   questionId: number
-  before: { sections: string[]; notes: string | null; boxes: { page: number; bbox: BoundingBox }[] } | null
-  after: { sections: string[]; notes: string | null; boxes: { page: number; bbox: BoundingBox }[] }
+  before: { sections: string[]; notes: string | null; difficulty: number | null; boxes: { page: number; bbox: BoundingBox }[] } | null
+  after: { sections: string[]; notes: string | null; difficulty: number | null; boxes: { page: number; bbox: BoundingBox }[] }
 }
 
 interface DragOp {
@@ -113,17 +113,20 @@ function clonePersistedBoxPayload(boxes: { page: number; bbox: number[] }[]): { 
 interface PersistedQuestionPayload {
   sections?: unknown[]
   notes?: string | null
+  difficulty?: number | null
   boxes?: { page: number; bbox: BoundingBox }[]
 }
 
-function clonePersistedQuestionPayload(payload: PersistedQuestionPayload | null | undefined): { sections: string[]; notes: string | null; boxes: { page: number; bbox: BoundingBox }[] } {
-  if (!payload || typeof payload !== 'object') return { sections: [] as string[], notes: null as string | null, boxes: [] as { page: number; bbox: BoundingBox }[] }
+function clonePersistedQuestionPayload(payload: PersistedQuestionPayload | null | undefined): { sections: string[]; notes: string | null; difficulty: number | null; boxes: { page: number; bbox: BoundingBox }[] } {
+  if (!payload || typeof payload !== 'object') return { sections: [] as string[], notes: null as string | null, difficulty: null, boxes: [] as { page: number; bbox: BoundingBox }[] }
   const sections = Array.isArray(payload.sections)
     ? payload.sections.filter((s) => s != null && String(s).trim()).map((s) => String(s))
     : []
   const notes = payload.notes == null ? null : String(payload.notes)
+  const d = payload.difficulty
+  const difficulty = typeof d === 'number' && Number.isFinite(d) && d >= 1 && d <= 5 ? Math.round(d) : null
   const boxes = clonePersistedBoxPayload(payload.boxes || [])
-  return { sections, notes, boxes }
+  return { sections, notes, difficulty, boxes }
 }
 
 export const useMarkStore = defineStore('mark', () => {
@@ -149,6 +152,7 @@ export const useMarkStore = defineStore('mark', () => {
   const pageQuestions = ref<any[]>([])
   const suggestedNextNo = ref<number | null>(null)
   const qNotes = ref('')
+  const qDifficulty = ref<number | null>(null)
   const editingQuestionOriginal = ref<any>(null)
   const isLocalEdit = ref(false)
   const selectedSectionsForNewQuestion = ref<string[]>([])
@@ -321,7 +325,7 @@ export const useMarkStore = defineStore('mark', () => {
     await api(`/questions/${safeId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sections: nextPayload.sections, notes: nextPayload.notes }),
+      body: JSON.stringify({ sections: nextPayload.sections, notes: nextPayload.notes, difficulty: nextPayload.difficulty }),
     })
     await api(`/questions/${safeId}/boxes`, {
       method: 'POST',
@@ -382,7 +386,7 @@ export const useMarkStore = defineStore('mark', () => {
         const created = await api(`/papers/${entry.paperId}/questions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sections: payload.sections, status: 'confirmed', notes: payload.notes, boxes: payload.boxes }),
+          body: JSON.stringify({ sections: payload.sections, status: 'confirmed', notes: payload.notes, difficulty: payload.difficulty, boxes: payload.boxes }),
         })
         const nextQuestionId = created?.question?.id
         if (nextQuestionId != null) entry.questionId = Number(nextQuestionId)
@@ -602,11 +606,13 @@ export const useMarkStore = defineStore('mark', () => {
       selectedNewBox.value = newBoxes.value[0] || null
       qSectionSelectValue.value = (full?.section ?? null) || ''
       qNotes.value = (full?.notes ?? null) || ''
+      qDifficulty.value = (typeof full?.difficulty === 'number' && full.difficulty >= 1 && full.difficulty <= 5) ? full.difficulty : null
       selectedSectionsForNewQuestion.value = full?.sections && Array.isArray(full.sections) ? [...full.sections] : []
       resetMarkHistory()
       enterEditQuestionMode(q.id, {
         sections: full?.sections ?? [],
         notes: full?.notes ?? null,
+        difficulty: qDifficulty.value,
         boxes: clonePersistedBoxPayload(boxes),
       }, true)
       appStore.setStatus('已进入修改模式：调整框后保存', 'ok')
@@ -651,8 +657,9 @@ export const useMarkStore = defineStore('mark', () => {
     qid: number,
     sectionsToSave: string[],
     notes: string | null,
+    difficulty: number | null,
     boxesPayload: { page: number; bbox: BoundingBox }[],
-    beforePayload: { sections: string[]; notes: string | null; boxes: { page: number; bbox: BoundingBox }[] },
+    beforePayload: { sections: string[]; notes: string | null; difficulty: number | null; boxes: { page: number; bbox: BoundingBox }[] },
   ) {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
@@ -660,7 +667,7 @@ export const useMarkStore = defineStore('mark', () => {
     await api(`/questions/${qid}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sections: sectionsToSave, notes }),
+      body: JSON.stringify({ sections: sectionsToSave, notes, difficulty }),
     })
     await api(`/questions/${qid}/boxes`, {
       method: 'POST',
@@ -672,7 +679,7 @@ export const useMarkStore = defineStore('mark', () => {
       paperId: papersStore.currentPaperId!,
       questionId: Number(qid),
       before: beforePayload,
-      after: clonePersistedQuestionPayload({ sections: sectionsToSave, notes, boxes: boxesPayload }),
+      after: clonePersistedQuestionPayload({ sections: sectionsToSave, notes, difficulty, boxes: boxesPayload }),
     })
     newBoxes.value = []
     resetMarkHistory()
@@ -689,6 +696,7 @@ export const useMarkStore = defineStore('mark', () => {
   async function createNewQuestion(
     sectionsToSave: string[],
     notes: string | null,
+    difficulty: number | null,
     boxesPayload: { page: number; bbox: BoundingBox }[],
   ) {
     const appStore = useAppStore()
@@ -697,6 +705,7 @@ export const useMarkStore = defineStore('mark', () => {
       sections: sectionsToSave,
       status: 'confirmed' as const,
       notes,
+      difficulty,
       boxes: boxesPayload,
     }
     appStore.setStatus('保存题目中...')
@@ -718,6 +727,7 @@ export const useMarkStore = defineStore('mark', () => {
     savePaperAlignRefFromBoxes(boxesPayload)
     newBoxes.value = []
     qNotes.value = ''
+    qDifficulty.value = null
     qSectionSelectValue.value = ''
     selectedSectionsForNewQuestion.value = []
     resetMarkHistory()
@@ -747,6 +757,7 @@ export const useMarkStore = defineStore('mark', () => {
     if (!sendMark({ type: 'SAVE' })) return
     let section = qSectionSelectValue.value || null
     let notes = qNotes.value || null
+    let difficulty: number | null = qDifficulty.value
     const boxesPayload = alignBoxesForSave(newBoxes.value.map((b) => ({ page: b.page, bbox: b.bbox })))
 
     if (editingQuestionId.value != null) {
@@ -755,6 +766,7 @@ export const useMarkStore = defineStore('mark', () => {
       const beforePayload = clonePersistedQuestionPayload({
         sections: Array.isArray(original.sections) ? original.sections : (original.section ? [original.section] : []),
         notes: original.notes ?? null,
+        difficulty: original.difficulty ?? null,
         boxes: Array.isArray(original.boxes) ? original.boxes : [],
       })
       let sectionsToSave = selectedSectionsForNewQuestion.value.length > 0
@@ -768,7 +780,7 @@ export const useMarkStore = defineStore('mark', () => {
         notes = editingQuestionOriginal.value.notes ?? null
       }
       try {
-        await updateExistingQuestion(qid, sectionsToSave, notes, boxesPayload, beforePayload)
+        await updateExistingQuestion(qid, sectionsToSave, notes, difficulty, boxesPayload, beforePayload)
         sendMark({ type: 'SAVE_OK', mode: 'create', editingQuestionId: null, dirty: false })
       } catch (e) {
         sendMark({ type: 'SAVE_FAIL', error: String(e) })
@@ -781,7 +793,7 @@ export const useMarkStore = defineStore('mark', () => {
       ? selectedSectionsForNewQuestion.value
       : (section ? [section] : [])
     try {
-      await createNewQuestion(sectionsToSave, notes, boxesPayload)
+      await createNewQuestion(sectionsToSave, notes, difficulty, boxesPayload)
       sendMark({ type: 'SAVE_OK', mode: 'create', editingQuestionId: null, dirty: false })
     } catch (e) {
       sendMark({ type: 'SAVE_FAIL', error: String(e) })
@@ -1146,6 +1158,7 @@ export const useMarkStore = defineStore('mark', () => {
     pageQuestions,
     suggestedNextNo,
     qNotes,
+    qDifficulty,
     editingQuestionId,
     editingQuestionOriginal,
     isLocalEdit,

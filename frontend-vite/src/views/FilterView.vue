@@ -121,6 +121,7 @@ function normalizeFilterQuestion(raw: Question): FilterQuestion {
     __ansMeta: 'Not loaded',
     __editSections: raw.sections && Array.isArray(raw.sections) ? [...raw.sections] : (raw.section ? [raw.section] : []),
     __editNotes: raw.notes || '',
+    __editDifficulty: (typeof raw.difficulty === 'number' && raw.difficulty >= 1 && raw.difficulty <= 5) ? raw.difficulty : null,
     __notesOpen: false,
   }
 }
@@ -217,6 +218,7 @@ void ansSectionRef
 const editMode = ref(false)
 const editSections = ref<string[]>([])
 const editNotes = ref('')
+const editDifficulty = ref<number | null>(null)
 
 function enterEditMode() {
   if (!selectedQuestion.value) return
@@ -224,11 +226,27 @@ function enterEditMode() {
     ? [...selectedQuestion.value.sections]
     : (selectedQuestion.value.section ? [selectedQuestion.value.section] : [])
   editNotes.value = selectedQuestion.value.notes || ''
+  editDifficulty.value = (typeof selectedQuestion.value.difficulty === 'number' && selectedQuestion.value.difficulty >= 1 && selectedQuestion.value.difficulty <= 5)
+    ? selectedQuestion.value.difficulty
+    : null
   editMode.value = true
 }
 
 function cancelEdit() {
   editMode.value = false
+}
+
+async function onSetDifficulty(value: number | null) {
+  if (!selectedQuestion.value) return
+  editDifficulty.value = value
+  if (editMode.value) return // 编辑模式下随「保存」一起提交
+  try {
+    await questionsApi.update(selectedQuestion.value.id, { difficulty: value })
+    selectedQuestion.value.difficulty = value
+    filterStore.markQuestionDatasetChanged()
+  } catch {
+    // API layer surfaces the error
+  }
 }
 
 async function onCreateSection(name: string, groupId: string | number | null) {
@@ -247,10 +265,12 @@ async function saveEdit() {
     await questionsApi.update(selectedQuestion.value.id, {
       sections: editSections.value,
       notes: editNotes.value,
+      difficulty: editDifficulty.value,
     })
     // Update local state
     selectedQuestion.value.sections = [...editSections.value]
     selectedQuestion.value.notes = editNotes.value
+    selectedQuestion.value.difficulty = editDifficulty.value
     editMode.value = false
     // Refresh filter results to reflect changes
     filterStore.markQuestionDatasetChanged()
@@ -675,6 +695,7 @@ const {
         :edit-mode="editMode"
         :edit-sections="editSections"
         :edit-notes="editNotes"
+        :edit-difficulty="editDifficulty"
         :section-options="sectionCascadeOptions"
         :group-options="sectionsStore.sectionGroups.map(g => ({ value: g.id, label: g.name }))"
         group-label="分类"
@@ -690,6 +711,8 @@ const {
         @go-to-mark="goToMarkView"
         @update:editSections="editSections = $event"
         @update:editNotes="editNotes = $event"
+        @update:editDifficulty="editDifficulty = $event"
+        @set-difficulty="onSetDifficulty"
         @create-section="onCreateSection"
       />
       </div>

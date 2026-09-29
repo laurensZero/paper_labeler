@@ -245,6 +245,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
                 "status": q.status or "confirmed",
                 "notes": q.notes,
                 "is_favorite": bool(q.is_favorite),
+                "difficulty": getattr(q, "difficulty", None),
                 "source_updated_at": _iso(q.updated_at),
                 "updated_at": _iso(q.updated_at),
                 "deleted_at": None,

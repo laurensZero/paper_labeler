@@ -45,6 +45,7 @@ class QuestionCreate(BaseModel):
     sections: list[str] | None = None  # 新：支持多个分类
     status: str = "confirmed"
     notes: str | None = None
+    difficulty: int | None = Field(default=None, ge=1, le=5)
     boxes: list[BoxIn]
 
 class QuestionUpdate(BaseModel):
@@ -53,6 +54,7 @@ class QuestionUpdate(BaseModel):
     sections: list[str] | None = None  # 新：支持多个分类
     status: str | None = None
     notes: str | None = None
+    difficulty: int | None = Field(default=None, ge=1, le=5)
     is_favorite: bool | None = None
 
 class QuestionBoxesReplace(BaseModel):
@@ -87,6 +89,7 @@ class QuestionsBatchUpdate(BaseModel):
     sections: list[str] | None = None
     is_favorite: bool | None = None
     notes: str | None = None
+    difficulty: int | None = Field(default=None, ge=1, le=5)
 
 class ExportQuestionsPDFOptions(BaseModel):
     include_paper: bool = True

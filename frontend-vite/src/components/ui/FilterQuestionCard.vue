@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import StarRating from './StarRating.vue'
 import CropPreview from './CropPreview.vue'
 import AppCheckbox from './AppCheckbox.vue'
 
@@ -20,6 +21,7 @@ export interface QuestionData {
   sections: string[]
   status: 'draft' | 'confirmed'
   notes: string | null
+  difficulty?: number | null
   is_favorite: boolean
   updated_at: string
   boxes: QuestionBoxData[]
@@ -98,6 +100,7 @@ function onToggleFavorite() {
           <span class="fqc-status" :class="statusClass">{{ statusLabel }}</span>
           <span v-if="paperLabel" class="fqc-paper">{{ paperLabel }}</span>
           <span v-if="sectionDisplay" class="fqc-section">{{ sectionDisplay }}</span>
+          <StarRating v-if="question.difficulty" class="fqc-difficulty" :model-value="question.difficulty" readonly :size="12" />
           <span v-if="question.notes" class="fqc-notes">{{ question.notes }}</span>
           <button
             class="fqc-fav"
@@ -229,6 +232,11 @@ function onToggleFavorite() {
   font-size: 12px;
   color: var(--text-accent);
   font-weight: 500;
+}
+
+.fqc-difficulty {
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 .fqc-notes {

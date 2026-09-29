@@ -71,6 +71,8 @@ class Question(Base):
     status = Column(String, nullable=False, default="confirmed")
     notes = Column(String, nullable=True)
     is_favorite = Column(Boolean, nullable=False, default=False, index=True)
+    # 1–5 星难度；未标注为 null
+    difficulty = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -211,6 +213,13 @@ def init_db():
             cols = {str(r[1]) for r in conn.exec_driver_sql("PRAGMA table_info(section_defs)").fetchall()}
             if "color" not in cols:
                 conn.exec_driver_sql("ALTER TABLE section_defs ADD COLUMN color VARCHAR")
+    except Exception:
+        pass
+    try:
+        with engine.begin() as conn:
+            cols = {str(r[1]) for r in conn.exec_driver_sql("PRAGMA table_info(questions)").fetchall()}
+            if "difficulty" not in cols:
+                conn.exec_driver_sql("ALTER TABLE questions ADD COLUMN difficulty INTEGER")
     except Exception:
         pass
     try:

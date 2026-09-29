@@ -124,6 +124,7 @@ def _question_to_dict(
         "sections": sections,  # 新：多个分类
         "status": q.status,
         "notes": q.notes,
+        "difficulty": getattr(q, "difficulty", None),
         "is_favorite": bool(getattr(q, "is_favorite", False)),
         "updated_at": q.updated_at,
         "preview_image_url": preview_url,
@@ -203,6 +204,7 @@ def create_question(paper_id: int, payload: QuestionCreate, db: Session = Depend
         section=sections_to_save[0] if sections_to_save else None,  # 兼容老字段
         status=payload.status,
         notes=payload.notes,
+        difficulty=payload.difficulty,
     )
     db.add(q)
     db.commit()
@@ -277,6 +279,8 @@ def update_question(question_id: int, payload: QuestionUpdate, db: Session = Dep
     
     if "notes" in data:
         q.notes = data["notes"]
+    if "difficulty" in data:
+        q.difficulty = data["difficulty"]
     if "is_favorite" in data and data["is_favorite"] is not None:
         q.is_favorite = bool(data["is_favorite"])
     db.add(q)
@@ -311,6 +315,8 @@ def batch_update_questions(payload: QuestionsBatchUpdate, db: Session = Depends(
 
         if payload.notes is not None:
             q.notes = payload.notes
+        if payload.difficulty is not None:
+            q.difficulty = payload.difficulty
         if payload.is_favorite is not None:
             q.is_favorite = bool(payload.is_favorite)
         db.add(q)
@@ -659,6 +665,7 @@ def _search_questions_core(
                     "id": int(qq.id),
                     "question_no": qq.question_no,
                     "is_favorite": bool(getattr(qq, "is_favorite", False)),
+                    "difficulty": getattr(qq, "difficulty", None),
                     "section": secs[0] if secs else None,
                     "sections": secs,
                 }

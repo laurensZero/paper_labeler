@@ -385,6 +385,7 @@ export const useFilterStore = defineStore('filter', () => {
       __ansMeta: 'Not loaded',
       __editSections: q.sections && Array.isArray(q.sections) ? [...q.sections] : (q.section ? [q.section] : []),
       __editNotes: q.notes || '',
+      __editDifficulty: (typeof q.difficulty === 'number' && q.difficulty >= 1 && q.difficulty <= 5) ? q.difficulty : null,
       __notesOpen: false,
     }))
 
@@ -430,18 +431,19 @@ export const useFilterStore = defineStore('filter', () => {
     }
   }
 
-  async function saveFilterQuestionMeta(q: Question, sections: string[], notes: string) {
+  async function saveFilterQuestionMeta(q: Question, sections: string[], notes: string, difficulty?: number | null) {
     const appStore = useAppStore()
     try {
       appStore.setStatus(`保存题目 #${q.id} 中...`)
       await api(`/questions/${q.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sections, notes }),
+        body: JSON.stringify({ sections, notes, difficulty }),
       })
       q.sections = sections
       q.section = sections[0] || null
       q.notes = notes
+      if (difficulty !== undefined) q.difficulty = difficulty
       markQuestionDatasetChanged()
       appStore.setStatus('已保存', 'ok')
     } catch (e) {

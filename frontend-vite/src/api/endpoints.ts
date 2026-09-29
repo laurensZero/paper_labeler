@@ -170,6 +170,7 @@ export const questionsApi = {
         sections: params.sections,
         status: params.status ?? 'confirmed',
         notes: params.notes,
+        difficulty: params.difficulty,
         boxes: params.boxes.map((b) => ({ page: b.page, bbox: b.bbox })),
       }),
     })
@@ -191,6 +192,7 @@ export const questionsApi = {
     if (params.sections !== undefined) body.sections = params.sections
     if (params.status !== undefined) body.status = params.status
     if (params.notes !== undefined) body.notes = params.notes
+    if (params.difficulty !== undefined) body.difficulty = params.difficulty
     if (params.isFavorite !== undefined) body.is_favorite = params.isFavorite
     return api(`/questions/${questionId}`, {
       method: 'PATCH',
@@ -209,6 +211,7 @@ export const questionsApi = {
         sections: params.sections,
         is_favorite: params.isFavorite,
         notes: params.notes,
+        difficulty: params.difficulty,
       }),
     })
   },

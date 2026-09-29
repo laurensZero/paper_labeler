@@ -1,4 +1,9 @@
 {
+  "common": {
+    "difficulty": "Difficulty",
+    "difficultyUnset": "Unset (click the same star again to clear)",
+    "difficultyValue": "{n} stars"
+  },
   "app": {
     "title": "Paper Labeler"
   },
@@ -672,6 +677,7 @@
     "sectionGroup": "Group",
     "notes": "Notes",
     "notesPlaceholder": "Notes...",
+    "difficulty": "Difficulty",
     "save": "Save",
     "goToMark": "Go to Mark",
     "cancel": "Cancel",

@@ -19,6 +19,8 @@ export interface Question {
   sections: string[]
   status: 'draft' | 'confirmed'
   notes: string | null
+  /** 1–5 星难度；未标注为 null */
+  difficulty: number | null
   is_favorite: boolean
   updated_at: string
   preview_image_url?: string | null
@@ -38,6 +40,7 @@ export interface QuestionCreateParams {
   sections?: string[]
   status?: 'draft' | 'confirmed'
   notes?: string
+  difficulty?: number | null
   boxes: BoxInParams[]
 }
 
@@ -48,6 +51,7 @@ export interface QuestionUpdateParams {
   sections?: string[]
   status?: 'draft' | 'confirmed'
   notes?: string
+  difficulty?: number | null
   isFavorite?: boolean
 }
 
@@ -98,6 +102,7 @@ export interface QuestionSummary {
   id: number
   question_no: string | null
   is_favorite: boolean
+  difficulty?: number | null
   section: string | null
   sections: string[]
 }
@@ -125,6 +130,7 @@ export interface QuestionsBatchUpdateParams {
   sections?: string[]
   isFavorite?: boolean
   notes?: string
+  difficulty?: number | null
 }
 
 /** Section stats entry (GET /section_stats) */
@@ -180,6 +186,7 @@ export interface FilterQuestion extends Question {
   __ansLoadingPromise?: Promise<void> | null
   __editSections: string[]
   __editNotes: string
+  __editDifficulty: number | null
   __notesOpen: boolean
   __previewFailed?: boolean
 }

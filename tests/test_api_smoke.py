@@ -162,7 +162,7 @@ class TestQuestionRoutes:
         assert body["page_size"] == 1000
         assert body["questions"]
         row = body["questions"][0]
-        assert set(row.keys()) == {"id", "question_no", "is_favorite", "section", "sections"}
+        assert set(row.keys()) == {"id", "question_no", "is_favorite", "difficulty", "section", "sections"}
         assert "boxes" not in row
         assert "preview_image_url" not in row
 
@@ -209,7 +209,10 @@ class TestQuestionRoutes:
         listed = client.get(f"/papers/{paper.id}/questions")
         assert listed.status_code == 200
 
-        updated = client.patch(f"/questions/{qid}", json={"is_favorite": True})
+        updated = client.patch(f"/questions/{qid}", json={"is_favorite": True, "difficulty": 4})
+        assert updated.status_code == 200
+        assert updated.json()["question"]["is_favorite"] is True
+        assert updated.json()["question"]["difficulty"] == 4
         assert updated.status_code == 200
 
         deleted = client.delete(f"/questions/{qid}")

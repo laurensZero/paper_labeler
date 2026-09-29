@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SectionTagEditor from './SectionTagEditor.vue'
+import StarRating from './StarRating.vue'
 import type { TagGroupOption } from './SectionTagEditor.vue'
 
 const { t } = useI18n()
@@ -16,6 +17,7 @@ export interface QuestionData {
   sections: string[]
   status: 'draft' | 'confirmed'
   notes: string | null
+  difficulty: number | null
   is_favorite: boolean
   updated_at: string
   paper?: {
@@ -38,6 +40,7 @@ const props = withDefaults(defineProps<{
   editMode?: boolean
   editSections?: string[]
   editNotes?: string
+  editDifficulty?: number | null
   sectionOptions?: { label: string; options: { value: string; label: string }[] }[]
   groupOptions?: TagGroupOption[]
   groupLabel?: string
@@ -49,6 +52,7 @@ const props = withDefaults(defineProps<{
   editMode: false,
   editSections: () => [],
   editNotes: '',
+  editDifficulty: null,
   sectionOptions: () => [],
   groupOptions: () => [],
   groupLabel: '',
@@ -67,6 +71,8 @@ const emit = defineEmits<{
   'go-to-mark': []
   'update:editSections': [value: string[]]
   'update:editNotes': [value: string]
+  'update:editDifficulty': [value: number | null]
+  'set-difficulty': [value: number | null]
   'create-section': [name: string, groupId: string | number | null]
 }>()
 
@@ -186,6 +192,13 @@ const answerButtonText = computed(() => {
           />
         </div>
         <div class="inspector-section">
+          <div class="inspector-label">{{ t('inspector.difficulty') }}</div>
+          <StarRating
+            :model-value="editDifficulty"
+            @update:model-value="emit('update:editDifficulty', $event)"
+          />
+        </div>
+        <div class="inspector-section">
           <div class="inspector-label">{{ t('inspector.notes') }}</div>
           <textarea
             class="inspector-textarea"
@@ -218,6 +231,15 @@ const answerButtonText = computed(() => {
             <span v-for="s in sectionDisplay" :key="s" class="inspector-tag">{{ s }}</span>
             <span v-if="!sectionDisplay.length" class="inspector-tag inspector-tag--empty">{{ t('inspector.unsectioned') }}</span>
           </div>
+        </div>
+
+        <!-- Difficulty -->
+        <div class="inspector-section">
+          <div class="inspector-label">{{ t('inspector.difficulty') }}</div>
+          <StarRating
+            :model-value="question.difficulty ?? null"
+            @update:model-value="emit('set-difficulty', $event)"
+          />
         </div>
 
         <!-- Notes -->
