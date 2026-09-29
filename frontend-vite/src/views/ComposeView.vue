@@ -117,6 +117,7 @@ const bankSection = ref('')
 const bankYearMulti = ref<string[]>([])
 const bankSeasonMulti = ref<string[]>([])
 const bankPaperMulti = ref<number[]>([])
+const bankDifficulties = ref<string[]>([]) // '1'..'5' | 'unset'
 const bankFavOnly = ref(false)
 const bankResults = ref<Question[]>([])
 const bankLoading = ref(false)
@@ -124,9 +125,20 @@ const bankPage = ref(1)
 const bankTotal = ref(0)
 const bankPageSize = ref(30)
 
+const difficultyMsOptions = [
+  { value: '1', label: '1 ★' },
+  { value: '2', label: '2 ★' },
+  { value: '3', label: '3 ★' },
+  { value: '4', label: '4 ★' },
+  { value: '5', label: '5 ★' },
+  { value: 'unset', label: t('filter.difficultyUnset') },
+]
+
 /* ── Composition list modal ── */
 const showListModal = ref(false)
 const newName = ref('')
+/** 试卷总设置独立弹层 */
+const showPaperSettings = ref(false)
 
 /* ── Preview modal ── */
 const previewQuestion = ref<Question | null>(null)
@@ -238,18 +250,22 @@ async function searchBank(resetPage = true) {
   if (resetPage) bankPage.value = 1
   bankLoading.value = true
   try {
+    const nums = bankDifficulties.value.filter((v) => v && v !== 'unset').map(Number).filter((n) => n >= 1 && n <= 5)
     const resp = await questionsApi.search({
       section: bankSection.value || undefined,
       years: bankYearMulti.value.length ? bankYearMulti.value : undefined,
       seasons: bankSeasonMulti.value.length ? bankSeasonMulti.value : undefined,
       paperIds: bankPaperMulti.value.length ? bankPaperMulti.value : undefined,
       favorite: bankFavOnly.value || undefined,
+      difficulties: nums.length ? nums : undefined,
+      includeUnlabeledDifficulty: bankDifficulties.value.includes('unset') ? true : undefined,
       page: bankPage.value,
       pageSize: bankPageSize.value,
     })
     bankResults.value = (resp as any).questions || []
     bankTotal.value = (resp as any).total || 0
   } catch (e) {
+    // 失败保留旧列表，避免面板闪空
     appStore.setStatus(`搜索失败：${e}`, 'err')
   } finally {
     bankLoading.value = false
@@ -342,6 +358,14 @@ function finishEditName() {
 function onPreviewItemClick(itemId: number) {
   composeStore.selectItem(itemId === selectedItemId.value ? null : itemId)
 }
+
+const selectedDifficultyLabel = computed(() => {
+  const d = composeStore.selectedItems?.item_type === 'question'
+    ? composeStore.selectedItems.difficulty
+    : null
+  if (d == null) return t('filter.difficultyUnset')
+  return `${d} ★`
+})
 
 /* ── Keyboard shortcuts ── */
 function onKeydown(e: KeyboardEvent) {
@@ -627,6 +651,10 @@ async function exportComposition() {
           <button class="btn-ghost btn-ghost--danger" @click="deleteComposition(current.id)" v-tooltip="t('compose.delete')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
+          <button class="btn-ghost" @click="showPaperSettings = true" v-tooltip="t('compose.paperSettings')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span class="btn-text">{{ t('compose.paperSettings') }}</span>
+          </button>
           <button class="btn-primary" @click="exportComposition" :disabled="!items.length || exportBusy">
             {{ exportBusy ? '导出中...' : t('compose.export') }}
           </button>
@@ -658,19 +686,27 @@ async function exportComposition() {
               :placeholder="'Season'"
               @update:model-value="searchBank()"
             />
+            <MultiSelect
+              v-model="bankDifficulties"
+              :options="difficultyMsOptions"
+              :placeholder="t('filter.allDifficulties')"
+              display-mode="values"
+              :show-all-when-all-selected="true"
+              @update:model-value="searchBank()"
+            />
             <label class="fav-filter">
               <input type="checkbox" v-model="bankFavOnly" @change="searchBank()" />
               <span>★</span>
             </label>
           </div>
           <div class="bank-list">
-            <div v-if="bankLoading" class="bank-loading">加载中...</div>
+            <div v-if="bankLoading && !bankResults.length" class="bank-loading">加载中...</div>
             <template v-else>
               <div
                 v-for="q in bankResults"
                 :key="q.id"
                 class="bank-item"
-                :class="{ 'bank-item--added': isInComposition(q.id), 'bank-item--fav': q.is_favorite }"
+                :class="{ 'bank-item--added': isInComposition(q.id), 'bank-item--fav': q.is_favorite, 'bank-item--busy': bankLoading }"
                 @click="toggleQuestion(q)"
                 @dblclick="onBankItemDblClick(q, $event)"
                 v-tooltip="q.sections?.join(', ') || ''"
@@ -683,6 +719,7 @@ async function exportComposition() {
                   <span v-if="getSectionDotColor(q)" class="bank-item-dot" :style="{ background: getSectionDotColor(q) }"></span>
                   <span class="bank-item-sections">{{ q.sections?.[0] || '-' }}</span>
                   <span class="bank-item-paper">{{ q.paper?.exam_code || '' }}</span>
+                  <span v-if="q.difficulty" class="bank-item-diff" :title="`${q.difficulty}/5`">{{ q.difficulty }}★</span>
                 </div>
                 <svg v-if="q.is_favorite" class="bank-item-fav-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                   <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
@@ -702,16 +739,16 @@ async function exportComposition() {
           <div class="preview-toolbar">
             <div class="preview-mode-toggle">
               <button
-                :class="{ active: previewMode === 'grouped' }"
-                @click="previewMode = 'grouped'"
-              >
-                {{ t('compose.groupBySection') }}
-              </button>
-              <button
                 :class="{ active: previewMode === 'free' }"
                 @click="previewMode = 'free'"
               >
                 {{ t('compose.freeOrder') }}
+              </button>
+              <button
+                :class="{ active: previewMode === 'grouped' }"
+                @click="previewMode = 'grouped'"
+              >
+                {{ t('compose.groupBySection') }}
               </button>
             </div>
           </div>
@@ -893,10 +930,66 @@ async function exportComposition() {
             </div>
           </div>
 
-          <!-- Display settings card -->
+          <!-- Paper settings entry (details live in the dedicated modal) -->
           <div class="props-card">
-            <div class="props-card-title">{{ t('compose.properties') }}</div>
+            <button class="paper-settings-entry" type="button" @click="showPaperSettings = true">
+              <span class="paper-settings-entry-title">{{ t('compose.paperSettings') }}</span>
+              <span class="paper-settings-entry-hint">
+                {{ current.title || t('compose.title_label') }}
+                <template v-if="current.include_answers"> · {{ t('compose.answerToggle') }}</template>
+              </span>
+            </button>
+          </div>
 
+          <!-- Selected item card -->
+          <div v-if="selectedItemId != null" class="props-card">
+            <div class="props-card-title">选中题目</div>
+            <template v-if="composeStore.selectedItems?.item_type === 'question'">
+              <div class="selected-info">
+                <div class="selected-info-row">
+                  <span class="selected-info-label">题号</span>
+                  <span class="selected-info-value">{{ composeStore.selectedItems.question_no || '?' }}</span>
+                </div>
+                <div class="selected-info-row">
+                  <span class="selected-info-label">来源</span>
+                  <span class="selected-info-value">{{ composeStore.selectedItems.paper_exam_code || '-' }}</span>
+                </div>
+                <div class="selected-info-row" v-if="composeStore.selectedItems.sections?.length">
+                  <span class="selected-info-label">Section</span>
+                  <span class="selected-info-value">{{ composeStore.selectedItems.sections.join(', ') }}</span>
+                </div>
+                <div class="selected-info-row">
+                  <span class="selected-info-label">{{ t('filter.difficulty') }}</span>
+                  <span class="selected-info-value">{{ selectedDifficultyLabel }}</span>
+                </div>
+              </div>
+              <div class="prop-field">
+                <label class="prop-label">{{ t('compose.blankPages') }}</label>
+                <div class="blank-pages-control">
+                  <button @click="composeStore.updateItemBlankPages(selectedItemId, Math.max(0, composeStore.selectedItems.blank_pages - 1))">−</button>
+                  <span class="blank-pages-num">{{ composeStore.selectedItems.blank_pages }}</span>
+                  <button @click="composeStore.updateItemBlankPages(selectedItemId, composeStore.selectedItems.blank_pages + 1)">+</button>
+                </div>
+              </div>
+            </template>
+            <button class="btn-remove" @click="composeStore.removeItem(selectedItemId)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              {{ t('compose.removeItem') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Paper overall settings modal -->
+    <Teleport to="body">
+      <div v-if="showPaperSettings && current" class="modal-overlay" @click.self="showPaperSettings = false">
+        <div class="modal-content modal-content--settings">
+          <div class="modal-header">
+            <h3>{{ t('compose.paperSettings') }}</h3>
+            <button class="modal-close" @click="showPaperSettings = false">×</button>
+          </div>
+          <div class="modal-body paper-settings-body">
             <div class="prop-field">
               <label class="prop-label">{{ t('compose.title_label') }}</label>
               <input
@@ -915,7 +1008,6 @@ async function exportComposition() {
               />
             </div>
 
-            <!-- Cover page multi-line info (name / score / time …) -->
             <div class="prop-field">
               <label class="prop-label">{{ t('compose.coverLines') }}</label>
               <div class="cover-lines">
@@ -984,55 +1076,24 @@ async function exportComposition() {
 
             <div class="prop-divider"></div>
 
-            <label class="prop-checkbox">
-              <input type="checkbox" :checked="current.show_question_info" @change="composeStore.updateComposition({ show_question_info: !current.show_question_info })" />
-              <span>{{ t('compose.showQuestionInfo') }}</span>
-            </label>
-            <label class="prop-checkbox">
-              <input type="checkbox" :checked="current.show_page_numbers" @change="composeStore.updateComposition({ show_page_numbers: !current.show_page_numbers })" />
-              <span>{{ t('compose.showPageNumbers') }}</span>
-            </label>
-            <label class="prop-checkbox">
-              <input type="checkbox" :checked="current.show_section_headers" @change="composeStore.updateComposition({ show_section_headers: !current.show_section_headers })" />
-              <span>{{ t('compose.showSectionHeaders') }}</span>
-            </label>
-          </div>
-
-          <!-- Selected item card -->
-          <div v-if="selectedItemId != null" class="props-card">
-            <div class="props-card-title">选中题目</div>
-            <template v-if="composeStore.selectedItems?.item_type === 'question'">
-              <div class="selected-info">
-                <div class="selected-info-row">
-                  <span class="selected-info-label">题号</span>
-                  <span class="selected-info-value">{{ composeStore.selectedItems.question_no || '?' }}</span>
-                </div>
-                <div class="selected-info-row">
-                  <span class="selected-info-label">来源</span>
-                  <span class="selected-info-value">{{ composeStore.selectedItems.paper_exam_code || '-' }}</span>
-                </div>
-                <div class="selected-info-row" v-if="composeStore.selectedItems.sections?.length">
-                  <span class="selected-info-label">Section</span>
-                  <span class="selected-info-value">{{ composeStore.selectedItems.sections.join(', ') }}</span>
-                </div>
-              </div>
-              <div class="prop-field">
-                <label class="prop-label">{{ t('compose.blankPages') }}</label>
-                <div class="blank-pages-control">
-                  <button @click="composeStore.updateItemBlankPages(selectedItemId, Math.max(0, composeStore.selectedItems.blank_pages - 1))">−</button>
-                  <span class="blank-pages-num">{{ composeStore.selectedItems.blank_pages }}</span>
-                  <button @click="composeStore.updateItemBlankPages(selectedItemId, composeStore.selectedItems.blank_pages + 1)">+</button>
-                </div>
-              </div>
-            </template>
-            <button class="btn-remove" @click="composeStore.removeItem(selectedItemId)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              {{ t('compose.removeItem') }}
-            </button>
+            <div class="paper-settings-toggles">
+              <label class="prop-checkbox">
+                <input type="checkbox" :checked="current.show_question_info" @change="composeStore.updateComposition({ show_question_info: !current.show_question_info })" />
+                <span>{{ t('compose.showQuestionInfo') }}</span>
+              </label>
+              <label class="prop-checkbox">
+                <input type="checkbox" :checked="current.show_page_numbers" @change="composeStore.updateComposition({ show_page_numbers: !current.show_page_numbers })" />
+                <span>{{ t('compose.showPageNumbers') }}</span>
+              </label>
+              <label class="prop-checkbox">
+                <input type="checkbox" :checked="current.show_section_headers" @change="composeStore.updateComposition({ show_section_headers: !current.show_section_headers })" />
+                <span>{{ t('compose.showSectionHeaders') }}</span>
+              </label>
+            </div>
           </div>
         </div>
       </div>
-    </template>
+    </Teleport>
 
     <!-- Composition list modal (shared) -->
     <Teleport to="body">
@@ -1189,6 +1250,18 @@ async function exportComposition() {
 }
 
 .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-text {
+  margin-left: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.name-edit {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1409,6 +1482,18 @@ async function exportComposition() {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex-shrink: 1;
+}
+
+.bank-item-diff {
+  font-size: 11px;
+  color: #d4a017;
+  opacity: 0.95;
+  flex-shrink: 0;
+}
+
+.bank-item--busy {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 /* ── Preview modal ── */
@@ -2121,6 +2206,45 @@ async function exportComposition() {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
+.modal-content--settings {
+  width: min(520px, 92vw);
+  max-height: min(82vh, 760px);
+}
+
+.paper-settings-entry {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.paper-settings-entry:hover {
+  border-color: var(--accent, #3b82f6);
+}
+
+.paper-settings-entry-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.paper-settings-entry-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
@@ -2158,6 +2282,79 @@ async function exportComposition() {
   flex: 1;
   overflow-y: auto;
   padding: 16px 20px;
+}
+
+/* 试卷总设置弹层：拉开字段间距，避免表单挤在一起 */
+.paper-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 22px 26px 28px;
+}
+
+.paper-settings-body .prop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.paper-settings-body .prop-label {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.paper-settings-body .prop-input {
+  min-height: 40px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.paper-settings-body .cover-lines {
+  gap: 10px;
+}
+
+.paper-settings-body .cover-line-row {
+  gap: 8px;
+}
+
+.paper-settings-body .cover-line-actions {
+  margin-top: 6px;
+}
+
+.paper-settings-body .cover-line-presets {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.paper-settings-body .cover-preset-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.paper-settings-body .prop-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.paper-settings-body .prop-divider {
+  margin: 6px 0;
+}
+
+.paper-settings-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.paper-settings-body .btn-secondary.btn-sm {
+  min-height: 34px;
+  padding: 6px 14px;
 }
 
 .new-comp-row {

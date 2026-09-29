@@ -573,8 +573,8 @@ def _search_questions_core(
     if favorite is True:
         q = q.filter(Question.is_favorite == True)
 
-    if difficulties:
-        wanted = [int(d) for d in difficulties if int(d) >= 1 and int(d) <= 5]
+    if difficulties or include_unlabeled_difficulty:
+        wanted = [int(d) for d in (difficulties or []) if int(d) >= 1 and int(d) <= 5]
         unlabeled = bool(include_unlabeled_difficulty)
         if wanted and unlabeled:
             q = q.filter(or_(Question.difficulty.in_(wanted), Question.difficulty.is_(None)))

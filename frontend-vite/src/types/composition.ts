@@ -39,6 +39,7 @@ export interface CompositionItem {
 /** Composition item enriched with question info */
 export interface CompositionItemDetail extends CompositionItem {
   question_no: string | null
+  difficulty?: number | null
   sections: string[]
   paper_exam_code: string | null
   preview_image_url: string | null

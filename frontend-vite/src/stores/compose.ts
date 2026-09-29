@@ -18,7 +18,7 @@ export const useComposeStore = defineStore('compose', () => {
   const dirty = ref(false)
   const loading = ref(false)
   const selectedItemId = ref<number | null>(null)
-  const previewMode = ref<'grouped' | 'free'>('grouped')
+  const previewMode = ref<'grouped' | 'free'>('free')
 
   // --- computed ---
   const questionItemCount = computed(() => items.value.filter(i => i.item_type === 'question').length)
