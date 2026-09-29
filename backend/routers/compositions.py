@@ -99,6 +99,7 @@ def _item_to_dict(
     }
     if q is not None:
         d["question_no"] = q.question_no
+        d["difficulty"] = getattr(q, "difficulty", None)
         d["sections"] = sections or []
         d["paper_exam_code"] = paper_exam_code
         d["preview_image_url"] = preview_url

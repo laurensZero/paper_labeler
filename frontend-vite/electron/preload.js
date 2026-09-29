@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updaterFetchRelease: (url, headers) => ipcRenderer.invoke('updater:fetch-release', { url, headers }),
   updaterApplyPortable: () => ipcRenderer.invoke('updater:apply-portable'),
   updaterIsPortable: () => ipcRenderer.invoke('updater:is-portable'),
-  updaterOpenReleases: () => ipcRenderer.invoke('updater:open-releases'),
+  updaterOpenReleases: (url) => ipcRenderer.invoke('updater:open-releases', { url }),
   onUpdaterPortableProgress: (cb) => ipcRenderer.on('updater:portable-progress', (_, progress) => cb(progress)),
   onUpdaterPortableDownloaded: (cb) => ipcRenderer.on('updater:portable-downloaded', (_, info) => cb(info)),
   onUpdaterPortableError: (cb) => ipcRenderer.on('updater:portable-error', (_, msg) => cb(msg)),

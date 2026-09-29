@@ -1,4 +1,6 @@
-const GITHUB_API = 'https://api.github.com'
+// R2 公开域（与 web/ 的 VITE_R2_PUBLIC_BASE 一致）；更新清单与安装包都只走这里
+const R2_UPDATE_BASE = 'https://img.paperlabeler.de5.net'
+const R2_LATEST_MANIFEST = `${R2_UPDATE_BASE}/app-update/latest.json`
 const TIMEOUT = 15000
 
 export interface ReleaseAsset {
@@ -13,7 +15,7 @@ export interface Release {
   body: string
   html_url: string
   assets: ReleaseAsset[]
-  source: 'github'
+  source: 'r2'
 }
 
 // ── Version comparison ──
@@ -39,19 +41,7 @@ export function compareVersions(a: string, b: string): number {
   return 0
 }
 
-// ── Fetch releases ──
-
-async function apiFetch(url: string, headers: Record<string, string>) {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT)
-  try {
-    const result = await requestText(url, headers, ctrl.signal)
-    if (result.status < 200 || result.status >= 300) throw new Error(`API error ${result.status}`)
-    return JSON.parse(result.body)
-  } finally {
-    clearTimeout(timer)
-  }
-}
+// ── Fetch release (R2 only) ──
 
 async function requestText(url: string, headers: Record<string, string>, signal?: AbortSignal) {
   if (typeof window !== 'undefined' && window.electronAPI?.updaterFetchRelease) {
@@ -61,89 +51,50 @@ async function requestText(url: string, headers: Record<string, string>, signal?
   return { status: res.status, url: res.url, body: await res.text() }
 }
 
-/**
- * Prefer the public release page first: unauthenticated api.github.com is
- * rate-limited (403) and not suitable for desktop update checks.
- */
-export async function getLatestRelease(owner: string, repo: string): Promise<Release> {
+export async function getLatestRelease(): Promise<Release> {
+  return getLatestReleaseFromR2()
+}
+
+async function getLatestReleaseFromR2(): Promise<Release> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT)
   try {
-    return await getLatestReleaseFromPage(owner, repo)
-  } catch (pageError) {
-    try {
-      return await getLatestReleaseFromApi(owner, repo)
-    } catch {
-      throw pageError
+    const result = await requestText(R2_LATEST_MANIFEST, {
+      Accept: 'application/json',
+      'User-Agent': 'Paper-Labeler-Updater',
+    }, ctrl.signal)
+    if (result.status < 200 || result.status >= 300) throw new Error(`Update manifest error ${result.status}`)
+
+    let data: {
+      tag_name?: string
+      body?: string
+      html_url?: string
+      assets?: Array<{ name?: string; browser_download_url?: string; size?: number; sha256?: string }>
     }
+    try {
+      data = JSON.parse(result.body)
+    } catch {
+      throw new Error('Update manifest is not valid JSON')
+    }
+
+    const tagName = String(data.tag_name || '').trim()
+    if (!tagName) throw new Error('Update manifest missing tag_name')
+
+    return {
+      tag_name: tagName,
+      body: String(data.body || ''),
+      html_url: String(data.html_url || ''),
+      assets: (data.assets || []).map((a) => ({
+        name: String(a.name || ''),
+        browser_download_url: String(a.browser_download_url || ''),
+        size: Number(a.size || 0),
+        sha256: a.sha256 ? String(a.sha256).toLowerCase().replace(/^sha256:/, '') : undefined,
+      })),
+      source: 'r2',
+    }
+  } finally {
+    clearTimeout(timer)
   }
-}
-
-async function getLatestReleaseFromApi(owner: string, repo: string): Promise<Release> {
-  const data = await apiFetch(`${GITHUB_API}/repos/${owner}/${repo}/releases/latest`, {
-    Accept: 'application/vnd.github+json',
-  })
-  return {
-    tag_name: String(data.tag_name || ''),
-    body: String(data.body || ''),
-    html_url: String(data.html_url || ''),
-    assets: ((data.assets || []) as Array<{ name?: string; browser_download_url?: string; size?: number; digest?: string }>).map((a) => ({
-      name: String(a.name || ''),
-      browser_download_url: String(a.browser_download_url || ''),
-      size: Number(a.size || 0),
-      sha256: parseAssetSha256(a.digest, String(a.name || ''), String(data.body || '')),
-    })),
-    source: 'github',
-  }
-}
-
-async function getLatestReleaseFromPage(owner: string, repo: string): Promise<Release> {
-  const latestUrl = `https://github.com/${owner}/${repo}/releases/latest`
-  const result = await requestText(latestUrl, { Accept: 'text/html', 'User-Agent': 'Paper-Labeler-Updater' })
-  if (result.status < 200 || result.status >= 300) throw new Error(`GitHub release page error ${result.status}`)
-
-  const html = result.body
-  const releaseUrl = result.url || latestUrl
-  const tagMatch = releaseUrl.match(/\/releases\/tag\/([^/?#]+)/i)
-  const tagName = tagMatch ? decodeURIComponent(tagMatch[1]) : ''
-  if (!tagName) throw new Error('GitHub latest release tag not found')
-
-  const assetLinks = [...html.matchAll(/href=["']([^"']+\/releases\/download\/[^"']+\.exe(?:\?[^"']*)?)["']/gi)]
-    .map((match) => new URL(match[1].replace(/&amp;/g, '&'), releaseUrl))
-    .filter((url, index, all) => all.findIndex((item) => item.href === url.href) === index)
-  const assetUrl = assetLinks.find((url) => /-portable\.exe$/i.test(decodeURIComponent(url.pathname)))
-    || assetLinks[0]
-
-  const version = tagName.replace(/^v/i, '')
-  // electron-builder sanitizes productName spaces to dots: "Paper.Labeler-{version}-portable.exe"
-  const fallbackNames = [
-    `Paper.Labeler-${version}-portable.exe`,
-    `Paper-Labeler-${version}-portable.exe`,
-    `Paper Labeler-${version}-portable.exe`,
-  ]
-  const finalAssetUrl = assetUrl || new URL(
-    `/${owner}/${repo}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(fallbackNames[0])}`,
-    releaseUrl,
-  )
-  const assetName = decodeURIComponent(finalAssetUrl.pathname.split('/').pop() || fallbackNames[0])
-
-  return {
-    tag_name: tagName,
-    body: '',
-    html_url: releaseUrl,
-    assets: [{ name: assetName, browser_download_url: finalAssetUrl.toString(), size: 0 }],
-    source: 'github',
-  }
-}
-
-/** Prefer GitHub `digest` (sha256:...), else look for `sha256:` lines in the release body. */
-function parseAssetSha256(digest: string | undefined, assetName: string, body: string): string | undefined {
-  if (digest) {
-    const m = digest.match(/sha256:([a-f0-9]{64})/i)
-    if (m) return m[1].toLowerCase()
-  }
-  if (!assetName) return undefined
-  const re = new RegExp(`(?:^|\\n)\\s*${assetName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\s*[:\\-]?\\s*(?:sha256:)?([a-f0-9]{64})`, 'i')
-  const m = body.match(re)
-  return m ? m[1].toLowerCase() : undefined
 }
 
 // ── Resolve portable EXE asset ──

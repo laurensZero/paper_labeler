@@ -5,9 +5,6 @@ import { compareVersions, getLatestRelease, parseUpdateLevel, resolvePortableAss
 
 function t(key: string) { return i18n.global.t(key) }
 
-const REPO_OWNER = 'laurensZero'
-const REPO_REPO = 'paper_labeler'
-
 export const useAppUpdateStore = defineStore('appUpdate', () => {
   // ── Core state ──
   const currentVersion = ref('')
@@ -20,7 +17,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   const applying = ref(false)
   const dialogVisible = ref(false)
   const error = ref('')
-  const source = ref<'github'>('github')
+  const source = ref<'r2'>('r2')
   const upToDate = ref(false)
 
   // Portable EXE download
@@ -82,13 +79,13 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   }
 
   async function checkRelease() {
-    const release = await getLatestRelease(REPO_OWNER, REPO_REPO)
+    const release = await getLatestRelease()
     const tag = release.tag_name.replace(/^v/i, '')
     if (compareVersions(tag, currentVersion.value) <= 0) return
 
     const asset = resolvePortableAsset(release)
     if (!asset) {
-      throw new Error('github: no portable exe asset')
+      throw new Error('r2: no portable exe asset')
     }
 
     latestVersion.value = tag
@@ -96,7 +93,7 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
     updateLevel.value = parseUpdateLevel(release.body)
     downloadUrl.value = asset.browser_download_url
     expectedSha256.value = asset.sha256 || ''
-    source.value = 'github'
+    source.value = 'r2'
     dialogVisible.value = true
   }
 
@@ -154,11 +151,12 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   }
 
   function openReleasePage() {
+    // 只走 R2；无下载地址时打开更新清单
+    const url = downloadUrl.value || 'https://img.paperlabeler.de5.net/app-update/latest.json'
     if (window.electronAPI?.updaterOpenReleases) {
-      window.electronAPI.updaterOpenReleases()
+      window.electronAPI.updaterOpenReleases(url)
       return
     }
-    const url = `https://github.com/${REPO_OWNER}/${REPO_REPO}/releases/latest`
     window.open(url, '_blank')
   }
 

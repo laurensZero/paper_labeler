@@ -440,6 +440,21 @@ function downloadFile(url, dest, onProgress, redirectsLeft = 5) {
   })
 }
 
+function isAllowedUpdateUrl(url) {
+  try {
+    const u = new URL(String(url || ''))
+    if (u.protocol !== 'https:') return false
+    const host = u.hostname.toLowerCase()
+    return (
+      host === 'img.paperlabeler.de5.net' ||
+      host.endsWith('.paperlabeler.de5.net') ||
+      host.endsWith('.r2.dev')
+    )
+  } catch {
+    return false
+  }
+}
+
 function fetchText(url, headers = {}, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
     let finalUrl = url
@@ -604,13 +619,16 @@ function setupPortableUpdater() {
 
   ipcMain.handle('updater:is-portable', () => !!portableExePath || !!process.env.PORTABLE_EXECUTABLE_DIR)
 
-  ipcMain.handle('updater:open-releases', () => {
-    shell.openExternal('https://github.com/laurensZero/paper_labeler/releases/latest')
+  ipcMain.handle('updater:open-releases', (_event, opts) => {
+    const url = String(opts?.url || '').trim()
+    if (url && isAllowedUpdateUrl(url)) {
+      shell.openExternal(url)
+    }
   })
 
   ipcMain.handle('updater:fetch-release', async (_event, opts) => {
     const url = String(opts?.url || '')
-    if (!/^https:\/\/(api\.github\.com|github\.com)\//i.test(url)) return { status: 400, url, body: '' }
+    if (!isAllowedUpdateUrl(url)) return { status: 400, url, body: '' }
     try {
       return await fetchText(url, opts?.headers || {})
     } catch (e) {
