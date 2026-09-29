@@ -64,6 +64,69 @@
   box-sizing: border-box;
 }
 
+/* 手机点按不要默认蓝高亮/焦点框，键盘可访问性由 :focus-visible 单独保留 */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+[role="button"],
+input,
+select,
+textarea,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 触控设备：去掉点按默认蓝框/光圈，展开态只用描边示意 */
+@media (hover: none), (pointer: coarse) {
+  .scs-trigger:focus,
+  .ms-trigger:focus,
+  .pcms-trigger:focus,
+  .bank-search-input:focus,
+  .bank-jump:focus,
+  .btn:focus,
+  .input:focus,
+  .select:focus,
+  .lang-select:focus {
+    outline: none;
+  }
+
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: none;
+    border-color: var(--border);
+  }
+
+  .scs--open .scs-trigger,
+  .ms--open .ms-trigger,
+  .pcms--open .pcms-trigger {
+    border-color: var(--border-strong);
+    box-shadow: none;
+    background: var(--bg-input);
+  }
+
+  .bank-search:focus-within {
+    border-color: var(--border-strong);
+    box-shadow: none;
+    background: var(--surface);
+    color: var(--text-tertiary);
+  }
+
+  .input:focus,
+  .select:focus,
+  .lang-select:focus {
+    box-shadow: none;
+    border-color: var(--border-strong);
+  }
+
+  .cv-name-input:focus,
+  .cv-prop-input:focus,
+  .bank-note-input:focus {
+    box-shadow: none;
+  }
+}
+
 html,
 body {
   margin: 0;
@@ -1569,8 +1632,10 @@ input[type="checkbox"]:focus-visible {
 }
 
 .cv-page--dragging {
-  opacity: 0.4;
+  opacity: 0.45;
   transform: scale(0.98);
+  cursor: grabbing;
+  touch-action: none;
 }
 
 .cv-page-header {
@@ -1619,11 +1684,13 @@ input[type="checkbox"]:focus-visible {
   align-items: center;
   justify-content: center;
   min-height: 560px;
-  background: var(--bg-input);
+  background: var(--surface);
+  border-style: dashed;
+  border-color: rgba(17, 20, 22, 0.12);
 }
 
 .cv-blank-label {
-  color: #ccc;
+  color: var(--text-tertiary);
   font-size: 14px;
   font-style: italic;
 }
@@ -2238,7 +2305,7 @@ input[type="checkbox"]:focus-visible {
   height: 36px;
 }
 
-/* ============ 响应式：平板 ≤900px（题库主区纵排，信息卡落到题图下方） ============ */
+/* ============ 响应式：平板 ≤900px（题库主区纵排，筛选改网格） ============ */
 @media (max-width: 900px) {
   .bank-main {
     flex-direction: column;
@@ -2262,6 +2329,51 @@ input[type="checkbox"]:focus-visible {
     max-width: none;
   }
 
+  /* 筛选组改两列网格：避免 flex 百分比 + gap 溢出后一行一个 */
+  .bank-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .bank-toolbar .bank-ctl.bank-ctl--cascade,
+  .bank-toolbar .bank-ctl.bank-ctl--paper,
+  .bank-toolbar .bank-ctl.bank-ctl--sm,
+  .bank-toolbar .bank-jump,
+  .bank-toolbar .bank-check,
+  .bank-search {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .bank-search {
+    grid-column: 1 / -1;
+  }
+
+  .bank-search-input {
+    width: auto;
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* 操作按钮独立成行，等分占满 */
+  .bank-actions {
+    flex: 1 1 100%;
+    width: 100%;
+    margin-left: 0;
+    padding-left: 0;
+    padding-top: 8px;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+
+  .bank-actions .btn {
+    flex: 1;
+    justify-content: center;
+  }
+
   .cv-panel--bank,
   .cv-panel--props {
     width: 240px;
@@ -2273,71 +2385,176 @@ input[type="checkbox"]:focus-visible {
   .topbar {
     gap: 8px;
     padding: 0 8px;
+    height: 48px;
+  }
+
+  .brand-name {
+    display: none;
   }
 
   .user-email {
     display: none;
   }
 
-  .main {
-    padding: 6px;
+  .nav {
+    flex: 1;
   }
 
-  /* 移动浏览器地址栏自适应：优先 dvh，旧内核回退 vh */
+  .nav-link {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .lang-select {
+    height: 30px;
+    padding: 0 8px;
+  }
+
+  .main {
+    padding: 4px 4px 8px;
+  }
+
+  /* 题库页再贴边：题图尽量占满屏宽 */
   .bank {
-    height: calc(100vh - 36px - 20px);
-    height: calc(100dvh - 36px - 20px);
+    height: calc(100vh - 48px - 12px);
+    height: calc(100dvh - 48px - 12px);
+    gap: 6px;
+    min-height: 0;
   }
 
   .cv {
-    height: calc(100vh - 36px - 20px);
-    height: calc(100dvh - 36px - 20px);
+    height: calc(100vh - 48px - 12px);
+    height: calc(100dvh - 48px - 12px);
+    min-height: 0;
   }
 
-  /* 工具栏：四个选择器改两列流式（覆盖桌面定宽，同特异度、后声明生效） */
+  .bank-main {
+    gap: 8px;
+  }
+
+  /* 工具栏：紧凑内边距，筛选网格 + 操作按钮独立行 */
   .bank-toolbar {
-    padding: 8px;
-    gap: 6px;
+    padding: 6px;
+    gap: 5px;
+    min-height: 0;
+    align-items: stretch;
   }
 
-  .bank-toolbar .bank-ctl.bank-ctl--cascade,
-  .bank-toolbar .bank-ctl.bank-ctl--paper,
-  .bank-toolbar .bank-ctl.bank-ctl--sm,
-  .bank-toolbar .bank-jump {
-    width: calc(50% - 3px);
-  }
-
-  .bank-search {
-    flex: 1 1 calc(50% - 3px);
-    min-width: 0;
-  }
-
-  .bank-search-input {
-    width: auto;
-    flex: 1;
-    min-width: 0;
+  .bank-filters {
+    gap: 5px;
+    grid-template-columns: 1fr 1fr;
   }
 
   /* 压缩选择器高度，首屏优先露出题目图片 */
   .bank-toolbar .bank-ctl.bank-ctl--cascade .scs-trigger,
   .bank-toolbar .bank-ctl .ms-trigger,
   .bank-toolbar .bank-ctl .pcms-trigger {
-    min-height: 34px;
-    padding-top: 6px;
-    padding-bottom: 6px;
+    min-height: 32px;
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+    border-radius: 10px;
   }
 
-  /* 题图与文字：外层留白收到最小，题图优先占满（375 视口 ≈349px 宽） */
+  .bank-check {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+    border-radius: 10px;
+  }
+
+  /* 仅收藏 + 题号跳转 同行；搜索占满最后一行 */
+  .bank-search {
+    grid-column: 1 / -1;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 10px;
+  }
+
+  .bank-search-input {
+    font-size: 12px;
+  }
+
+  .bank-jump {
+    height: 32px;
+    width: 100%;
+    font-size: 12px;
+    border-radius: 10px;
+    padding: 0 10px;
+  }
+
+  .bank-actions {
+    gap: 5px;
+    padding-top: 5px;
+  }
+
+  .bank-actions .btn {
+    padding: 7px 10px;
+    min-height: 34px;
+    font-size: 12px;
+  }
+
+  /* 题图贴边放大：去掉横向内边距，题号栏压扁 */
   .bank-hero {
-    padding: 6px;
+    padding: 2px 0 6px;
+    width: 100%;
+  }
+
+  .bank-question {
+    width: 100%;
+    max-width: none;
   }
 
   .bank-question-imgs {
-    border-radius: 12px;
+    border-radius: 8px;
+    border-left: none;
+    border-right: none;
   }
 
   .bank-qno {
-    font-size: 20px;
+    font-size: 18px;
+  }
+
+  .bank-question-head {
+    padding: 0 2px 6px;
+    gap: 6px;
+    min-height: 0;
+  }
+
+  .bank-src {
+    font-size: 11px;
+    padding: 2px 8px;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 答案图同样贴边 */
+  .bank-answer {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  /* 信息卡：行距收紧，题号略小 */
+  .bank-info-row {
+    padding: 10px 12px;
+  }
+
+  .bank-info-qno {
+    font-size: 24px;
+  }
+
+  .bank-info > .card-title {
+    padding: 12px 12px 0;
+  }
+
+  .bank-info > .bank-feedback {
+    padding: 10px 12px 4px;
+  }
+
+  .bank-info > .muted {
+    padding: 4px 12px 12px;
   }
 
   /* filmstrip：加大触控目标 */
@@ -2381,6 +2598,13 @@ input[type="checkbox"]:focus-visible {
 
   .cv-toolbar {
     flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .cv-toolbar-left,
+  .cv-toolbar-right {
+    width: 100%;
   }
 
   .cv-name-input {
@@ -2407,6 +2631,47 @@ input[type="checkbox"]:focus-visible {
   /* 登录卡自适应 */
   .login-card {
     width: min(360px, 100%);
+    padding: 20px 16px;
+  }
+}
+
+/* ============ 响应式：小屏手机 ≤400px（顶栏再压一层） ============ */
+@media (max-width: 400px) {
+  .topbar {
+    gap: 6px;
+    padding: 0 6px;
+  }
+
+  .brand-mark {
+    width: 20px;
+    height: 20px;
+  }
+
+  .nav {
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .nav-link {
+    padding: 5px 8px;
+  }
+
+  .lang-select {
+    max-width: 64px;
+    padding: 0 4px;
+    font-size: 11px;
+  }
+
+  .user .btn-sm {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  /* 筛选两列在极窄屏仍可用，字号略收 */
+  .bank-toolbar .bank-ctl.bank-ctl--cascade .scs-trigger,
+  .bank-toolbar .bank-ctl .ms-trigger,
+  .bank-toolbar .bank-ctl .pcms-trigger {
+    font-size: 12px;
   }
 }
 
@@ -2427,4 +2692,26 @@ input[type="checkbox"]:focus-visible {
 
 .protected img {
   -webkit-user-drag: none;
+}
+
+/* 组卷排序：页卡可拖，内部图片不抢拖拽源 */
+.cv-page {
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.cv-page:active {
+  cursor: grabbing;
+}
+
+.cv-page img {
+  -webkit-user-drag: none;
+  pointer-events: none;
+  user-select: none;
+}
+
+.cv-page--dragging {
+  cursor: grabbing;
+  opacity: 0.45;
+  touch-action: none;
 }

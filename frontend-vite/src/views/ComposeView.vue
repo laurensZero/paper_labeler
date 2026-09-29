@@ -784,8 +784,19 @@ async function exportComposition() {
                     <div
                       v-if="item.item_type === 'blank_page'"
                       class="preview-page preview-page--blank"
-                      :class="{ 'preview-page--selected': selectedItemId === item.id }"
+                      :data-item-id="item.id"
+                      :class="{
+                        'preview-page--selected': selectedItemId === item.id,
+                        'preview-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
+                        'preview-page--dragging': dragSourceId === item.id,
+                      }"
+                      draggable="true"
                       @click="onPreviewItemClick(item.id)"
+                      @dragstart="onDragStart($event, item.id)"
+                      @dragover="onDragOver($event, item.id)"
+                      @dragleave="onDragLeave"
+                      @drop="onDrop($event, item.id)"
+                      @dragend="onDragEnd"
                     >
                       <span class="blank-label">空白页</span>
                     </div>
@@ -839,8 +850,19 @@ async function exportComposition() {
                   <div
                     v-if="item.item_type === 'blank_page'"
                     class="preview-page preview-page--blank"
-                    :class="{ 'preview-page--selected': selectedItemId === item.id }"
+                    :data-item-id="item.id"
+                    :class="{
+                      'preview-page--selected': selectedItemId === item.id,
+                      'preview-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
+                      'preview-page--dragging': dragSourceId === item.id,
+                    }"
+                    draggable="true"
                     @click="onPreviewItemClick(item.id)"
+                    @dragstart="onDragStart($event, item.id)"
+                    @dragover="onDragOver($event, item.id)"
+                    @dragleave="onDragLeave"
+                    @drop="onDrop($event, item.id)"
+                    @dragend="onDragEnd"
                   >
                     <span class="blank-label">空白页</span>
                   </div>
@@ -1630,11 +1652,13 @@ async function exportComposition() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fafafa;
+  background: var(--bg-elevated);
+  border-style: dashed;
+  border-color: rgba(17, 20, 22, 0.12);
 }
 
 .blank-label {
-  color: #ccc;
+  color: var(--text-tertiary);
   font-size: 14px;
   font-style: italic;
 }

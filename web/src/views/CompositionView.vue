@@ -579,9 +579,84 @@ async function updateBlankPages(id: number, n: number) {
 }
 
 function onDragStart(e: DragEvent, id: number) {
+  if (ptrActive) {
+    e.preventDefault()
+    return
+  }
   dragSourceId.value = id
   e.dataTransfer?.setData('text/plain', String(id))
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+
+// 指针拖拽：兼容鼠标 + 触屏（HTML5 DnD 触屏不可用）
+let ptrId: number | null = null
+let ptrStartY = 0
+let ptrActive = false
+
+function onPointerDown(e: PointerEvent, id: number) {
+  if (e.button != null && e.button !== 0) return
+  // 输入框等可交互元素不启动拖拽
+  const target = e.target as HTMLElement | null
+  if (target?.closest('input, textarea, select, button, a')) return
+  ptrId = id
+  ptrStartY = e.clientY
+  ptrActive = false
+}
+
+function onPointerMove(e: PointerEvent, id: number) {
+  if (ptrId !== id) return
+  if (!ptrActive) {
+    if (Math.abs(e.clientY - ptrStartY) < 6) return
+    ptrActive = true
+    dragSourceId.value = id
+    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+  }
+  e.preventDefault()
+  const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+  let page = (el?.closest?.('.cv-page') ?? null) as HTMLElement | null
+  if (!page) {
+    // 落在空隙/滚动条上时，按 Y 就近找页卡
+    const all = Array.from(document.querySelectorAll<HTMLElement>('.cv-page'))
+    let best: HTMLElement | null = null
+    let bestDist = Infinity
+    for (const node of all) {
+      const r = node.getBoundingClientRect()
+      const mid = r.top + r.height / 2
+      const dist = Math.abs(mid - e.clientY)
+      if (dist < bestDist) {
+        bestDist = dist
+        best = node
+      }
+    }
+    page = best
+  }
+  const raw = page?.dataset?.itemId
+  const targetId = raw != null && raw !== '' ? Number(raw) : null
+  if (targetId != null && !Number.isNaN(targetId) && targetId !== id) dragOverId.value = targetId
+  else dragOverId.value = null
+}
+
+function onPointerUp(e: PointerEvent, id: number) {
+  if (ptrId !== id) return
+  const wasActive = ptrActive
+  const overId = dragOverId.value
+  ptrId = null
+  ptrActive = false
+  dragSourceId.value = null
+  dragOverId.value = null
+  if (!wasActive || overId == null || overId === id) return
+  const from = items.value.findIndex((i) => i.id === id)
+  const to = items.value.findIndex((i) => i.id === overId)
+  if (from < 0 || to < 0) return
+  const scroller = previewRef.value
+  const keepScroll = scroller?.scrollTop ?? 0
+  const [moved] = items.value.splice(from, 1)
+  items.value.splice(to, 0, moved)
+  renumber()
+  void nextTick(() => {
+    if (scroller) scroller.scrollTop = keepScroll
+  })
+  void persistOrder()
 }
 function onDragOver(e: DragEvent, id: number) {
   if (dragSourceId.value == null || dragSourceId.value === id) return
@@ -609,6 +684,8 @@ function onDrop(e: DragEvent, targetId: number) {
   void persistOrder()
 }
 function onDragEnd() {
+  // 指针拖拽进行中时忽略 HTML5 dragend，避免清掉状态
+  if (ptrActive) return
   dragSourceId.value = null
   dragOverId.value = null
 }
@@ -829,6 +906,7 @@ onMounted(async () => {
                     <div
                       v-if="item.item_type === 'question'"
                       class="cv-page"
+                      :data-item-id="item.id"
                       :class="{
                         'cv-page--selected': selectedItemId === item.id,
                         'cv-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
@@ -840,6 +918,10 @@ onMounted(async () => {
                       @dragover="onDragOver($event, item.id)"
                       @drop="onDrop($event, item.id)"
                       @dragend="onDragEnd"
+                      @pointerdown="onPointerDown($event, item.id)"
+                      @pointermove="onPointerMove($event, item.id)"
+                      @pointerup="onPointerUp($event, item.id)"
+                      @pointercancel="onPointerUp($event, item.id)"
                     >
                       <div v-if="comp.show_question_info" class="cv-page-header">
                         <span class="cv-page-qno">{{ item.questions?.question_no || '?' }}</span>
@@ -875,8 +957,22 @@ onMounted(async () => {
                     <div
                       v-if="item.item_type === 'blank_page'"
                       class="cv-page cv-page--blank"
-                      :class="{ 'cv-page--selected': selectedItemId === item.id }"
+                      :data-item-id="item.id"
+                      :class="{
+                        'cv-page--selected': selectedItemId === item.id,
+                        'cv-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
+                        'cv-page--dragging': dragSourceId === item.id,
+                      }"
+                      draggable="true"
                       @click="selectedItemId = item.id"
+                      @dragstart="onDragStart($event, item.id)"
+                      @dragover="onDragOver($event, item.id)"
+                      @drop="onDrop($event, item.id)"
+                      @dragend="onDragEnd"
+                      @pointerdown="onPointerDown($event, item.id)"
+                      @pointermove="onPointerMove($event, item.id)"
+                      @pointerup="onPointerUp($event, item.id)"
+                      @pointercancel="onPointerUp($event, item.id)"
                     >
                       <span class="cv-blank-label">{{ t('compose.preview.blank') }}</span>
                     </div>
@@ -890,6 +986,7 @@ onMounted(async () => {
                   <div
                     v-if="item.item_type === 'question'"
                     class="cv-page"
+                    :data-item-id="item.id"
                     :class="{
                       'cv-page--selected': selectedItemId === item.id,
                       'cv-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
@@ -901,6 +998,10 @@ onMounted(async () => {
                     @dragover="onDragOver($event, item.id)"
                     @drop="onDrop($event, item.id)"
                     @dragend="onDragEnd"
+                    @pointerdown="onPointerDown($event, item.id)"
+                    @pointermove="onPointerMove($event, item.id)"
+                    @pointerup="onPointerUp($event, item.id)"
+                    @pointercancel="onPointerUp($event, item.id)"
                   >
                     <div v-if="comp.show_question_info" class="cv-page-header">
                       <span class="cv-page-qno">{{ item.questions?.question_no || '?' }}</span>
@@ -934,8 +1035,22 @@ onMounted(async () => {
                   <div
                     v-if="item.item_type === 'blank_page'"
                     class="cv-page cv-page--blank"
-                    :class="{ 'cv-page--selected': selectedItemId === item.id }"
+                    :data-item-id="item.id"
+                    :class="{
+                      'cv-page--selected': selectedItemId === item.id,
+                      'cv-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
+                      'cv-page--dragging': dragSourceId === item.id,
+                    }"
+                    draggable="true"
                     @click="selectedItemId = item.id"
+                    @dragstart="onDragStart($event, item.id)"
+                    @dragover="onDragOver($event, item.id)"
+                    @drop="onDrop($event, item.id)"
+                    @dragend="onDragEnd"
+                    @pointerdown="onPointerDown($event, item.id)"
+                    @pointermove="onPointerMove($event, item.id)"
+                    @pointerup="onPointerUp($event, item.id)"
+                    @pointercancel="onPointerUp($event, item.id)"
                   >
                     <span class="cv-blank-label">{{ t('compose.preview.blank') }}</span>
                   </div>
