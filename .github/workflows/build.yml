@@ -60,6 +60,7 @@ jobs:
 
       - name: Upload update package to R2
         env:
+          PYTHONIOENCODING: utf-8
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -67,6 +68,11 @@ jobs:
           R2_PUBLIC_BASE: ${{ secrets.R2_PUBLIC_BASE }}
         shell: pwsh
         run: |
+          # Windows runner 默认 cp1252，中文 print 会 UnicodeEncodeError
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+          $env:PYTHONIOENCODING = 'utf-8'
+          $env:PYTHONUTF8 = '1'
+
           if ([string]::IsNullOrWhiteSpace($env:R2_ACCOUNT_ID) -or
               [string]::IsNullOrWhiteSpace($env:R2_ACCESS_KEY_ID) -or
               [string]::IsNullOrWhiteSpace($env:R2_SECRET_ACCESS_KEY)) {
@@ -90,7 +96,7 @@ jobs:
             exit 1
           }
 
-          python scripts/upload_release_r2.py "$($exe.FullName)" `
+          python -X utf8 scripts/upload_release_r2.py "$($exe.FullName)" `
             --version $version `
             --level prompt `
             --notes "v$version" `
