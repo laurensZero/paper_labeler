@@ -55,17 +55,18 @@ defineEmits<{
   justify-content: center;
   width: 18px;
   height: 18px;
-  border: 1.5px solid var(--border-strong);
-  border-radius: 4px;
+  border: 1.5px solid rgba(20, 20, 22, 0.18);
+  border-radius: 6px;
   flex-shrink: 0;
   transition: all var(--duration-fast) var(--ease-out);
-  background: transparent;
+  background: var(--bg-elevated);
+  color: transparent;
 }
 
 .app-checkbox--checked .app-checkbox__box {
-  border-color: var(--text-primary);
-  background: transparent;
-  color: var(--text-primary);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
 .app-checkbox__label {

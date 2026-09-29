@@ -684,8 +684,9 @@ onBeforeUnmount(() => {
   min-height: 38px;
   padding: 8px 16px;
   background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
+  min-height: 36px;
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
@@ -964,16 +965,16 @@ onBeforeUnmount(() => {
   width: 16px;
   height: 16px;
   border: 1.5px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: 6px;
   flex-shrink: 0;
   transition: all var(--duration-fast) var(--ease-out);
   background: transparent;
 }
 
 .pcms-checkbox--checked {
-  border-color: var(--text-primary);
-  background: transparent;
-  color: var(--text-primary);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
 .pcms-paper-label {

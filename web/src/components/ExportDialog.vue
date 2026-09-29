@@ -310,7 +310,7 @@ const pct = computed(() =>
                 <input v-model="rndFavOnly" type="checkbox" :disabled="running" />
                 <span>{{ t('randomExport.favOnly') }}</span>
               </label>
-              <button class="btn btn-sm" :disabled="running" @click="zeroRnd">{{ t('randomExport.allZero') }}</button>
+              <button class="btn btn-soft btn-sm" :disabled="running" @click="zeroRnd">{{ t('randomExport.allZero') }}</button>
             </div>
             <div class="rnd-list">
               <div v-for="row in rndRows" :key="row.name || '__none'" class="rnd-row">
@@ -395,7 +395,7 @@ const pct = computed(() =>
                 {{ progress.done }} / {{ progress.total }}
                 <template v-if="progress.phase"> · {{ t(`exportDialog.phase.${progress.phase}`) }}</template>
               </span>
-              <button class="btn btn-sm btn-danger" @click="cancelExport">{{ t('exportDialog.cancel') }}</button>
+              <button class="btn btn-danger" @click="cancelExport">{{ t('exportDialog.cancel') }}</button>
             </div>
           </div>
           <div v-if="finishedPages != null" class="ex-done">
@@ -405,7 +405,7 @@ const pct = computed(() =>
           <div v-if="errorMsg" class="error-text">{{ t('exportDialog.failed', { error: errorMsg }) }}</div>
         </div>
         <div class="cv-modal-footer">
-          <button class="btn" :disabled="running" @click="close">{{ t('exportDialog.close') }}</button>
+          <button class="btn btn-soft" :disabled="running" @click="close">{{ t('exportDialog.close') }}</button>
           <button class="btn btn-primary" :disabled="running" @click="start">
             {{ running ? t('exportDialog.exporting') : t('exportDialog.start') }}
           </button>

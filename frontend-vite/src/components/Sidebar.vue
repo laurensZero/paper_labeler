@@ -236,14 +236,14 @@ function openCieImport() {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 9px 12px;
   border: none;
   background: none;
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   font-family: inherit;
-  border-radius: var(--radius-xs);
+  border-radius: 10px;
   cursor: pointer;
   transition: all 100ms ease;
   white-space: nowrap;

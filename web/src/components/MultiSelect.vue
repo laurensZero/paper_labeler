@@ -258,10 +258,11 @@ watch(() => filteredOptions.value.length, (len) => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 38px;
-  padding: 8px 16px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  min-height: 36px;
+  padding: 0 12px;
+  height: 36px;
+  background: var(--bg-input);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
@@ -277,10 +278,10 @@ watch(() => filteredOptions.value.length, (len) => {
   background: var(--bg-card-hover);
 }
 
-.ms:focus .ms-trigger,
 .ms--open .ms-trigger {
   border-color: var(--border-accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--surface);
 }
 
 .ms--disabled .ms-trigger {
@@ -336,8 +337,10 @@ watch(() => filteredOptions.value.length, (len) => {
   right: 0;
   z-index: 1000;
   min-width: 220px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -393,7 +396,7 @@ watch(() => filteredOptions.value.length, (len) => {
   padding: 5px 9px;
   background: none;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-accent);
@@ -429,7 +432,7 @@ watch(() => filteredOptions.value.length, (len) => {
 }
 
 .ms-option-selected {
-  color: var(--text-accent);
+  color: var(--text-primary);
   background: var(--accent-soft);
 }
 
@@ -440,16 +443,16 @@ watch(() => filteredOptions.value.length, (len) => {
   width: 18px;
   height: 18px;
   border: 1.5px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: 6px;
   flex-shrink: 0;
   transition: all var(--duration-fast) var(--ease-out);
   background: transparent;
 }
 
 .ms-checkbox--checked {
-  border-color: var(--text-primary);
-  background: transparent;
-  color: var(--text-primary);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
 .ms-option-label {

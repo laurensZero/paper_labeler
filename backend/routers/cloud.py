@@ -1,12 +1,13 @@
 """云端同步接口：配置自检 + 后台同步任务 + 状态轮询。"""
 from __future__ import annotations
 
+import json
 import logging
 import threading
+import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote as urlquote
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from backend.cloud.config import (
     cloud_enabled,
@@ -17,6 +18,13 @@ from backend.cloud.config import (
 )
 from backend.cloud.state import load_sync_state, record_sync_result
 from backend.cloud.sync import SyncSummary, run_sync
+from backend.routers.export import (
+    ExportOptions,
+    ExportRequest,
+    check_export_status,
+    create_export_job,
+    download_export_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -527,7 +535,7 @@ def list_compositions():
             "compositions",
             columns=(
                 "id,name,title,visibility,created_at,updated_at,owner_id,"
-                "profiles(email),composition_items(id)"
+                "profiles(email),composition_items(id,item_type)"
             ),
         )
     except sb.SupabaseError as exc:
@@ -536,6 +544,12 @@ def list_compositions():
     for r in rows:
         items = r.get("composition_items") or []
         prof = _embed_one(r.get("profiles"))
+        # 题数只算真题，独立空白页条目不计入
+        q_count = (
+            len([i for i in items if (i or {}).get("item_type") != "blank_page"])
+            if isinstance(items, list)
+            else 0
+        )
         out.append(
             {
                 "id": r.get("id"),
@@ -546,7 +560,7 @@ def list_compositions():
                 "updated_at": r.get("updated_at"),
                 "owner_id": r.get("owner_id"),
                 "owner_email": (prof or {}).get("email") or "",
-                "item_count": len(items) if isinstance(items, list) else 0,
+                "item_count": q_count,
             }
         )
     out.sort(key=lambda r: str(r.get("updated_at") or ""), reverse=True)
@@ -570,7 +584,7 @@ def composition_detail(composition_id: str):
             cfg,
             "composition_items",
             columns=(
-                "id,sort_order,item_type,blank_pages,score,"
+                "id,question_id,sort_order,item_type,blank_pages,score,"
                 "questions(question_no,section,paper_id,papers(exam_code,filename))"
             ),
             filters={"composition_id": f"eq.{composition_id}"},
@@ -584,6 +598,7 @@ def composition_detail(composition_id: str):
         out.append(
             {
                 "id": r.get("id"),
+                "question_id": r.get("question_id"),
                 "sort_order": r.get("sort_order"),
                 "item_type": r.get("item_type"),
                 "blank_pages": r.get("blank_pages"),
@@ -603,11 +618,10 @@ def export_composition_pdf(
     request: Request,
     include_answers: bool | None = None,
 ):
-    """下载组卷 PDF：云端拉数据 + R2 拉图，本地渲染，图片与页面均带水印。"""
+    """云卷导出：数据取自云端，渲染复用本地组卷导出管线（export.py 的 job 流程 + 本地题图）。"""
     import uuid as uuid_mod
 
     from backend.cloud import supabase as sb
-    from backend.cloud.compose_pdf import build_composition_pdf
 
     _require_token(request)
     try:
@@ -615,19 +629,99 @@ def export_composition_pdf(
     except (ValueError, TypeError, AttributeError):
         raise HTTPException(status_code=400, detail="composition_id 无效") from None
     cfg = _require_cloud()
+
+    # 1) 云端拉组卷设置与条目
     try:
-        pdf_bytes, filename = build_composition_pdf(cfg, composition_id, include_answers)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="组卷不存在") from None
+        comp_rows = sb.select(
+            cfg,
+            "compositions",
+            columns=(
+                "name,title,header_text,footer_text,cover_lines,include_answers,"
+                "answers_placement,show_page_numbers,show_question_info"
+            ),
+            filters={"id": f"eq.{composition_id}"},
+        )
+        if not comp_rows:
+            raise HTTPException(status_code=404, detail="组卷不存在")
+        comp = comp_rows[0]
+        items = sb.select(
+            cfg,
+            "composition_items",
+            columns="sort_order,item_type,blank_pages,question_id",
+            filters={"composition_id": f"eq.{composition_id}"},
+        )
     except sb.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{urlquote(filename)}",
-        },
+    items.sort(key=lambda r: int(r.get("sort_order") or 0))
+
+    # 2) 条目 → 题目 id 序列 + 每题后空白页（独立空白项并入前一题；
+    #    本地导出的 ids 是纯题目序列，无法表达“无题空白”）
+    ids: list[int] = []
+    blanks: list[int] = []
+    for it in items:
+        if it.get("item_type") == "blank_page":
+            if blanks:
+                blanks[-1] += max(1, int(it.get("blank_pages") or 1))
+            continue
+        qid = it.get("question_id")
+        if not qid:
+            continue
+        ids.append(int(qid))
+        blanks.append(max(0, int(it.get("blank_pages") or 0)))
+    if not ids:
+        raise HTTPException(status_code=400, detail="组卷没有可导出的题目")
+
+    # 3) 云卷设置 → 本地 ExportOptions
+    show_info = bool(comp.get("show_question_info", True))
+    cover_lines: list[str] | None = None
+    if comp.get("cover_lines"):
+        try:
+            parsed = json.loads(comp["cover_lines"])
+            if isinstance(parsed, list):
+                cover_lines = [str(x) for x in parsed]
+        except (ValueError, TypeError):
+            cover_lines = None
+    use_answers = bool(comp.get("include_answers")) if include_answers is None else include_answers
+    options = ExportOptions(
+        include_question_no=show_info,
+        include_section=show_info,
+        include_paper=show_info,
+        include_answers=use_answers,
+        answers_placement=str(comp.get("answers_placement") or "end"),
+        filename=str(comp.get("name") or "") or None,
+        title=comp.get("title") or None,
+        header_text=comp.get("header_text") or None,
+        footer_text=comp.get("footer_text") or None,
+        cover_lines=cover_lines,
+        blank_pages_per_question=blanks,
+        # 组卷的空白页完全按卷内设置来，关掉“占比≥70%自动补页”（否则与手动空白重复）
+        auto_blank_on_tall=False,
+        show_page_numbers=bool(comp.get("show_page_numbers", True)),
     )
+
+    # 4) 走本地组卷导出：入队 → 等待完成 → 复用现成下载
+    try:
+        created = create_export_job(ExportRequest(ids=ids, options=options), BackgroundTasks())
+        job_id = str(created["job_id"])
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from None
+
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        try:
+            status = check_export_status(job_id)
+        except HTTPException:
+            time.sleep(0.3)
+            continue
+        state = str(status.get("status") or "")
+        if state == "done":
+            return download_export_file(job_id)
+        if state in {"error", "cancelled"}:
+            raise HTTPException(status_code=500, detail=str(status.get("message") or "导出失败"))
+        time.sleep(0.3)
+    raise HTTPException(status_code=504, detail="导出超时，请稍后重试")
 
 
 # ---------------------------------------------------------------------------

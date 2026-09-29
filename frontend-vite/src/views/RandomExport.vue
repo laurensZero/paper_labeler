@@ -568,17 +568,8 @@ function toggleGroupSelectAll(group: RandomExportGroup) {
 
 /* ── Buttons ── */
 .btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 16px;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 500;
-  font-family: inherit;
+  height: 36px;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-out);
@@ -609,17 +600,29 @@ function toggleGroupSelectAll(group: RandomExportGroup) {
 }
 
 .btn-primary {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
-  box-shadow: 0 1px 3px rgba(0, 113, 227, 0.3);
+  background: #141416;
+  color: #fff;
+  border-color: #141416;
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.4);
+  background: #24262d;
+  border-color: #24262d;
 }
+
+.dark .btn-primary {
+  background: #f5f5f7;
+  color: #141416;
+  border-color: #f5f5f7;
+}
+
+.dark .btn-primary:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+
 
 .btn-ghost {
   background: transparent;

@@ -284,8 +284,12 @@ const answerButtonText = computed(() => {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  margin: 10px 12px 10px 0;
   background: var(--bg-elevated);
-  border-left: 1px solid var(--border);
+  border: 1px solid rgba(17, 20, 22, 0.05);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
   overflow-y: auto;
   position: relative;
   transition: width 200ms var(--ease-out);
@@ -294,6 +298,7 @@ const answerButtonText = computed(() => {
 .inspector--collapsed {
   width: 36px;
   overflow: hidden;
+  border-radius: var(--radius-lg);
 }
 
 .inspector-toggle {
@@ -546,7 +551,8 @@ const answerButtonText = computed(() => {
   .inspector {
     width: 100%;
     border-left: none;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid rgba(17, 20, 22, 0.05);
+    border-radius: var(--radius-lg);
     max-height: 240px;
   }
 

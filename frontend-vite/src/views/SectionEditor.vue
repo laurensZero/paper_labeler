@@ -708,7 +708,7 @@ onMounted(() => {
 
 .se-pill--group {
   background: #eef2ff;
-  color: #4338ca;
+  color: var(--accent-hover);
   border: 1px solid rgba(67, 56, 202, 0.2);
 }
 

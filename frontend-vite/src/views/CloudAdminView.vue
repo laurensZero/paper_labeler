@@ -416,6 +416,7 @@ interface CompRow {
 
 interface CompItem {
   id: number
+  question_id: number | null
   sort_order: number
   item_type: string
   blank_pages: number
@@ -476,6 +477,14 @@ function compItemLabel(it: CompItem): string {
   if (it.section) parts.push(it.section)
   const label = parts.join(' · ')
   return it.score != null ? `${label}（${it.score} 分）` : label
+}
+
+function compItemMeta(it: CompItem): string {
+  const parts: string[] = []
+  if (it.exam_code) parts.push(it.exam_code)
+  if (it.section) parts.push(it.section)
+  const label = parts.join(' · ') || t('cloud.compNoQno')
+  return it.score != null ? `${label} · ${it.score}` : label
 }
 
 // ---- 云卷下载：后端本地渲染带水印 PDF（需管理 token）----
@@ -930,14 +939,36 @@ onMounted(() => {
                       }}
                     </button>
                     <span class="cl-muted">{{ t('cloud.compsExportHint') }}</span>
+                    <span v-if="compDetail.length" class="cl-comp-count">{{ compDetail.length }}</span>
                   </div>
                   <div v-if="compDetailLoading" class="cl-empty">…</div>
                   <ul v-else class="cl-comp-detail">
-                    <li v-for="it in compDetail" :key="it.id">
-                      <span class="cl-tag" :class="it.item_type === 'blank_page' ? 'tag-warn' : ''">
-                        {{ it.item_type === 'blank_page' ? '◻' : '#' + (it.question_no || t('cloud.compNoQno')) }}
-                      </span>
-                      <span class="cl-grant-value">{{ compItemLabel(it) }}</span>
+                    <li
+                      v-for="it in compDetail"
+                      :key="it.id"
+                      class="cl-comp-item"
+                      :class="{ 'cl-comp-item--blank': it.item_type === 'blank_page' }"
+                    >
+                      <template v-if="it.item_type === 'blank_page'">
+                        <div class="cl-comp-blank">
+                          <span class="cl-comp-blank-icon">◻</span>
+                          <span>{{ compItemLabel(it) }}</span>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <div class="cl-comp-meta">
+                          <div class="cl-comp-qno">#{{ it.question_no || t('cloud.compNoQno') }}</div>
+                          <div class="cl-comp-label">{{ compItemMeta(it) }}</div>
+                        </div>
+                        <img
+                          v-if="it.question_id"
+                          class="cl-comp-thumb"
+                          :src="`/questions/${it.question_id}/preview.png?w=1280`"
+                          loading="lazy"
+                          alt=""
+                          @error="($event.target as HTMLImageElement).style.display = 'none'"
+                        />
+                      </template>
                     </li>
                     <li v-if="!compDetail.length" class="cl-muted" style="list-style: none">
                       {{ t('cloud.compsDetailEmpty') }}
@@ -1334,10 +1365,25 @@ onMounted(() => {
 }
 
 .cl-btn--primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  height: 34px;
+  padding: 0 16px;
+  background: #141416;
+  border-color: #141416;
   color: #fff;
   font-weight: 600;
+  border-radius: 10px;
+  box-shadow: var(--shadow-xs);
+}
+
+.cl-btn--primary:hover:not(:disabled) {
+  background: #24262d;
+  border-color: #24262d;
+}
+
+.dark .cl-btn--primary {
+  background: #f5f5f7;
+  border-color: #f5f5f7;
+  color: #141416;
 }
 
 .cl-btn--ghost {
@@ -1440,30 +1486,118 @@ onMounted(() => {
 }
 
 .cl-detail-row td {
-  background: var(--bg-pressed);
-}
-
-.cl-comp-detail {
-  list-style: none;
-  margin: 0;
-  padding: 4px 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  background: transparent;
+  padding: 4px 10px 14px;
 }
 
 .cl-comp-detail-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 6px 8px;
+  gap: 12px;
+  padding: 8px 4px 12px;
 }
 
-.cl-comp-detail li {
+.cl-comp-count {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cl-comp-detail {
+  list-style: none;
+  margin: 0;
+  padding: 0 2px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 960px;
+}
+
+.cl-comp-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid rgba(17, 20, 22, 0.05);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.cl-comp-item--blank {
+  flex-direction: row;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border-style: dashed;
+  border-color: rgba(217, 137, 15, 0.35);
+  box-shadow: none;
+}
+
+.cl-comp-blank {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  color: var(--warning);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.cl-comp-blank-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--warning-soft);
+  color: var(--warning);
   font-size: 12px;
+}
+
+.cl-comp-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 2px;
+}
+
+.cl-comp-thumb {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: none;
+  border-radius: 10px;
+  background: var(--bg-input);
+}
+
+.cl-comp-qno {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--text-primary);
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.cl-comp-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cl-guard {

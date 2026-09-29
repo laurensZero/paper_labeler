@@ -247,7 +247,7 @@ function paperOf(it: Item): string {
 async function loadCompositions() {
   const { data, error } = await getSupabase()
     .from('compositions')
-    .select('id,name,visibility,composition_items(id)')
+    .select('id,name,visibility,composition_items(id,item_type)')
     .order('updated_at', { ascending: false })
   if (error) {
     pageError.value = error.message
@@ -257,12 +257,13 @@ async function loadCompositions() {
     id: string
     name: string
     visibility: string
-    composition_items: { id: number }[]
+    composition_items: { id: number; item_type?: string }[]
   }[]).map((c) => ({
     id: c.id,
     name: c.name,
     visibility: c.visibility,
-    item_count: c.composition_items?.length ?? 0,
+    // 题数只算真题，独立空白页条目不计入
+    item_count: (c.composition_items ?? []).filter((i) => i.item_type !== 'blank_page').length,
   }))
 }
 
@@ -707,7 +708,9 @@ onMounted(async () => {
       <!-- 工具栏 -->
       <div class="cv-toolbar">
         <div class="cv-toolbar-left">
-          <button class="btn btn-sm" :title="t('compose.toolbar.open')" @click="showListModal = true">☰</button>
+          <button class="btn btn-soft btn-icon" :title="t('compose.toolbar.open')" @click="showListModal = true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="17" x2="21" y2="17"/></svg>
+          </button>
           <input
             v-model="comp.name"
             class="cv-name-input"
@@ -715,12 +718,17 @@ onMounted(async () => {
             @change="renameComp"
           />
           <span v-if="!isOwner" class="badge-ro">{{ t('compose.toolbar.readonly') }}</span>
+          <span v-if="comp.visibility === 'shared'" class="tag tag-ok">{{ t('compose.toolbar.shared') }}</span>
         </div>
         <div class="cv-toolbar-right">
-          <span v-if="comp.visibility === 'shared'" class="tag tag-ok">{{ t('compose.toolbar.shared') }}</span>
-          <button class="btn btn-sm" :disabled="!isOwner" :title="t('compose.toolbar.copy')" @click="duplicateComposition(comp.id)">{{ t('compose.toolbar.copy') }}</button>
-          <button class="btn btn-sm btn-danger" :disabled="!isOwner" :title="t('compose.toolbar.delete')" @click="deleteComposition(comp.id)">{{ t('compose.toolbar.delete') }}</button>
-          <button class="btn btn-sm" :disabled="!isOwner || !items.filter((i) => i.item_type === 'question').length" :title="t('compose.toolbar.export')" @click="exportVisible = true">{{ t('compose.toolbar.export') }}</button>
+          <button class="btn btn-soft" :disabled="!isOwner" :title="t('compose.toolbar.copy')" @click="duplicateComposition(comp.id)">{{ t('compose.toolbar.copy') }}</button>
+          <button class="btn btn-danger" :disabled="!isOwner" :title="t('compose.toolbar.delete')" @click="deleteComposition(comp.id)">{{ t('compose.toolbar.delete') }}</button>
+          <button
+            class="btn btn-primary"
+            :disabled="!isOwner || !items.filter((i) => i.item_type === 'question').length"
+            :title="t('compose.toolbar.export')"
+            @click="exportVisible = true"
+          >{{ t('compose.toolbar.export') }}</button>
         </div>
       </div>
 
@@ -963,8 +971,10 @@ onMounted(async () => {
                 <button class="cv-cover-line-x" :disabled="!isOwner" @click="removeCoverLine(idx)">×</button>
               </div>
               <div class="cv-cover-presets">
-                <button v-for="p in coverLinePresets" :key="p.key" class="btn btn-sm" :disabled="!isOwner" @click="addCoverLine(p.template)">{{ p.label }}</button>
-                <button class="btn btn-sm" :disabled="!isOwner" @click="addCoverLine()">{{ t('compose.settings.addLine') }}</button>
+                <div class="cv-chip-row">
+                  <button v-for="p in coverLinePresets" :key="p.key" class="btn btn-soft btn-sm" :disabled="!isOwner" @click="addCoverLine(p.template)">{{ p.label }}</button>
+                  <button class="btn btn-sm" :disabled="!isOwner" @click="addCoverLine()">{{ t('compose.settings.addLine') }}</button>
+                </div>
               </div>
             </div>
 
@@ -1021,9 +1031,9 @@ onMounted(async () => {
               <div class="cv-blank-ctl">
                 <span class="cv-prop-label" style="margin: 0">{{ t('compose.selected.blankPages') }}</span>
                 <div class="cv-blank-stepper">
-                  <button class="btn btn-sm" :disabled="!isOwner" @click="updateBlankPages(selectedItem.id, selectedItem.blank_pages - 1)">−</button>
+                  <button class="btn btn-soft btn-sm btn-icon" :disabled="!isOwner" @click="updateBlankPages(selectedItem.id, selectedItem.blank_pages - 1)">−</button>
                   <b>{{ selectedItem.blank_pages }}</b>
-                  <button class="btn btn-sm" :disabled="!isOwner" @click="updateBlankPages(selectedItem.id, selectedItem.blank_pages + 1)">+</button>
+                  <button class="btn btn-soft btn-sm btn-icon" :disabled="!isOwner" @click="updateBlankPages(selectedItem.id, selectedItem.blank_pages + 1)">+</button>
                 </div>
               </div>
             </template>
@@ -1071,8 +1081,10 @@ onMounted(async () => {
                   <div class="cv-comp-name">{{ c.name }}</div>
                   <div class="cv-comp-meta">{{ t('compose.meta', { n: c.item_count ?? 0, v: c.visibility === 'shared' ? t('compose.vis.shared') : t('compose.vis.private') }) }}</div>
                 </div>
-                <button class="btn btn-sm" :title="t('compose.toolbar.copy')" @click.stop="duplicateComposition(c.id)">{{ t('compose.toolbar.copy') }}</button>
-                <button class="btn btn-sm btn-danger" :title="t('compose.toolbar.delete')" @click.stop="deleteComposition(c.id)">{{ t('compose.toolbar.delete') }}</button>
+                <div class="cv-row-actions">
+                  <button class="btn btn-soft btn-sm" :title="t('compose.toolbar.copy')" @click.stop="duplicateComposition(c.id)">{{ t('compose.toolbar.copy') }}</button>
+                  <button class="btn btn-danger btn-sm" :title="t('compose.toolbar.delete')" @click.stop="deleteComposition(c.id)">{{ t('compose.toolbar.delete') }}</button>
+                </div>
               </div>
               <div v-if="!compositions.length" class="muted" style="padding: 24px; text-align: center">{{ t('compose.modal.empty') }}</div>
             </div>

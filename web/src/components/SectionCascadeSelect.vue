@@ -359,10 +359,11 @@ watch(() => props.options.length, () => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 38px;
-  padding: 8px 16px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  min-height: 36px;
+  padding: 0 12px;
+  height: 36px;
+  background: var(--bg-input);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
@@ -378,10 +379,10 @@ watch(() => props.options.length, () => {
   background: var(--bg-card-hover);
 }
 
-.scs:focus .scs-trigger,
 .scs--open .scs-trigger {
   border-color: var(--border-accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--surface);
 }
 
 .scs--disabled .scs-trigger {
@@ -503,9 +504,9 @@ watch(() => props.options.length, () => {
 }
 
 .scs-item--selected {
-  color: var(--text-accent);
   background: var(--accent-soft);
-  font-weight: 500;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .scs-check {

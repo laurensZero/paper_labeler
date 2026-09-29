@@ -565,70 +565,73 @@ onBeforeUnmount(() => {
   <div class="bank">
     <!-- ── 顶部筛选（对齐管理端布局） ── -->
     <div class="bank-toolbar">
-      <SectionCascadeSelect
-        v-model="filters.section"
-        class="bank-ctl bank-ctl--cascade"
-        :options="cascadeOptions"
-        :placeholder="t('bank.allModules')"
-        :empty-text="t('cascade.noSections')"
-      />
-      <PaperCascadeMultiSelect
-        v-model="filters.papers"
-        class="bank-ctl bank-ctl--paper"
-        :options="paperCascadeOptions"
-        :placeholder="t('bank.allPapers')"
-      />
-      <MultiSelect
-        v-model="filters.years"
-        class="bank-ctl bank-ctl--sm"
-        :options="yearMsOptions"
-        display-mode="values"
-        :show-all-when-all-selected="true"
-        :placeholder="t('bank.allYears')"
-      />
-      <MultiSelect
-        v-model="filters.seasons"
-        class="bank-ctl bank-ctl--sm"
-        :options="seasonMsOptions"
-        display-mode="values"
-        :show-all-when-all-selected="true"
-        :placeholder="t('bank.allSeasons')"
-      />
-      <label class="bank-check">
-        <input v-model="filters.favOnly" type="checkbox" />
-        <span>{{ t('bank.favOnly') }}</span>
-      </label>
-      <div class="bank-search">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input v-model="filters.notes" class="bank-search-input" type="text" :placeholder="t('bank.searchNotes')" />
+      <div class="bank-filters">
+        <SectionCascadeSelect
+          v-model="filters.section"
+          class="bank-ctl bank-ctl--cascade"
+          :options="cascadeOptions"
+          :placeholder="t('bank.allModules')"
+          :empty-text="t('cascade.noSections')"
+        />
+        <PaperCascadeMultiSelect
+          v-model="filters.papers"
+          class="bank-ctl bank-ctl--paper"
+          :options="paperCascadeOptions"
+          :placeholder="t('bank.allPapers')"
+        />
+        <MultiSelect
+          v-model="filters.years"
+          class="bank-ctl bank-ctl--sm"
+          :options="yearMsOptions"
+          display-mode="values"
+          :show-all-when-all-selected="true"
+          :placeholder="t('bank.allYears')"
+        />
+        <MultiSelect
+          v-model="filters.seasons"
+          class="bank-ctl bank-ctl--sm"
+          :options="seasonMsOptions"
+          display-mode="values"
+          :show-all-when-all-selected="true"
+          :placeholder="t('bank.allSeasons')"
+        />
+        <label class="bank-check">
+          <input v-model="filters.favOnly" type="checkbox" />
+          <span>{{ t('bank.favOnly') }}</span>
+        </label>
+        <div class="bank-search">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input v-model="filters.notes" class="bank-search-input" type="text" :placeholder="t('bank.searchNotes')" />
+        </div>
+        <input
+          v-model="filters.jump"
+          class="input bank-jump"
+          :placeholder="t('bank.jumpPh')"
+          @keydown.enter="jumpToQuestion"
+        />
       </div>
-      <input
-        v-model="filters.jump"
-        class="input bank-jump"
-        :placeholder="t('bank.jumpPh')"
-        @keydown.enter="jumpToQuestion"
-      />
-      <div style="flex: 1"></div>
-      <button
-        class="btn btn-sm"
-        :class="{ 'btn-primary': multiSelect }"
-        :disabled="!rows.length"
-        @click="toggleMultiSelect"
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        {{ multiSelect ? t('bank.multiSelectActive', { count: selectedIds.size }) : t('bank.multiSelect') }}
-      </button>
-      <button
-        v-if="multiSelect && selectedIds.size"
-        class="btn btn-sm"
-        @click="batchFavorite"
-      >
-        {{ t('bank.batchFavorite') }}
-      </button>
-      <button class="btn btn-sm" :disabled="!rows.length" @click="openFilterExport">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        {{ t('exportDialog.title') }}
-      </button>
+      <div class="bank-actions">
+        <button
+          class="btn btn-soft"
+          :class="{ 'btn-primary': multiSelect }"
+          :disabled="!rows.length"
+          @click="toggleMultiSelect"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          {{ multiSelect ? t('bank.multiSelectActive', { count: selectedIds.size }) : t('bank.multiSelect') }}
+        </button>
+        <button
+          v-if="multiSelect && selectedIds.size"
+          class="btn btn-soft"
+          @click="batchFavorite"
+        >
+          {{ t('bank.batchFavorite') }}
+        </button>
+        <button class="btn btn-primary" :disabled="!rows.length" @click="openFilterExport">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          {{ t('exportDialog.title') }}
+        </button>
+      </div>
     </div>
 
     <!-- ── 主区：中间大题 + 右侧信息 ── -->

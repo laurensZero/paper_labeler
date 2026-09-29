@@ -231,7 +231,7 @@
     "compsExport": "导出 PDF",
     "compsExporting": "生成中…",
     "compsExportFailed": "导出失败",
-    "compsExportHint": "在本机渲染并带水印下载",
+    "compsExportHint": "先预览再决定；导出走本地组卷渲染",
     "guardWatermarkOn": "已开启",
     "guardWatermarkOff": "已关闭",
     "guardWatermarkFailed": "水印设置读取失败",

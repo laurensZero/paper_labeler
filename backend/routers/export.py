@@ -38,6 +38,7 @@ class ExportOptions(BaseModel):
     footer_text: Optional[str] = None  # 页脚
     cover_lines: Optional[List[str]] = None  # 首页多行信息（姓名/分数/时间等）
     blank_pages_per_question: Optional[List[int]] = None  # 每题后的空白页数，与ids一一对应
+    auto_blank_on_tall: bool = True  # 题目占比≥70%时自动补一张空白页（组卷导出关闭，避免与手动空白页重复）
     show_page_numbers: bool = True
 
 class ExportRequest(BaseModel):
@@ -751,9 +752,11 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
                 pdf.set_y(current_y)
 
                 # If the question occupies >=70% of available height, add a blank page after it.
+                # 组卷导出关闭该自动补充（组卷内的空白页由手动 blank_pages 控制，避免重复）
                 available_height = page_bottom - start_y
                 content_height = current_y - start_y
-                if available_height > 0 and (content_height / available_height) >= 0.7:
+                auto_blank = options.auto_blank_on_tall if options is not None else True
+                if auto_blank and available_height > 0 and (content_height / available_height) >= 0.7:
                     pdf.add_page()
                     pdf.set_y(start_y)
                     pdf.rect(content_x - 2, start_y - 2, border_w + 4, total_height + 2)

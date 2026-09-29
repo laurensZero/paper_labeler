@@ -62,7 +62,7 @@ async function onSubmit() {
       <p v-if="error" class="error-text">{{ error }}</p>
       <p v-if="success" class="sub" style="color: var(--accent)">{{ t('setPassword.success') }}</p>
 
-      <button class="btn btn-primary" style="width: 100%; height: 38px; margin-top: 6px" type="submit" :disabled="loading || success">
+      <button class="btn btn-primary" style="width: 100%; height: 44px; margin-top: 10px; border-radius: 14px; font-size: 14px" type="submit" :disabled="loading || success">
         {{ loading ? t('setPassword.setting') : t('setPassword.submit') }}
       </button>
     </form>

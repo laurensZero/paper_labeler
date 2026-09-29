@@ -56,7 +56,7 @@ async function onSubmit() {
 
       <p v-if="error" class="error-text">{{ error }}</p>
 
-      <button class="btn btn-primary" style="width: 100%; height: 38px; margin-top: 6px" type="submit" :disabled="loading">
+      <button class="btn btn-primary" style="width: 100%; height: 44px; margin-top: 10px; border-radius: 14px; font-size: 14px" type="submit" :disabled="loading">
         {{ loading ? t('login.signingIn') : t('login.submit') }}
       </button>
 

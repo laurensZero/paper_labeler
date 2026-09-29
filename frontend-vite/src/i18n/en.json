@@ -231,7 +231,7 @@
     "compsExport": "Export PDF",
     "compsExporting": "Rendering…",
     "compsExportFailed": "Export failed",
-    "compsExportHint": "Rendered locally with watermark",
+    "compsExportHint": "Preview first; export uses the local composition pipeline",
     "guardWatermarkOn": "On",
     "guardWatermarkOff": "Off",
     "guardWatermarkFailed": "Failed to load watermark setting",

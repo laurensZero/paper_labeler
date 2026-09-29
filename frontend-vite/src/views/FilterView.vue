@@ -596,7 +596,7 @@ const {
         <button class="ws-toolbar-btn ws-toolbar-btn--icon" v-tooltip="t('filter.keyboardHelp') + ' (?)'" @click="appStore.toggleKeyboardHelp()">
           <span style="font-size:14px;font-weight:600;line-height:1">?</span>
         </button>
-        <button class="ws-toolbar-btn" @click="exportStore.exportFilterPdf()">
+        <button class="ws-toolbar-btn ws-toolbar-btn--primary" @click="exportStore.exportFilterPdf()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>{{ t('filter.exportPdf') }}</span>
         </button>
@@ -809,12 +809,13 @@ const {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 10px 12px;
   background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
+  border: 1px solid rgba(17, 20, 22, 0.05);
+  box-shadow: var(--shadow-xs);
   flex-shrink: 0;
-  min-height: 44px;
-  border-radius: 16px;
+  min-height: 52px;
+  border-radius: var(--radius-lg);
 }
 
 .ws-toolbar-main {
@@ -852,10 +853,11 @@ const {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 8px;
+  height: 32px;
+  padding: 0 10px;
   background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   flex-shrink: 0;
   transition: all 100ms ease;
 }
@@ -887,22 +889,25 @@ const {
 .ws-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   flex-shrink: 0;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
 }
 
 .ws-toolbar-btn {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  background: var(--bg-input);
+  color: var(--text-primary);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   font-family: inherit;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 100ms ease;
 }
@@ -913,9 +918,33 @@ const {
 }
 
 .ws-toolbar-btn.active {
-  background: var(--accent-soft);
-  border-color: var(--border-accent);
-  color: var(--text-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.ws-toolbar-btn--primary {
+  background: #141416;
+  border-color: #141416;
+  color: #fff;
+  box-shadow: var(--shadow-xs);
+}
+
+.ws-toolbar-btn--primary:hover {
+  background: #24262d;
+  border-color: #24262d;
+  color: #fff;
+}
+
+.dark .ws-toolbar-btn--primary {
+  background: #f5f5f7;
+  border-color: #f5f5f7;
+  color: #141416;
+}
+
+.dark .ws-toolbar-btn--primary:hover {
+  background: #ffffff;
+  border-color: #ffffff;
 }
 
 .ws-toolbar-btn--icon {

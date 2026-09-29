@@ -388,7 +388,7 @@ function close() { window.electronAPI?.close() }
 }
 
 .titlebar-ghost-btn--spin {
-  color: var(--accent, #4f46e5);
+  color: var(--accent, #2070c0);
 }
 
 .titlebar-ghost-btn--spin svg {
@@ -433,7 +433,7 @@ function close() { window.electronAPI?.close() }
 }
 
 .titlebar-sync-pop-icon.is-spin {
-  color: var(--accent, #4f46e5);
+  color: var(--accent, #2070c0);
   animation: sync-spin 1s linear infinite;
 }
 

@@ -442,12 +442,11 @@ def test_composition_pdf_requires_token(no_token):
     assert res.status_code in (401, 403)
 
 
-def test_composition_pdf_renders(with_token, monkeypatch):
-    import io as _io
+def test_composition_pdf_reuses_local_export(with_token, monkeypatch):
+    """云卷导出必须复用本地组卷导出 job（create → status → download）。"""
+    from fastapi import Response
 
-    from PIL import Image
-
-    from backend.cloud import compose_pdf, supabase as sb
+    from backend.cloud import supabase as sb
 
     _enable_cloud(monkeypatch)
     cid = "11111111-1111-1111-1111-111111111111"
@@ -456,60 +455,55 @@ def test_composition_pdf_renders(with_token, monkeypatch):
         if table == "compositions":
             return [
                 {
-                    "name": "测试卷 / A:B",
-                    "title": None,
+                    "name": "月考卷",
+                    "title": "标题",
                     "header_text": None,
-                    "footer_text": None,
-                    "cover_lines": None,
-                    "include_answers": False,
+                    "footer_text": "页脚",
+                    "cover_lines": '["姓名：____"]',
+                    "include_answers": True,
                     "answers_placement": "end",
                     "show_page_numbers": True,
                     "show_question_info": True,
-                    "show_section_headers": True,
-                    "owner_id": _UID,
-                    "profiles": {"email": "a@b.com"},
                 }
             ]
         if table == "composition_items":
             return [
                 {"sort_order": 1, "item_type": "question", "blank_pages": 0, "question_id": 7},
                 {"sort_order": 2, "item_type": "blank_page", "blank_pages": 1, "question_id": None},
-            ]
-        if table == "questions":
-            return [{"id": 7, "question_no": "5", "section": "函数", "paper_id": 1}]
-        if table == "papers":
-            return [{"id": 1, "exam_code": "2024A", "filename": "x.pdf"}]
-        if table == "question_boxes":
-            return [{"question_id": 7, "page": 1, "image_key": "q/1.webp"}]
-        if table == "app_config":
-            # 开启自定义水印，覆盖图片烤水印 + 整页叠层两条路径
-            return [
-                {
-                    "value": {
-                        "export_watermark": {"enabled": True, "mode": "custom", "text": "TOP {date}"}
-                    }
-                }
+                {"sort_order": 3, "item_type": "question", "blank_pages": 2, "question_id": 8},
             ]
         raise AssertionError(f"unexpected table {table}")
 
     monkeypatch.setattr(sb, "select", fake_select)
 
-    buf = _io.BytesIO()
-    Image.new("RGB", (320, 200), (255, 255, 255)).save(buf, format="PNG")
-    png = buf.getvalue()
+    captured: dict = {}
+
+    def fake_create(req, _bt):
+        captured["req"] = req
+        return {"job_id": "job_test"}
+
+    monkeypatch.setattr(cloud_router, "create_export_job", fake_create)
+    monkeypatch.setattr(cloud_router, "check_export_status", lambda jid: {"status": "done"})
     monkeypatch.setattr(
-        compose_pdf,
-        "_fetch_image",
-        lambda cfg, key: Image.open(_io.BytesIO(png)),
+        cloud_router,
+        "download_export_file",
+        lambda jid: Response(content=b"%PDF-1.4 cloud", media_type="application/pdf"),
     )
 
     res = client.get(f"/cloud/compositions/{cid}/pdf", headers={"X-Paper-Token": "secret"})
     assert res.status_code == 200, res.text
-    assert res.headers["content-type"] == "application/pdf"
     assert res.content[:4] == b"%PDF"
-    disp = res.headers.get("content-disposition", "")
-    assert "filename*=UTF-8''" in disp
-    assert "%20_%20" in disp  # "测试卷 / A:B" 清洗为 "测试卷 _ A_B" 后的 URL 编码
+
+    req = captured["req"]
+    # 题目顺序保留；独立空白页并入前一题（7 号题后 +1 页，8 号题自带 2 页）
+    assert req.ids == [7, 8]
+    assert req.options.blank_pages_per_question == [1, 2]
+    assert req.options.include_answers is True
+    assert req.options.title == "标题"
+    assert req.options.cover_lines == ["姓名：____"]
+    assert req.options.filename == "月考卷"
+    # 组卷导出关闭“占比≥70%自动补空白页”（否则与卷内手动空白页重复）
+    assert req.options.auto_blank_on_tall is False
 
 
 # ---------------------------------------------------------------------------

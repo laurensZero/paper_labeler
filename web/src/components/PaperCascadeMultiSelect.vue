@@ -687,10 +687,11 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 38px;
-  padding: 8px 16px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  min-height: 36px;
+  padding: 0 12px;
+  height: 36px;
+  background: var(--bg-input);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
@@ -706,10 +707,10 @@ onBeforeUnmount(() => {
   background: var(--bg-card-hover);
 }
 
-.pcms:focus .pcms-trigger,
 .pcms--open .pcms-trigger {
   border-color: var(--border-accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--surface);
 }
 
 .pcms--disabled .pcms-trigger {
@@ -959,7 +960,7 @@ onBeforeUnmount(() => {
 }
 
 .pcms-paper-item--selected {
-  color: var(--text-accent);
+  color: var(--text-primary);
   background: var(--accent-soft);
 }
 
@@ -970,16 +971,16 @@ onBeforeUnmount(() => {
   width: 16px;
   height: 16px;
   border: 1.5px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: 6px;
   flex-shrink: 0;
   transition: all var(--duration-fast) var(--ease-out);
   background: transparent;
 }
 
 .pcms-checkbox--checked {
-  border-color: var(--text-primary);
-  background: transparent;
-  color: var(--text-primary);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
 .pcms-paper-label {
