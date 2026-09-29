@@ -335,7 +335,7 @@ watch(() => filteredOptions.value.length, (len) => {
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  z-index: 1000;
+  z-index: 4600;
   min-width: min(220px, calc(100vw - 24px));
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(18px) saturate(140%);

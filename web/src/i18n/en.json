@@ -271,7 +271,8 @@
     "favTitle": "Favorited",
     "difficulty": "Difficulty",
     "difficultyUnset": "Unset",
-    "allDifficulties": "All difficulties"
+    "allDifficulties": "All difficulties",
+    "jumpGo": "Go"
   },
   "compose": {
     "empty": {

@@ -417,7 +417,7 @@ watch(() => props.options.length, () => {
 /* Dropdown */
 .scs-dropdown {
   position: fixed;
-  z-index: 1000;
+  z-index: 4600;
   display: grid;
   grid-template-columns: minmax(130px, max-content) minmax(190px, 1fr);
   overflow: hidden;

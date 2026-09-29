@@ -668,11 +668,12 @@ input[type="checkbox"]:focus-visible {
 /* 筛选组：左侧控件排成一排 */
 .bank-filters {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   flex: 1;
   min-width: 0;
+  overflow: visible;
 }
 
 /* 操作组：右侧按钮，和筛选拉开 */
@@ -686,21 +687,42 @@ input[type="checkbox"]:focus-visible {
   border-left: 1px solid var(--border);
 }
 
+/* 下拉不得被工具栏裁切 */
+.bank-toolbar {
+  overflow: visible;
+  position: relative;
+  z-index: 50;
+}
+
+.bank-toolbar .bank-ctl {
+  overflow: visible;
+  position: relative;
+}
+
 /* 选择器紧凑定宽 */
 .bank-toolbar .bank-ctl {
-  flex-shrink: 0;
+  flex-shrink: 1 1 120px;
+  min-width: 112px;
+  max-width: 180px;
 }
 
 .bank-toolbar .bank-ctl.bank-ctl--cascade {
-  width: 170px;
+  width: auto;
+  flex: 1 1 150px;
+  max-width: 180px;
 }
 
 .bank-toolbar .bank-ctl.bank-ctl--paper {
-  width: 190px;
+  width: auto;
+  flex: 1 1 170px;
+  max-width: 200px;
 }
 
 .bank-toolbar .bank-ctl.bank-ctl--sm {
-  width: 96px;
+  width: auto;
+  flex: 1 1 100px;
+  min-width: 96px;
+  max-width: 128px;
 }
 
 .bank-check {
@@ -1111,6 +1133,66 @@ input[type="checkbox"]:focus-visible {
 }
 
 /* filmstrip：对齐管理端 .ws-filmstrip + FilmStrip.vue */
+.bank-bottom {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 0;
+  flex-shrink: 0;
+  min-height: 56px;
+}
+
+.bank-jump-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 56px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid rgba(17, 20, 22, 0.05);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+
+.bank-jump-input {
+  width: 88px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+}
+
+.bank-jump-input:focus {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.bank-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.bank-jump-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 .bank-strip {
   display: flex;
   align-items: center;
@@ -1124,6 +1206,8 @@ input[type="checkbox"]:focus-visible {
   padding: 6px 10px;
   min-height: 56px;
   max-height: 80px;
+  flex: 1;
+  min-width: 0;
 }
 
 .bank-strip-count {
@@ -2418,6 +2502,12 @@ input[type="checkbox"]:focus-visible {
 .bank-jump {
   width: 88px;
   height: 36px;
+}
+
+.bank-search {
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 220px;
 }
 
 /* ============ 响应式：平板 ≤900px（题库主区纵排，筛选改网格） ============ */

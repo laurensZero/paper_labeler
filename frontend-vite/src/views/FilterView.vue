@@ -758,30 +758,32 @@ const {
       </div>
     </div>
 
-    <!-- ── Film Strip ── -->
-    <div class="ws-filmstrip">
-      <span class="ws-filmstrip-count">{{ t('filter.questionCount', { count: allFilmStripItems.length }) }}</span>
-      <div class="ws-filmstrip-jump">
+    <!-- ── Bottom: jump + filmstrip (two aligned rounded boxes) ── -->
+    <div class="ws-bottom">
+      <div class="ws-jump-box">
         <input
           v-model="filterQuestionNoInput"
-          class="ws-filmstrip-jump-input"
+          class="ws-jump-input"
           type="text"
           :placeholder="t('filter.questionNo')"
           @keydown.enter="onJumpToQuestionNo"
         />
-        <button type="button" class="ws-filmstrip-btn" :title="t('filter.jumpToQuestion')" @click="onJumpToQuestionNo">
+        <button type="button" class="ws-jump-btn" :title="t('filter.jumpToQuestion')" @click="onJumpToQuestionNo">
           {{ t('filter.go') }}
         </button>
       </div>
-      <FilmStrip
-        :items="allFilmStripItems"
-        :active-id="activeQuestionId"
-        :multi-select="filterMultiSelect"
-        :selected-ids="selectedQuestionIds"
-        :section-color-map="settingsStore.filmStripSectionDots ? sectionsStore.sectionColorMap : {}"
-        @select="selectQuestionById"
-        @toggle-selection="(id) => filterStore.toggleFilterItemSelection({ id })"
-      />
+      <div class="ws-filmstrip">
+        <span class="ws-filmstrip-count">{{ t('filter.questionCount', { count: allFilmStripItems.length }) }}</span>
+        <FilmStrip
+          :items="allFilmStripItems"
+          :active-id="activeQuestionId"
+          :multi-select="filterMultiSelect"
+          :selected-ids="selectedQuestionIds"
+          :section-color-map="settingsStore.filmStripSectionDots ? sectionsStore.sectionColorMap : {}"
+          @select="selectQuestionById"
+          @toggle-selection="(id) => filterStore.toggleFilterItemSelection({ id })"
+        />
+      </div>
     </div>
 
     <!-- ═══ Fullscreen floating buttons ═══ -->
@@ -842,6 +844,7 @@ const {
 
 /* Hide chrome in fullscreen with fade */
 .ws--fs .ws-toolbar,
+.ws--fs .ws-bottom,
 .ws--fs .ws-filmstrip,
 .ws--fs .ws-fs-inspector-wrap {
   display: none;
@@ -879,6 +882,16 @@ const {
 /* ══════════════════════════════════════
    TOP TOOLBAR — single row, 56px max
    ══════════════════════════════════════ */
+.ws-toolbar-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: visible;
+}
+
 .ws-toolbar {
   display: flex;
   align-items: center;
@@ -891,27 +904,21 @@ const {
   flex-shrink: 0;
   min-height: 52px;
   border-radius: var(--radius-lg);
-}
-
-.ws-toolbar-main {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  flex-wrap: wrap;
+  overflow: visible;
+  position: relative;
+  z-index: 50;
 }
 
 .ws-toolbar-select {
-  flex: 1 1 140px;
-  min-width: 140px;
-  max-width: 220px;
+  flex: 1 1 120px;
+  min-width: 112px;
+  max-width: 180px;
 }
 
 .ws-toolbar-select--sm {
-  flex: 1 1 132px;
-  min-width: 132px;
-  max-width: 160px;
+  flex: 1 1 100px;
+  min-width: 96px;
+  max-width: 128px;
 }
 
 .ws-toolbar-select--sm :deep(.ms-trigger),
@@ -920,7 +927,7 @@ const {
 }
 
 .ws-toolbar-select--sm :deep(.ms-value) {
-  min-width: 4.2em;
+  min-width: 3.6em;
 }
 
 .ws-toolbar-check {
@@ -943,7 +950,9 @@ const {
   background: var(--bg-input);
   border: 1px solid transparent;
   border-radius: 10px;
-  flex-shrink: 0;
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 220px;
   transition: all 100ms ease;
 }
 
@@ -1185,6 +1194,63 @@ const {
 /* ══════════════════════════════════════
    FILM STRIP
    ══════════════════════════════════════ */
+.ws-bottom {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 56px;
+}
+
+.ws-jump-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 56px;
+  padding: 0 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.ws-jump-input {
+  width: 88px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.ws-jump-input:focus {
+  border-color: var(--border-accent);
+}
+
+.ws-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 100ms ease;
+}
+
+.ws-jump-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 .ws-filmstrip {
   display: flex;
   align-items: center;
@@ -1192,8 +1258,10 @@ const {
   gap: 8px;
   padding: 0 8px;
   background: var(--bg-elevated);
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
+  border: 1px solid var(--border);
+  flex: 1;
+  min-width: 0;
+  flex-shrink: 1;
   min-height: 56px;
   max-height: 80px;
   border-radius: 16px;
@@ -1236,29 +1304,6 @@ const {
   color: var(--text-tertiary);
   padding: 0 6px;
   white-space: nowrap;
-}
-
-.ws-filmstrip-jump {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.ws-filmstrip-jump-input {
-  width: 72px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--text-primary);
-  outline: none;
-}
-
-.ws-filmstrip-jump-input:focus {
-  border-color: var(--border-accent);
 }
 
 .ws-filmstrip-count {
@@ -1364,6 +1409,7 @@ const {
 
 /* Hide normal UI chrome in fullscreen */
 .ws--fs .ws-toolbar,
+.ws--fs .ws-bottom,
 .ws--fs .ws-filmstrip,
 .ws--fs .ws-fs-inspector-wrap {
   display: none;

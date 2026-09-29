@@ -230,7 +230,7 @@
     "multiSelectActive": "已选 {count}",
     "batchFavorite": "批量收藏",
     "searchNotes": "搜索备注…",
-    "jumpPh": "题号跳转",
+    "jumpPh": "题号",
     "jumpNotFound": "当前筛选下没有题号 {no}",
     "loading": "加载中…",
     "count": "{n} 题",
@@ -271,7 +271,8 @@
     "favTitle": "已收藏",
     "difficulty": "难度",
     "difficultyUnset": "未标注",
-    "allDifficulties": "全部难度"
+    "allDifficulties": "全部难度",
+    "jumpGo": "跳转"
   },
   "compose": {
     "empty": {

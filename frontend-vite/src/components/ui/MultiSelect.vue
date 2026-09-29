@@ -332,7 +332,7 @@ watch(() => filteredOptions.value.length, (len) => {
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  z-index: 1000;
+  z-index: 4600;
   min-width: 220px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
