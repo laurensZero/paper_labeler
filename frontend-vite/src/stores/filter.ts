@@ -52,6 +52,7 @@ export interface FilterPreset {
   filterPaperMulti: string[]
   filterYearMulti: string[]
   filterSeasonMulti: string[]
+  filterDifficultyMulti: string[]
   filterFavOnly: boolean
   filterExcludeMultiSection: boolean
 }
@@ -67,6 +68,7 @@ export const useFilterStore = defineStore('filter', () => {
   const filterYearMulti = ref<string[]>([])
   const filterSeason = ref('')
   const filterSeasonMulti = ref<string[]>([])
+  const filterDifficultyMulti = ref<string[]>([]) // '1'..'5' | 'unset'
   const filterFavOnly = ref(false)
   const filterExcludeMultiSection = ref(false)
   const filterPage = ref(1)
@@ -176,6 +178,7 @@ export const useFilterStore = defineStore('filter', () => {
       filterPaperMulti: [...filterPaperMulti.value],
       filterYearMulti: [...filterYearMulti.value],
       filterSeasonMulti: [...filterSeasonMulti.value],
+      filterDifficultyMulti: [...filterDifficultyMulti.value],
       filterFavOnly: !!filterFavOnly.value,
       filterExcludeMultiSection: !!filterExcludeMultiSection.value,
     }
@@ -197,6 +200,7 @@ export const useFilterStore = defineStore('filter', () => {
     filterPaperMulti.value = [...(p.filterPaperMulti || [])]
     filterYearMulti.value = [...(p.filterYearMulti || [])]
     filterSeasonMulti.value = [...(p.filterSeasonMulti || [])]
+    filterDifficultyMulti.value = [...(p.filterDifficultyMulti || [])]
     filterFavOnly.value = !!p.filterFavOnly
     filterExcludeMultiSection.value = !!p.filterExcludeMultiSection
     filterPage.value = 1
@@ -273,6 +277,13 @@ export const useFilterStore = defineStore('filter', () => {
     if (usePaperFilter) params.set('paper_ids', paperIds.join(','))
     if (useYearFilter) params.set('years', years.join(','))
     if (useSeasonFilter) params.set('seasons', seasons.join(','))
+    const wantedDiffs = filterDifficultyMulti.value.filter(Boolean)
+    if (wantedDiffs.length) {
+      const nums = wantedDiffs.filter((v) => v !== 'unset')
+      const unlabeled = wantedDiffs.includes('unset')
+      if (nums.length) params.set('difficulties', nums.join(','))
+      if (unlabeled) params.set('include_unlabeled_difficulty', 'true')
+    }
     if (filterFavOnly.value) params.set('favorite', 'true')
     if (filterExcludeMultiSection.value) params.set('exclude_multi_section', 'true')
     const kw = String(filterSearchKeyword.value || '').trim()
@@ -312,6 +323,11 @@ export const useFilterStore = defineStore('filter', () => {
       years,
       seasons,
       favorite: filterFavOnly.value ? true : undefined,
+      difficulties: (() => {
+        const nums = filterDifficultyMulti.value.filter((v) => v && v !== 'unset').map(Number).filter((n) => n >= 1 && n <= 5)
+        return nums.length ? nums : undefined
+      })(),
+      includeUnlabeledDifficulty: filterDifficultyMulti.value.includes('unset') ? true : undefined,
       excludeMultiSection: filterExcludeMultiSection.value ? true : undefined,
       notesKeyword: kw || undefined,
       page: Number(page || 1),
@@ -611,6 +627,7 @@ export const useFilterStore = defineStore('filter', () => {
       yearMulti: [...filterYearMulti.value],
       season: filterSeason.value,
       seasonMulti: [...filterSeasonMulti.value],
+      difficultyMulti: [...filterDifficultyMulti.value],
       favOnly: filterFavOnly.value,
       excludeMultiSection: filterExcludeMultiSection.value,
       page: filterPage.value,
@@ -631,6 +648,7 @@ export const useFilterStore = defineStore('filter', () => {
     filterYearMulti.value = state.yearMulti?.length ? [...state.yearMulti] : (state.year ? [state.year] : [])
     filterSeason.value = state.season || ''
     filterSeasonMulti.value = state.seasonMulti?.length ? [...state.seasonMulti] : (state.season ? [state.season] : [])
+    filterDifficultyMulti.value = state.difficultyMulti?.length ? [...state.difficultyMulti] : []
     filterFavOnly.value = !!state.favOnly
     filterExcludeMultiSection.value = !!state.excludeMultiSection
     filterPage.value = state.page || 1
@@ -727,6 +745,7 @@ export const useFilterStore = defineStore('filter', () => {
     filterYearMulti,
     filterSeason,
     filterSeasonMulti,
+  filterDifficultyMulti,
     filterFavOnly,
     filterExcludeMultiSection,
     filterPage,

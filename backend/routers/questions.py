@@ -515,6 +515,8 @@ def _search_questions_core(
     season: str | None = None,
     seasons: list[str] | None = None,
     favorite: bool | None = None,
+    difficulties: list[int] | None = None,
+    include_unlabeled_difficulty: bool | None = None,
     unsectioned: bool | None = None,
     exclude_multi_section: bool | None = None,
     page: int = 1,
@@ -570,6 +572,16 @@ def _search_questions_core(
         q = q.filter(Question.status == status)
     if favorite is True:
         q = q.filter(Question.is_favorite == True)
+
+    if difficulties:
+        wanted = [int(d) for d in difficulties if int(d) >= 1 and int(d) <= 5]
+        unlabeled = bool(include_unlabeled_difficulty)
+        if wanted and unlabeled:
+            q = q.filter(or_(Question.difficulty.in_(wanted), Question.difficulty.is_(None)))
+        elif wanted:
+            q = q.filter(Question.difficulty.in_(wanted))
+        elif unlabeled:
+            q = q.filter(Question.difficulty.is_(None))
 
     if exclude_multi_section is True:
         sec_count = (
@@ -719,6 +731,8 @@ def search_questions(
     season: str | None = None,
     seasons: str | None = None,
     favorite: bool | None = None,
+    difficulties: str | None = None,
+    include_unlabeled_difficulty: bool | None = None,
     unsectioned: bool | None = None,
     exclude_multi_section: bool | None = None,
     page: int = 1,
@@ -740,6 +754,8 @@ def search_questions(
         season=season,
         seasons=_parse_csv_values(seasons),
         favorite=favorite,
+        difficulties=[int(v) for v in _parse_csv_values(difficulties) if str(v).isdigit()],
+        include_unlabeled_difficulty=include_unlabeled_difficulty,
         unsectioned=unsectioned,
         exclude_multi_section=exclude_multi_section,
         page=page,
@@ -764,6 +780,8 @@ def search_questions_post(payload: QuestionSearchRequest, db: Session = Depends(
         season=payload.season,
         seasons=payload.seasons or [],
         favorite=payload.favorite,
+        difficulties=payload.difficulties or [],
+        include_unlabeled_difficulty=payload.include_unlabeled_difficulty,
         unsectioned=payload.unsectioned,
         exclude_multi_section=payload.exclude_multi_section,
         page=payload.page,

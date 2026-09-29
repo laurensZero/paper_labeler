@@ -255,19 +255,18 @@ watch(() => filteredOptions.value.length, (len) => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 38px;
-  padding: 8px 16px;
+  min-height: 36px;
+  padding: 8px 12px;
   background: var(--bg-elevated);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  min-height: 36px;
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-out);
   outline: none;
-  gap: 8px;
+  gap: 6px;
 }
 
 .ms-trigger:hover {
@@ -292,6 +291,7 @@ watch(() => filteredOptions.value.length, (len) => {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  min-width: 4.5em;
   text-align: left;
 }
 

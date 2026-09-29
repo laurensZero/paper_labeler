@@ -79,6 +79,8 @@ export interface QuestionSearchParams {
   season?: string
   seasons?: string[]
   favorite?: boolean
+  difficulties?: number[]
+  includeUnlabeledDifficulty?: boolean
   unsectioned?: boolean
   excludeMultiSection?: boolean
   page?: number

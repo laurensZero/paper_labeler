@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   cellDisplayValue,
+  cellAvgDifficulty,
   cellKey,
   fetchPapersForRadar,
   formatYearToken,
@@ -72,6 +73,12 @@ const selectedCell = computed(() => {
 })
 
 const selectedQuestionIds = computed(() => selectedCell.value?.questionIds ?? [])
+
+const selectedAvgDifficulty = computed(() => {
+  const avg = cellAvgDifficulty(selectedCell.value)
+  if (avg == null) return t('radar.detail.noDifficulty')
+  return t('radar.detail.avgDifficultyValue', { n: avg.toFixed(1) })
+})
 
 // ── 趋势 / 占比 ──
 const yearTotalList = computed(() => {
@@ -227,8 +234,20 @@ watch(seasonFilter, () => void loadRadar(), { deep: true })
       </div>
       <div class="radar-modes">
         <span class="radar-toolbar-label">{{ t('radar.filters.valueMode') }}</span>
-        <button type="button" class="radar-chip radar-chip--on">{{ t('radar.filters.modeCount') }}</button>
-        <button type="button" class="radar-chip" disabled :title="t('radar.difficulty.todo')">
+        <button
+          type="button"
+          class="radar-chip"
+          :class="{ 'radar-chip--on': heatMode === 'count' }"
+          @click="heatMode = 'count'"
+        >
+          {{ t('radar.filters.modeCount') }}
+        </button>
+        <button
+          type="button"
+          class="radar-chip"
+          :class="{ 'radar-chip--on': heatMode === 'difficulty' }"
+          @click="heatMode = 'difficulty'"
+        >
           {{ t('radar.filters.modeDifficulty') }}
         </button>
       </div>
@@ -311,6 +330,10 @@ watch(seasonFilter, () => void loadRadar(), { deep: true })
             <div class="radar-detail-kv">
               <span>{{ t('radar.detail.count') }}</span>
               <b>{{ selectedCell.count }}</b>
+            </div>
+            <div class="radar-detail-kv">
+              <span>{{ t('radar.detail.avgDifficulty') }}</span>
+              <b>{{ selectedAvgDifficulty }}</b>
             </div>
             <div class="radar-detail-kv">
               <span>{{ t('radar.detail.ids') }}</span>

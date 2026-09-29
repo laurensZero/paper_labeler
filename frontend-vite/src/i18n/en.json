@@ -162,7 +162,11 @@
     "notesPrefix": "Notes: ",
     "fullscreen": "Fullscreen",
     "exitFullscreen": "Exit Fullscreen",
-    "exitFullscreenHint": "Exit Fullscreen (Esc)"
+    "exitFullscreenHint": "Exit Fullscreen (Esc)",
+    "allDifficulties": "All difficulties",
+    "difficultyUnset": "Unset",
+    "difficulty": "Difficulty",
+    "jumpNotFound": "No question {no} under current filters"
   },
   "cloud": {
     "title": "Cloud",

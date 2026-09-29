@@ -162,7 +162,11 @@
     "notesPrefix": "备注：",
     "fullscreen": "全屏",
     "exitFullscreen": "退出全屏",
-    "exitFullscreenHint": "退出全屏 (Esc)"
+    "exitFullscreenHint": "退出全屏 (Esc)",
+    "allDifficulties": "全部难度",
+    "difficultyUnset": "未标注",
+    "difficulty": "难度",
+    "jumpNotFound": "当前筛选下找不到题号 {no}"
   },
   "cloud": {
     "title": "云端管理",

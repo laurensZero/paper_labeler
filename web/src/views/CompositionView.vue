@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { getSupabase, imageUrl } from '@/lib/supabase'
 import { useAuth } from '@/composables/auth'
+import { useDialog } from '@/composables/dialog'
 import SectionCascadeSelect from '@/components/SectionCascadeSelect.vue'
 import MultiSelect from '@/components/MultiSelect.vue'
 import ExportDialog from '@/components/ExportDialog.vue'
@@ -36,6 +37,7 @@ interface QLite {
   question_no: string | null
   section: string | null
   notes: string | null
+  difficulty: number | null
   papers: { exam_code: string | null; year_token: string | null; filename: string } | null
   question_sections: { section_name: string }[]
   question_boxes: { image_key: string; page: number }[]
@@ -55,6 +57,7 @@ interface BankQ {
   id: number
   question_no: string | null
   section: string | null
+  difficulty: number | null
   papers: { exam_code: string | null } | null
   question_sections: { section_name: string }[]
 }
@@ -72,6 +75,7 @@ interface CompListItem {
 const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
+const dialog = useDialog()
 
 // ---------- 状态 ----------
 const comp = ref<Comp | null>(null)
@@ -87,10 +91,20 @@ const bank = reactive({
   section: '',
   years: [] as string[],
   seasons: [] as string[],
+  difficulties: [] as string[], // '1'..'5' | 'unset'
   favOnly: false,
   page: 1,
   pageSize: 50,
 })
+
+const difficultyMsOptions = [
+  { value: '1', label: '1 ★' },
+  { value: '2', label: '2 ★' },
+  { value: '3', label: '3 ★' },
+  { value: '4', label: '4 ★' },
+  { value: '5', label: '5 ★' },
+  { value: 'unset', label: t('compose.filters.difficultyUnset') },
+]
 const bankAll = ref<BankQ[]>([])
 const bankLoading = ref(false)
 const cascadeOptions = ref<CascadeGroup[]>([])
@@ -146,6 +160,13 @@ const bankFiltered = computed(() => {
   if (v === UNSET_SECTION) list = list.filter((q) => !q.question_sections?.length && !q.section)
   else if (v) list = list.filter((q) => q.question_sections?.some((s) => s.section_name === v) || q.section === v)
   if (bank.favOnly) list = list.filter((q) => favIds.value.has(q.id))
+  if (bank.difficulties.length) {
+    const wanted = new Set(bank.difficulties)
+    list = list.filter((q) => {
+      if (q.difficulty == null) return wanted.has('unset')
+      return wanted.has(String(q.difficulty))
+    })
+  }
   return list
 })
 const bankTotal = computed(() => bankFiltered.value.length)
@@ -291,6 +312,12 @@ const previewGroups = computed<Group[]>(() => {
 })
 
 // ---------- 工具 ----------
+const selectedDifficultyLabel = computed(() => {
+  const d = selectedItem.value?.item_type === 'question' ? selectedItem.value.questions?.difficulty : null
+  if (d == null) return t('compose.filters.difficultyUnset')
+  return d + ' ★'
+})
+
 function sectionsOf(it: Item): string[] {
   const q = it.questions
   if (!q) return []
@@ -463,7 +490,12 @@ async function duplicateComposition(id: string) {
 
 async function deleteComposition(id: string) {
   const c = compositions.value.find((x) => x.id === id)
-  if (!window.confirm(t('compose.confirmDelete', { name: c?.name ?? '' }))) return
+  const ok = await dialog.confirm(t('compose.confirmDelete', { name: c?.name ?? '' }), {
+    title: t('compose.confirmDeleteTitle'),
+    confirmText: t('dialog.delete'),
+    danger: true,
+  })
+  if (!ok) return
 
   // 先从 UI 移除（立即反馈），网络删除后台完成
   const snapshot = compositions.value
@@ -492,7 +524,7 @@ async function loadAll(id: string) {
       .from('composition_items')
       .select(
         `id, composition_id, question_id, sort_order, item_type, blank_pages,
-         questions ( id, question_no, section, notes, papers ( exam_code, year_token, filename ), question_sections ( section_name ), question_boxes ( image_key, page ) )`,
+         questions ( id, question_no, section, notes, difficulty, papers ( exam_code, year_token, filename ), question_sections ( section_name ), question_boxes ( image_key, page ) )`,
       )
       .eq('composition_id', id)
       .order('sort_order')
@@ -578,7 +610,7 @@ async function searchBank(resetPage = true) {
     let query = getSupabase()
       .from('questions')
       .select(
-        `id, question_no, section,
+        `id, question_no, section, difficulty,
          papers ( exam_code ),
          question_sections ( section_name )`,
         { count: 'exact' },
@@ -605,14 +637,14 @@ watch(
   },
 )
 watch(
-  () => [bank.section, bank.favOnly],
+  () => [bank.section, bank.favOnly, bank.difficulties.join(',')],
   () => {
     bank.page = 1
   },
 )
 
 const ITEM_SELECT = `id, composition_id, question_id, sort_order, item_type, blank_pages,
-       questions ( id, question_no, section, notes, papers ( exam_code, year_token, filename ), question_sections ( section_name ), question_boxes ( image_key, page ) )`
+       questions ( id, question_no, section, notes, difficulty, papers ( exam_code, year_token, filename ), question_sections ( section_name ), question_boxes ( image_key, page ) )`
 
 function makeOptimisticQuestion(q: BankQ): Item {
   return {
@@ -627,6 +659,7 @@ function makeOptimisticQuestion(q: BankQ): Item {
       question_no: q.question_no,
       section: q.section,
       notes: null,
+      difficulty: q.difficulty ?? null,
       papers: q.papers ? { exam_code: q.papers.exam_code, year_token: null, filename: '' } : null,
       question_sections: q.question_sections ?? [],
       question_boxes: [],
@@ -1060,6 +1093,13 @@ onMounted(() => {
               :show-all-when-all-selected="true"
               :placeholder="t('bank.allSeasons')"
             />
+            <MultiSelect
+              v-model="bank.difficulties"
+              :options="difficultyMsOptions"
+              display-mode="values"
+              :show-all-when-all-selected="true"
+              :placeholder="t('compose.filters.allDifficulties')"
+            />
             <label class="cv-fav-filter">
               <input v-model="bank.favOnly" type="checkbox" />
               <span>{{ t('compose.filters.favOnly') }}</span>
@@ -1080,6 +1120,7 @@ onMounted(() => {
                 <span class="cv-bank-qno">{{ q.question_no || '?' }}</span>
                 <span class="cv-bank-sec">{{ q.question_sections?.[0]?.section_name || '-' }}</span>
                 <span class="cv-bank-paper">{{ q.papers?.exam_code || '' }}</span>
+                <span v-if="q.difficulty" class="cv-bank-diff" :title="`${q.difficulty}/5`">{{ q.difficulty }}★</span>
                 <span v-if="favIds.has(q.id)" class="cv-bank-star">★</span>
               </div>
             </template>
@@ -1218,6 +1259,7 @@ onMounted(() => {
                 <div><span>{{ t('compose.selected.qno') }}</span><b>{{ selectedItem.questions?.question_no || '?' }}</b></div>
                 <div><span>{{ t('compose.selected.source') }}</span><b>{{ paperOf(selectedItem) || '-' }}</b></div>
                 <div v-if="sectionsOf(selectedItem).length"><span>{{ t('compose.selected.section') }}</span><b>{{ sectionsOf(selectedItem).join(', ') }}</b></div>
+                <div><span>{{ t('compose.selected.difficulty') }}</span><b>{{ selectedDifficultyLabel }}</b></div>
               </div>
             </template>
             <template v-else>

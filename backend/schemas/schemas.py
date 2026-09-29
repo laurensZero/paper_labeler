@@ -77,6 +77,8 @@ class QuestionSearchRequest(BaseModel):
     season: str | None = None
     seasons: list[str] | None = None
     favorite: bool | None = None
+    difficulties: list[int] | None = None
+    include_unlabeled_difficulty: bool | None = None
     unsectioned: bool | None = None
     exclude_multi_section: bool | None = None
     page: int = 1

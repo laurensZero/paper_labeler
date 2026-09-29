@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { signOut, useAuth } from '@/composables/auth'
 import { setLocale } from '@/i18n'
 import BrowseWatermark from '@/components/BrowseWatermark.vue'
+import AppDialog from '@/components/AppDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -91,5 +92,6 @@ onBeforeUnmount(() => {
     <main class="main">
       <RouterView />
     </main>
+    <AppDialog />
   </div>
 </template>

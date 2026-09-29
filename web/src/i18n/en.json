@@ -90,6 +90,16 @@
     "noConfig": "Set a count for at least one section",
     "empty": "No questions to sample from"
   },
+  "dialog": {
+    "alertTitle": "Notice",
+    "confirmTitle": "Confirm",
+    "promptTitle": "Input",
+    "ok": "OK",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "inputRequired": "Please enter a value"
+  },
   "app": {
     "nav": {
       "bank": "Question Bank",
@@ -173,7 +183,10 @@
       "year": "Year",
       "count": "Questions",
       "ids": "IDs",
-      "goBank": "Open in bank"
+      "goBank": "Open in bank",
+      "avgDifficulty": "Avg difficulty",
+      "avgDifficultyValue": "{n} / 5",
+      "noDifficulty": "Unset"
     },
     "trend": {
       "title": "Yearly totals"
@@ -190,7 +203,8 @@
     },
     "difficulty": {
       "todo": "Difficulty (pending data)"
-    }
+    },
+    "difficultyHint": "Difficulty heat = sum(difficulty) × log(1+count)"
   },
   "login": {
     "tagline": "Bank · Compose · Export",
@@ -254,7 +268,10 @@
     },
     "hint": "← / → to switch questions; favorites and notes are per-account. Edit question content in the labeler app.",
     "unknownPaper": "Unknown paper",
-    "favTitle": "Favorited"
+    "favTitle": "Favorited",
+    "difficulty": "Difficulty",
+    "difficultyUnset": "Unset",
+    "allDifficulties": "All difficulties"
   },
   "compose": {
     "empty": {
@@ -277,7 +294,10 @@
     "filters": {
       "allModules": "All modules",
       "allPapers": "All papers",
-      "favOnly": "★ Favorites only"
+      "favOnly": "★ Favorites only",
+      "difficulty": "Difficulty",
+      "allDifficulties": "All difficulties",
+      "difficultyUnset": "Unset"
     },
     "loading": "Loading…",
     "pager": "{page} / {total}",
@@ -346,8 +366,10 @@
       "section": "Section",
       "remove": "Remove item",
       "insertBlank": "Insert blank page after",
-      "emptyHint": "Select a question or blank page in the preview"
+      "emptyHint": "Select a question or blank page in the preview",
+      "difficulty": "Difficulty"
     },
+    "confirmDeleteTitle": "Delete Composition",
     "confirmDelete": "Delete composition \"{name}\"? Its question references will be removed too.",
     "copySuffix": "copy",
     "errors": {

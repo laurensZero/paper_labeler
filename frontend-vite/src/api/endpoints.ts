@@ -271,6 +271,8 @@ export const questionsApi = {
         season: params.season,
         seasons: params.seasons,
         favorite: params.favorite,
+        difficulties: params.difficulties,
+        include_unlabeled_difficulty: params.includeUnlabeledDifficulty,
         unsectioned: params.unsectioned,
         exclude_multi_section: params.excludeMultiSection,
         page: params.page,

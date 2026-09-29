@@ -90,6 +90,16 @@
     "noConfig": "请至少给一个分类设置题量",
     "empty": "没有可抽取的题目"
   },
+  "dialog": {
+    "alertTitle": "提示",
+    "confirmTitle": "确认操作",
+    "promptTitle": "请输入",
+    "ok": "确定",
+    "confirm": "确认",
+    "cancel": "取消",
+    "delete": "删除",
+    "inputRequired": "请输入内容"
+  },
   "app": {
     "nav": {
       "bank": "题库",
@@ -173,7 +183,10 @@
       "year": "年份",
       "count": "题数",
       "ids": "题号",
-      "goBank": "去题库查看"
+      "goBank": "去题库查看",
+      "avgDifficulty": "平均难度",
+      "avgDifficultyValue": "{n} / 5",
+      "noDifficulty": "未标注"
     },
     "trend": {
       "title": "年度总量"
@@ -189,8 +202,9 @@
       "empty": "近年模块均有覆盖"
     },
     "difficulty": {
-      "todo": "难度分布（待数据接入）"
-    }
+      "todo": ""
+    },
+    "difficultyHint": "难度热力 = 题目难度之和 × log(1+题数)"
   },
   "login": {
     "tagline": "题库 · 组卷 · 导出",
@@ -254,7 +268,10 @@
     },
     "hint": "← / → 切换题目；收藏与备注按账号独立保存，题目内容请在标注端修改。",
     "unknownPaper": "未知试卷",
-    "favTitle": "已收藏"
+    "favTitle": "已收藏",
+    "difficulty": "难度",
+    "difficultyUnset": "未标注",
+    "allDifficulties": "全部难度"
   },
   "compose": {
     "empty": {
@@ -277,7 +294,10 @@
     "filters": {
       "allModules": "全部模块",
       "allPapers": "全部试卷",
-      "favOnly": "★ 仅收藏"
+      "favOnly": "★ 仅收藏",
+      "difficulty": "难度",
+      "allDifficulties": "全部难度",
+      "difficultyUnset": "未标注"
     },
     "loading": "加载中…",
     "pager": "{page} / {total}",
@@ -346,8 +366,10 @@
       "section": "模块",
       "remove": "移除条目",
       "insertBlank": "在此之后插入空白页",
-      "emptyHint": "在预览中点选题目或空白页"
+      "emptyHint": "在预览中点选题目或空白页",
+      "difficulty": "难度"
     },
+    "confirmDeleteTitle": "删除组卷",
     "confirmDelete": "删除组卷「{name}」？题目引用会一并移除。",
     "copySuffix": "副本",
     "errors": {

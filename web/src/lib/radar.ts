@@ -3,20 +3,15 @@
 
 import { getSupabase } from '@/lib/supabase'
 
-// ── 难度接口预留 ──────────────────────────────────────────────
-// TODO(难度): questions 表尚无难度字段，当前恒为 null。
-// 接入步骤：
-//   1) 迁移增加 questions.difficulty（建议 smallint 1–5 或 text easy/medium/hard）
-//   2) fetchQuestions 的 select 带上 difficulty
-//   3) HeatValueMode 增加 'difficulty'，cellDisplayValue 按难度加权
-//   4) RadarView 打开「难度」显示切换，并可选按难度色阶
+// ── 难度 ──────────────────────────────────────────────────────
+// questions.difficulty: smallint 1–5，未标注为 null（supabase/migrations/0008）。
 export type DifficultyValue = number | null
 
-/** 热力图取值方式。难度接入前 UI 仅开放 count。 */
+/** 热力图取值方式。 */
 export type HeatValueMode = 'count' | 'difficulty'
 
-/** UI 可选模式；难度数据落地后加入 'difficulty' */
-export const HEAT_VALUE_MODES: HeatValueMode[] = ['count']
+/** UI 可选模式 */
+export const HEAT_VALUE_MODES: HeatValueMode[] = ['count', 'difficulty']
 
 export interface PaperLite {
   id: number
@@ -34,7 +29,7 @@ export interface RadarQuestion {
   sections: string[]
   year: string
   season: string
-  /** TODO(难度): schema 落地后从查询赋值 */
+  /** 1–5，未标注为 null */
   difficulty: DifficultyValue
   paperLabel: string
 }
@@ -49,8 +44,8 @@ export interface HeatCell {
   section: string
   year: string
   count: number
-  /** TODO(难度): 该格难度样本，接入前恒为空数组 */
-  difficulties: DifficultyValue[]
+  /** 该格难度样本 */
+  difficulties: number[]
   questionIds: number[]
 }
 
@@ -126,11 +121,22 @@ export function cellDisplayValue(
   mode: HeatValueMode,
 ): number {
   if (mode === 'difficulty') {
-    // TODO(难度): 按难度加权（例如均值 × log(1+count) 或难度和）
-    void difficulties
+    // 难度加权：难度和 × log(1+count)；无难度样本回退 0
+    const nums = difficulties.filter((d): d is number => typeof d === 'number')
+    if (!nums.length) return 0
+    const sum = nums.reduce((a, b) => a + b, 0)
+    return sum * Math.log(1 + count)
     return count
   }
   return count
+}
+
+/** 该格平均难度（无样本为 null） */
+export function cellAvgDifficulty(cell: HeatCell | null): number | null {
+  if (!cell || !cell.difficulties.length) return null
+  const nums = cell.difficulties.filter((d): d is number => typeof d === 'number')
+  if (!nums.length) return null
+  return nums.reduce((a, b) => a + b, 0) / nums.length
 }
 
 export function maxCellDisplayValue(radar: SubjectRadar, mode: HeatValueMode): number {
@@ -187,7 +193,7 @@ async function fetchQuestionsByPaperIds(paperIds: number[]): Promise<RadarQuesti
   for (let i = 0; i < paperIds.length; i += PAPER_IN_BATCH) {
     const batch = paperIds.slice(i, i + PAPER_IN_BATCH)
     const selectCols =
-      'id, question_no, paper_id, section, ' +
+      'id, question_no, paper_id, section, difficulty, ' +
       'question_sections ( section_name ), ' +
       'papers ( id, filename, exam_code, year_token, season_token )'
     const { data, error } = await sb
@@ -203,6 +209,7 @@ async function fetchQuestionsByPaperIds(paperIds: number[]): Promise<RadarQuesti
       question_no: string | null
       paper_id: number
       section: string | null
+      difficulty: number | null
       question_sections: { section_name: string }[] | null
       papers: PaperLite | PaperLite[] | null
     }[]
@@ -228,8 +235,7 @@ async function fetchQuestionsByPaperIds(paperIds: number[]): Promise<RadarQuesti
         sections,
         year,
         season,
-        // TODO(难度): select 带上 difficulty 后赋值
-        difficulty: null,
+        difficulty: typeof row.difficulty === 'number' ? row.difficulty : null,
         paperLabel: paper?.exam_code || paper?.filename || '#' + row.paper_id,
       })
     }

@@ -41,12 +41,14 @@ const {
   filterPaperMulti,
   filterYearMulti,
   filterSeasonMulti,
+  filterDifficultyMulti,
   filterFavOnly,
   filterResults,
   filterLoading,
   filterMultiSelect,
   selectedQuestionIds,
   filterSearchKeyword,
+  filterQuestionNoInput,
 } = storeToRefs(filterStore)
 
 /* ── Local state ── */
@@ -87,6 +89,15 @@ const paperCascadeOptions = computed(() => {
   return opts
 })
 
+const difficultyOptions = computed(() => ([
+  { value: '1', label: '1 ★' },
+  { value: '2', label: '2 ★' },
+  { value: '3', label: '3 ★' },
+  { value: '4', label: '4 ★' },
+  { value: '5', label: '5 ★' },
+  { value: 'unset', label: t('filter.difficultyUnset') },
+]))
+
 const yearOptions = computed(() => {
   const years = new Set<string>()
   for (const p of papersStore.papers) {
@@ -106,7 +117,7 @@ const seasonOptions = computed(() => [
 const seasonShortLabels: Record<string, string> = { m: 'm', s: 's', w: 'w' }
 
 /* ── Film strip data (all questions, independent of pagination) ── */
-interface FilmStripItem { id: number; question_no: string | null; is_favorite: boolean; section: string | null; sections: string[] }
+interface FilmStripItem { id: number; question_no: string | null; is_favorite: boolean; difficulty: number | null; section: string | null; sections: string[] }
 const allFilmStripItems = ref<FilmStripItem[]>([])
 const questionCache = new Map<number, FilterQuestion>()
 const fullQuestionLoads = new Map<number, Promise<FilterQuestion | null>>()
@@ -140,6 +151,7 @@ async function loadAllFilmStripItems() {
           id: q.id,
           question_no: q.question_no,
           is_favorite: q.is_favorite,
+          difficulty: q.difficulty ?? null,
           section: q.section,
           sections: q.sections || [],
         })
@@ -153,6 +165,7 @@ async function loadAllFilmStripItems() {
       id: q.id,
       question_no: q.question_no,
       is_favorite: q.is_favorite,
+      difficulty: q.difficulty ?? null,
       section: q.section,
       sections: q.sections,
     }))
@@ -300,6 +313,11 @@ function onPaperMultiChange(v: string[]) {
 
 function onYearMultiChange(v: (string | number)[]) {
   filterYearMulti.value = Array.isArray(v) ? v.map(String) : []
+  filterStore.onFilterChange()
+}
+
+function onDifficultyMultiChange(v: (string | number)[]) {
+  filterDifficultyMulti.value = Array.isArray(v) ? v.map(String) : []
   filterStore.onFilterChange()
 }
 
@@ -527,6 +545,19 @@ watch(filterResults, (results) => {
 
 let _filmStripTimer: ReturnType<typeof setTimeout> | undefined
 
+function onJumpToQuestionNo() {
+  const raw = String(filterQuestionNoInput.value || '').trim()
+  if (!raw) return
+  const hit =
+    allFilmStripItems.value.find((q) => String(q.question_no ?? '') === raw) ||
+    allFilmStripItems.value.find((q) => String(q.question_no ?? '').includes(raw))
+  if (!hit) {
+    appStore.setStatus(t('filter.jumpNotFound', { no: raw }), 'err')
+    return
+  }
+  selectQuestionById(hit.id)
+}
+
 /* ── Fullscreen mode ── */
 const {
   fullscreen, fsZoom, fsExiting, fsBarX, fsBarY,
@@ -575,6 +606,15 @@ const {
           :show-all-when-all-selected="true"
           class="ws-toolbar-select ws-toolbar-select--sm"
           @update:model-value="onSeasonMultiChange"
+        />
+        <MultiSelect
+          :model-value="filterDifficultyMulti"
+          :options="difficultyOptions"
+          :placeholder="t('filter.allDifficulties')"
+          display-mode="values"
+          :show-all-when-all-selected="true"
+          class="ws-toolbar-select ws-toolbar-select--sm"
+          @update:model-value="onDifficultyMultiChange"
         />
         <div class="ws-toolbar-check">
           <AppCheckbox
@@ -721,6 +761,18 @@ const {
     <!-- ── Film Strip ── -->
     <div class="ws-filmstrip">
       <span class="ws-filmstrip-count">{{ t('filter.questionCount', { count: allFilmStripItems.length }) }}</span>
+      <div class="ws-filmstrip-jump">
+        <input
+          v-model="filterQuestionNoInput"
+          class="ws-filmstrip-jump-input"
+          type="text"
+          :placeholder="t('filter.questionNo')"
+          @keydown.enter="onJumpToQuestionNo"
+        />
+        <button type="button" class="ws-filmstrip-btn" :title="t('filter.jumpToQuestion')" @click="onJumpToQuestionNo">
+          {{ t('filter.go') }}
+        </button>
+      </div>
       <FilmStrip
         :items="allFilmStripItems"
         :active-id="activeQuestionId"
@@ -851,14 +903,24 @@ const {
 }
 
 .ws-toolbar-select {
-  flex-shrink: 0;
-  min-width: 110px;
-  max-width: 180px;
+  flex: 1 1 140px;
+  min-width: 140px;
+  max-width: 220px;
 }
 
 .ws-toolbar-select--sm {
-  min-width: 80px;
-  max-width: 110px;
+  flex: 1 1 132px;
+  min-width: 132px;
+  max-width: 160px;
+}
+
+.ws-toolbar-select--sm :deep(.ms-trigger),
+.ws-toolbar-select--sm :deep(.ms-value) {
+  min-width: 0;
+}
+
+.ws-toolbar-select--sm :deep(.ms-value) {
+  min-width: 4.2em;
 }
 
 .ws-toolbar-check {
@@ -1174,6 +1236,29 @@ const {
   color: var(--text-tertiary);
   padding: 0 6px;
   white-space: nowrap;
+}
+
+.ws-filmstrip-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ws-filmstrip-jump-input {
+  width: 72px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.ws-filmstrip-jump-input:focus {
+  border-color: var(--border-accent);
 }
 
 .ws-filmstrip-count {

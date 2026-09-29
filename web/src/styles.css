@@ -1254,6 +1254,35 @@ input[type="checkbox"]:focus-visible {
   flex-shrink: 0;
 }
 
+.bank-difficulty {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: #d4a017;
+  font-size: 13px;
+}
+
+.bank-difficulty-star {
+  opacity: 0.28;
+}
+
+.bank-difficulty-star.on {
+  opacity: 1;
+}
+
+.bank-difficulty-unset {
+  margin-left: 4px;
+  color: var(--muted, #888);
+  font-size: 12px;
+}
+
+.fs-item-diff {
+  margin-right: 2px;
+  color: #d4a017;
+  font-size: 10px;
+  opacity: 0.9;
+}
+
 .fs-item-star {
   color: #ef4444;
   font-size: 11px;
@@ -1496,6 +1525,12 @@ input[type="checkbox"]:focus-visible {
   margin-left: auto;
   font-size: 11px;
   color: var(--text-tertiary);
+}
+
+.cv-bank-diff {
+  color: #d4a017;
+  font-size: 11px;
+  opacity: 0.95;
 }
 
 .cv-bank-star {

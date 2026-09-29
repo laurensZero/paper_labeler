@@ -363,6 +363,9 @@ try {
   const row = page.locator(`.cv-comp-item:has-text("${name}")`)
   await row.waitFor({ timeout: 10000 })
   await row.locator('button:has-text("删除")').click()
+  await page.waitForSelector('.app-dialog', { timeout: 5000 })
+  await page.locator('.app-dialog button.btn-danger').click()
+  await page.waitForSelector('.app-dialog', { state: 'detached', timeout: 5000 })
   await page.waitForSelector('.cv-empty', { timeout: 10000 })
   ok('删除测试卷（清理）')
 
@@ -489,6 +492,9 @@ try {
   await page.click('button[title="打开方案"]')
   await page.waitForSelector('.cv-comp-item', { timeout: 10000 })
   await page.locator(`.cv-comp-item:has-text("${mobileComp}")`).locator('button:has-text("删除")').click()
+  await page.waitForSelector('.app-dialog', { timeout: 5000 })
+  await page.locator('.app-dialog button.btn-danger').click()
+  await page.waitForSelector('.app-dialog', { state: 'detached', timeout: 5000 })
   await page.waitForSelector('.cv-empty', { timeout: 10000 })
   ok('移动端适配（375px）', `题图 ${mob.imgW}px 满宽、信息卡 ${mob.infoW}px、选择器两列、组卷纵排`)
 

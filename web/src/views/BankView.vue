@@ -30,6 +30,7 @@ interface QFull {
   question_no: string | null
   status: string
   notes: string | null
+  difficulty: number | null
   paper_id: number
   section: string | null
   papers: PaperLite | PaperLite[] | null
@@ -56,6 +57,7 @@ const filters = reactive({
   papers: [] as string[],
   years: [] as string[],
   seasons: [] as string[],
+  difficulties: [] as string[], // '1'..'5' | 'unset'
   favOnly: false,
   notes: '',
   jump: '',
@@ -245,6 +247,15 @@ const seasonMsOptions = computed(() => {
   }))
 })
 
+const difficultyMsOptions = computed(() => ([
+  { value: '1', label: '1 ★' },
+  { value: '2', label: '2 ★' },
+  { value: '3', label: '3 ★' },
+  { value: '4', label: '4 ★' },
+  { value: '5', label: '5 ★' },
+  { value: 'unset', label: t('bank.difficultyUnset') },
+]))
+
 // 模块/收藏/备注筛选走客户端（行数 ≤ MAX_ROWS；支持「未分类」）
 const rows = computed<QFull[]>(() => {
   let list = allRows.value
@@ -252,6 +263,13 @@ const rows = computed<QFull[]>(() => {
   if (v === UNSET_SECTION) list = list.filter((r) => sectionsOf(r).length === 0)
   else if (v) list = list.filter((r) => sectionsOf(r).includes(v))
   if (filters.favOnly) list = list.filter((r) => isFav(r.id))
+  if (filters.difficulties.length) {
+    const wanted = new Set(filters.difficulties)
+    list = list.filter((r) => {
+      if (r.difficulty == null) return wanted.has('unset')
+      return wanted.has(String(r.difficulty))
+    })
+  }
   const kw = filters.notes.trim().toLowerCase()
   if (kw) list = list.filter((r) => noteOf(r.id).toLowerCase().includes(kw))
   return list
@@ -323,7 +341,7 @@ async function loadQuestions() {
     let query = getSupabase()
       .from('questions')
       .select(
-        `id, question_no, status, notes, paper_id, section,
+        `id, question_no, status, notes, difficulty, paper_id, section,
          papers ( id, filename, exam_code, year_token, season_token ),
          question_sections ( section_name ),
          question_boxes ( id, image_key, page )`,
@@ -622,6 +640,14 @@ onBeforeUnmount(() => {
           :show-all-when-all-selected="true"
           :placeholder="t('bank.allSeasons')"
         />
+        <MultiSelect
+          v-model="filters.difficulties"
+          class="bank-ctl bank-ctl--sm"
+          :options="difficultyMsOptions"
+          display-mode="values"
+          :show-all-when-all-selected="true"
+          :placeholder="t('bank.allDifficulties')"
+        />
         <label class="bank-check">
           <input v-model="filters.favOnly" type="checkbox" />
           <span>{{ t('bank.favOnly') }}</span>
@@ -716,6 +742,13 @@ onBeforeUnmount(() => {
       <aside v-if="selected" class="bank-info">
         <div class="card-title">{{ t('bank.infoTitle') }}</div>
         <div class="bank-info-row"><span class="bank-info-k">{{ t('bank.qno') }}</span><span class="bank-info-qno">{{ selected.question_no ?? '—' }}</span></div>
+        <div class="bank-info-row">
+          <span class="bank-info-k">{{ t('bank.difficulty') }}</span>
+          <span class="bank-difficulty" :title="selected.difficulty == null ? t('bank.difficultyUnset') : `${selected.difficulty}/5`">
+            <span v-for="n in 5" :key="n" class="bank-difficulty-star" :class="{ on: selected.difficulty != null && n <= selected.difficulty }">★</span>
+            <span v-if="selected.difficulty == null" class="bank-difficulty-unset">{{ t('bank.difficultyUnset') }}</span>
+          </span>
+        </div>
         <div class="bank-info-row"><span class="bank-info-k">{{ t('bank.status') }}</span>
           <span :class="selected.status === 'confirmed' ? 'tag tag-ok' : 'tag tag-warn'">
             {{ selected.status === 'confirmed' ? t('bank.confirmed') : t('bank.draft') }}
@@ -820,6 +853,7 @@ onBeforeUnmount(() => {
             <svg v-if="selectedIds.has(r.id)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
           </span>
           <span class="fs-item-no">{{ r.question_no || '?' }}</span>
+          <span v-if="r.difficulty" class="fs-item-diff" :title="`${r.difficulty}/5`">{{ r.difficulty }}★</span>
           <span v-if="isFav(r.id)" class="fs-item-star">★</span>
         </button>
       </div>
