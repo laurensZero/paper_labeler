@@ -234,6 +234,7 @@
     "jumpNotFound": "No question {no} under current filters",
     "loading": "Loading…",
     "count": "{n} questions",
+    "updatedAt": "Updated {time}",
     "showAnswers": "Show answers",
     "hideAnswers": "Hide answers",
     "noResults": "No matching questions. Try relaxing the filters.",

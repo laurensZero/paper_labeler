@@ -234,6 +234,7 @@
     "jumpNotFound": "当前筛选下没有题号 {no}",
     "loading": "加载中…",
     "count": "{n} 题",
+    "updatedAt": "更新于 {time}",
     "showAnswers": "显示答案",
     "hideAnswers": "隐藏答案",
     "noResults": "没有匹配的题目，试试放宽筛选条件。",

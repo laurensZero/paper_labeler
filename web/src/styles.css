@@ -288,6 +288,16 @@ img.skel.is-loaded {
   box-shadow: var(--shadow-xs);
 }
 
+.nav-updated {
+  margin-left: auto;
+  align-self: center;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .user {
   display: flex;
   align-items: center;
@@ -2572,6 +2582,7 @@ input[type="checkbox"]:focus-visible {
     padding-top: 8px;
     border-left: none;
     border-top: 1px solid var(--border);
+    flex-wrap: wrap;
   }
 
   .bank-actions .btn {
