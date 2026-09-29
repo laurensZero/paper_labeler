@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { getSupabase, imageUrl } from '@/lib/supabase'
 import SectionCascadeSelect from '@/components/SectionCascadeSelect.vue'
@@ -13,6 +14,7 @@ import { useAuth } from '@/composables/auth'
 
 const { t } = useI18n()
 const auth = useAuth()
+const route = useRoute()
 
 // ---- 类型 ----
 interface PaperLite {
@@ -551,7 +553,32 @@ function stamp(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`
 }
 
+function csvToList(v: unknown): string[] {
+  if (typeof v !== 'string' || !v.trim()) return []
+  return v
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+/** 考情雷达「去题库」等深链：?section=&years=&seasons=&papers= */
+function applyQueryPrefill() {
+  const q = route.query
+  const section = typeof q.section === 'string' ? q.section : ''
+  if (section) filters.section = section
+
+  const years = csvToList(q.years)
+  if (years.length) filters.years = years
+
+  const seasons = csvToList(q.seasons)
+  if (seasons.length) filters.seasons = seasons
+
+  const papers = csvToList(q.papers)
+  if (papers.length) filters.papers = papers
+}
+
 onMounted(async () => {
+  applyQueryPrefill()
   document.addEventListener('keydown', onKeydown)
   await Promise.all([loadFilterOptions(), loadQuestions(), loadUserData()])
 })

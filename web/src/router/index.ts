@@ -8,6 +8,8 @@ export const router = createRouter({
     { path: '/set-password', name: 'set-password', component: () => import('@/views/SetPasswordView.vue') },
     { path: '/', redirect: '/bank' },
     { path: '/bank', name: 'bank', component: () => import('@/views/BankView.vue') },
+    { path: '/radar', name: 'radar', component: () => import('@/views/RadarView.vue') },
+    { path: '/download', name: 'download', component: () => import('@/views/DownloadView.vue') },
     { path: '/compose', name: 'compose-new', component: () => import('@/views/CompositionView.vue') },
     { path: '/compose/:id', name: 'compose', component: () => import('@/views/CompositionView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/bank' },

@@ -31,6 +31,8 @@ function escapeXml(s: string): string {
 }
 
 const bg = computed(() => {
+  // 管理员不铺水印
+  if (auth.profile?.role === 'admin') return ''
   const c = cfg.value
   if (!c?.enabled) return ''
   const email = auth.profile?.email || auth.session?.user.email || ''

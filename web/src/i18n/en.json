@@ -93,10 +93,105 @@
   "app": {
     "nav": {
       "bank": "Question Bank",
-      "compose": "Compose"
+      "radar": "Radar",
+      "compose": "Compose",
+      "download": "Papers"
     },
     "signOut": "Sign out",
     "langLabel": "Language"
+  },
+  "download": {
+    "title": "Past Papers",
+    "subtitle": "CIE past papers & mark materials — browse and download",
+    "source": "cie.fraft.cn",
+    "subject": "Subject",
+    "subjectPh": "Search subject code or name…",
+    "year": "Year",
+    "season": "Season",
+    "seasonLabel": "Season",
+    "typeFilter": "Type",
+    "typeAll": "All",
+    "search": "Filter filenames",
+    "searchPh": "e.g. qp / ms / 11…",
+    "stats": "{n} files",
+    "statsSelected": "{n} files · {sel} selected",
+    "download": "Download",
+    "downloading": "Downloading…",
+    "downloadGroup": "Download group",
+    "select": "Select",
+    "selectedCount": "{n} selected",
+    "clear": "Clear",
+    "zip": "Download ZIP",
+    "zipping": "Zipping…",
+    "zipLimit": "Up to {max} files per ZIP",
+    "empty": "No matching files",
+    "emptyHint": "Try another subject / year / season",
+    "loading": "Loading…",
+    "loadSubjectsFail": "Failed to load subjects",
+    "loadFail": "Failed to load papers",
+    "retry": "Retry",
+    "needSelect": "Pick a subject, year and season first",
+    "extras": "Full-session extras",
+    "noMs": "No mark scheme yet",
+    "done": "Download started: {name}",
+    "zipDone": "ZIP ready ({n} files)",
+    "zipPartial": "ZIP ready, {n} failed",
+    "type": {
+      "qp": "Question Paper",
+      "ms": "Mark Scheme",
+      "er": "Examiner Report",
+      "gt": "Grade Thresholds",
+      "other": "File"
+    },
+    "season": {
+      "Mar": "Mar",
+      "Jun": "Jun",
+      "Nov": "Nov"
+    }
+  },
+  "radar": {
+    "subjects": "Subject",
+    "loading": "Loading…",
+    "noSubjects": "No papers yet",
+    "emptySubject": "No questions in this subject",
+    "filters": {
+      "seasons": "Season",
+      "allSeasons": "All",
+      "valueMode": "Value",
+      "modeCount": "Count",
+      "modeDifficulty": "Difficulty"
+    },
+    "heatmap": {
+      "title": "Module × Year",
+      "section": "Module",
+      "sectionTotal": "Row total",
+      "yearTotal": "Year total"
+    },
+    "detail": {
+      "title": "Detail",
+      "selectCell": "Click a heatmap cell to inspect a module/year",
+      "section": "Module",
+      "year": "Year",
+      "count": "Questions",
+      "ids": "IDs",
+      "goBank": "Open in bank"
+    },
+    "trend": {
+      "title": "Yearly totals"
+    },
+    "share": {
+      "title": "Module share"
+    },
+    "overdue": {
+      "title": "Overdue",
+      "desc": "Seen before, but missing in recent years",
+      "lastSeen": "Last seen",
+      "gap": "gap {n}y",
+      "empty": "Recent years cover these modules"
+    },
+    "difficulty": {
+      "todo": "Difficulty (pending data)"
+    }
   },
   "login": {
     "tagline": "Bank · Compose · Export",
@@ -169,6 +264,7 @@
       "open": "Open composition",
       "new": "New composition"
     },
+    "untitled": "Untitled",
     "toolbar": {
       "open": "Open composition",
       "copy": "Duplicate",
@@ -176,7 +272,7 @@
       "export": "Export PDF",
       "exportHint": "Coming in the next phase",
       "shared": "Shared",
-      "readonly": "Read-only (shared by others)"
+      "readonly": "View only"
     },
     "panelBank": "Question bank",
     "filters": {
@@ -205,7 +301,9 @@
     "meta": "{n} questions · {v}",
     "vis": {
       "shared": "Shared",
-      "private": "Private"
+      "private": "Private",
+      "view": "View only",
+      "edit": "Can edit"
     },
     "stats": {
       "title": "Stats",
@@ -227,7 +325,6 @@
       "showInfo": "Show question info",
       "showSectionHeaders": "Show section headers",
       "showPageNumbers": "Show page numbers",
-      "share": "Share with others",
       "coverLinePh": "e.g. Name:",
       "addLine": "+ line",
       "presets": {
@@ -235,22 +332,28 @@
         "class": "Class",
         "score": "Score",
         "time": "Time"
-      }
+      },
+      "shareLevel": "Sharing",
+      "shareHint": "View only: others can open and export. Can edit: others can change questions and settings."
     },
     "selected": {
       "title": "Selected item",
       "qno": "QNo",
       "source": "Source",
       "section": "Section",
-      "blankPages": "Attached blank pages",
       "remove": "Remove item",
-      "insertBlank": "Insert blank page after"
+      "insertBlank": "Insert blank page after",
+      "emptyHint": "Select a question or blank page in the preview"
     },
     "confirmDelete": "Delete composition \"{name}\"? Its question references will be removed too.",
     "copySuffix": "copy",
     "errors": {
       "notFound": "Composition not found or access denied",
       "copyFailed": "Duplicate failed"
+    },
+    "segment": {
+      "bank": "Questions",
+      "preview": "Preview"
     }
   },
   "quota": {

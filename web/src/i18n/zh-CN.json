@@ -93,10 +93,105 @@
   "app": {
     "nav": {
       "bank": "题库",
-      "compose": "组卷"
+      "radar": "考情",
+      "compose": "组卷",
+      "download": "试卷下载"
     },
     "signOut": "退出",
     "langLabel": "语言"
+  },
+  "download": {
+    "title": "试卷下载",
+    "subtitle": "CIE 历年真题与评分资料 · 即选即下",
+    "source": "cie.fraft.cn",
+    "subject": "科目",
+    "subjectPh": "搜索科目代码或名称…",
+    "year": "年份",
+    "season": "考季",
+    "seasonLabel": "考季",
+    "typeFilter": "类型",
+    "typeAll": "全部",
+    "search": "筛选文件名",
+    "searchPh": "如 qp / ms / 11…",
+    "stats": "共 {n} 份",
+    "statsSelected": "共 {n} 份 · 已选 {sel}",
+    "download": "下载",
+    "downloading": "下载中…",
+    "downloadGroup": "下载本组",
+    "select": "选择",
+    "selectedCount": "已选 {n} 份",
+    "clear": "清空",
+    "zip": "打包下载 ZIP",
+    "zipping": "打包中…",
+    "zipLimit": "一次最多打包 {max} 份",
+    "empty": "没有匹配的文件",
+    "emptyHint": "换个科目 / 年份 / 考季试试",
+    "loading": "加载中…",
+    "loadSubjectsFail": "科目列表加载失败",
+    "loadFail": "试卷列表加载失败",
+    "retry": "重试",
+    "needSelect": "请先选择科目、年份与考季",
+    "extras": "全卷附件",
+    "noMs": "暂无评分方案",
+    "done": "已开始下载 {name}",
+    "zipDone": "打包完成（{n} 份）",
+    "zipPartial": "打包完成，但 {n} 份失败",
+    "type": {
+      "qp": "试卷",
+      "ms": "评分方案",
+      "er": "考官报告",
+      "gt": "分数线",
+      "other": "附件"
+    },
+    "season": {
+      "Mar": "3 月",
+      "Jun": "6 月",
+      "Nov": "11 月"
+    }
+  },
+  "radar": {
+    "subjects": "科目",
+    "loading": "加载中…",
+    "noSubjects": "暂无试卷数据",
+    "emptySubject": "该科目暂无题目",
+    "filters": {
+      "seasons": "季度",
+      "allSeasons": "全部",
+      "valueMode": "显示",
+      "modeCount": "题数",
+      "modeDifficulty": "难度"
+    },
+    "heatmap": {
+      "title": "模块 × 年份",
+      "section": "模块",
+      "sectionTotal": "模块合计",
+      "yearTotal": "年合计"
+    },
+    "detail": {
+      "title": "详情",
+      "selectCell": "点击热力图查看某模块某年",
+      "section": "模块",
+      "year": "年份",
+      "count": "题数",
+      "ids": "题号",
+      "goBank": "去题库查看"
+    },
+    "trend": {
+      "title": "年度总量"
+    },
+    "share": {
+      "title": "模块占比"
+    },
+    "overdue": {
+      "title": "该考未考",
+      "desc": "历史上考过，但近年未出现的模块",
+      "lastSeen": "最近出现",
+      "gap": "已空缺 {n} 年",
+      "empty": "近年模块均有覆盖"
+    },
+    "difficulty": {
+      "todo": "难度分布（待数据接入）"
+    }
   },
   "login": {
     "tagline": "题库 · 组卷 · 导出",
@@ -169,6 +264,7 @@
       "open": "打开方案",
       "new": "新建方案"
     },
+    "untitled": "未命名方案",
     "toolbar": {
       "open": "打开方案",
       "copy": "复制",
@@ -176,7 +272,7 @@
       "export": "导出 PDF",
       "exportHint": "下一阶段提供",
       "shared": "共享中",
-      "readonly": "只读（他人共享）"
+      "readonly": "仅查看"
     },
     "panelBank": "题库",
     "filters": {
@@ -205,7 +301,9 @@
     "meta": "{n} 题 · {v}",
     "vis": {
       "shared": "共享",
-      "private": "私有"
+      "private": "私有",
+      "view": "仅查看",
+      "edit": "可编辑"
     },
     "stats": {
       "title": "统计",
@@ -227,7 +325,6 @@
       "showInfo": "显示题目信息",
       "showSectionHeaders": "显示模块标题",
       "showPageNumbers": "显示页码",
-      "share": "共享给其他用户",
       "coverLinePh": "如：姓名：",
       "addLine": "+ 行",
       "presets": {
@@ -235,22 +332,28 @@
         "class": "班级",
         "score": "分数",
         "time": "考试时间"
-      }
+      },
+      "shareLevel": "共享范围",
+      "shareHint": "仅查看：他人可打开并导出；可编辑：他人可改题目与设置。"
     },
     "selected": {
       "title": "选中条目",
       "qno": "题号",
       "source": "来源",
       "section": "模块",
-      "blankPages": "附属空白页",
       "remove": "移除条目",
-      "insertBlank": "在此之后插入空白页"
+      "insertBlank": "在此之后插入空白页",
+      "emptyHint": "在预览中点选题目或空白页"
     },
     "confirmDelete": "删除组卷「{name}」？题目引用会一并移除。",
     "copySuffix": "副本",
     "errors": {
       "notFound": "组卷不存在或无权查看",
       "copyFailed": "复制失败"
+    },
+    "segment": {
+      "bank": "题目",
+      "preview": "预览"
     }
   },
   "quota": {

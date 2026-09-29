@@ -1,1 +1,5 @@
+# SPA fallback
 /*    /index.html   200
+
+# CIE 同源反代（列表/试卷走本站路径，浏览器可 fetch）
+/cie/*  https://cie.fraft.cn/:splat  200

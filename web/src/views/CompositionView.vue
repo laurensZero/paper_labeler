@@ -27,7 +27,7 @@ interface Comp {
   show_section_headers: boolean
   show_question_info: boolean
   show_page_numbers: boolean
-  visibility: 'private' | 'shared'
+  visibility: 'private' | 'view' | 'edit'
   owner_id: string
 }
 
@@ -153,9 +153,32 @@ const bankRows = computed(() => {
 
 const dragSourceId = ref<number | null>(null)
 const dragOverId = ref<number | null>(null)
+const showSettings = ref(false)
+const mobileTab = ref<'bank' | 'preview'>('preview')
+/** 乐观占位：id < 0 表示还在等服务端回包 */
+let tempSeq = 0
+const loadingIds = ref<Set<number>>(new Set())
 
 const compId = computed(() => (route.params.id as string | undefined) ?? null)
 const isOwner = computed(() => !!comp.value && comp.value.owner_id === auth.session?.user.id)
+const isAdmin = computed(() => auth.profile?.role === 'admin')
+/** 可编辑：本人 / admin / 共享可编辑 */
+const canEdit = computed(() => {
+  if (!comp.value) return false
+  if (isOwner.value || isAdmin.value) return true
+  return comp.value.visibility === 'edit'
+})
+/** 可查看（只要能打开就成立） */
+const canView = computed(() => !!comp.value)
+
+/** 旧值 shared 视作 view */
+function normalizeVis(v: string): Comp['visibility'] {
+  return v === 'shared' ? 'view' : (v as Comp['visibility'])
+}
+function visLabel(v: string): string {
+  const n = normalizeVis(v)
+  return n === 'edit' ? t('compose.vis.edit') : n === 'view' ? t('compose.vis.view') : t('compose.vis.private')
+}
 
 // ---------- 统计 ----------
 const questionItemCount = computed(() => items.value.filter((i) => i.item_type === 'question').length)
@@ -193,14 +216,17 @@ function saveCoverLines(list: string[]) {
 }
 
 function addCoverLine(template = '') {
+  if (!canEdit.value) return
   saveCoverLines([...coverLinesList.value, template])
 }
 function updateCoverLine(idx: number, v: string) {
+  if (!canEdit.value) return
   const list = [...coverLinesList.value]
   list[idx] = v
   saveCoverLines(list)
 }
 function removeCoverLine(idx: number) {
+  if (!canEdit.value) return
   saveCoverLines(coverLinesList.value.filter((_, i) => i !== idx))
 }
 
@@ -225,6 +251,12 @@ const groupedItems = computed<Group[] | null>(() => {
   return [...map.entries()].map(([section, list]) => ({ section, items: list }))
 })
 
+/** 统一预览分组：grouped 按模块，free 单组自由序 */
+const previewGroups = computed<Group[]>(() => {
+  if (previewMode.value === 'grouped' && groupedItems.value) return groupedItems.value
+  return [{ section: '', items: items.value }]
+})
+
 // ---------- 工具 ----------
 function sectionsOf(it: Item): string[] {
   const q = it.questions
@@ -247,7 +279,7 @@ function paperOf(it: Item): string {
 async function loadCompositions() {
   const { data, error } = await getSupabase()
     .from('compositions')
-    .select('id,name,visibility,composition_items(id,item_type)')
+    .select('id,name,visibility,composition_items(count)')
     .order('updated_at', { ascending: false })
   if (error) {
     pageError.value = error.message
@@ -257,13 +289,12 @@ async function loadCompositions() {
     id: string
     name: string
     visibility: string
-    composition_items: { id: number; item_type?: string }[]
+    composition_items: { count: number }[] | null
   }[]).map((c) => ({
     id: c.id,
     name: c.name,
     visibility: c.visibility,
-    // 题数只算真题，独立空白页条目不计入
-    item_count: (c.composition_items ?? []).filter((i) => i.item_type !== 'blank_page').length,
+    item_count: c.composition_items?.[0]?.count ?? 0,
   }))
 }
 
@@ -291,6 +322,40 @@ async function createNew() {
   }
   newName.value = ''
   await openComposition((data as { id: string }).id)
+}
+
+/** 空态「新建方案」：不弹列表，直接建 */
+const creating = ref(false)
+
+/** 未命名方案 / 未命名方案 2 / … 不重名 */
+async function nextUntitledName(): Promise<string> {
+  const base = t('compose.untitled')
+  const user = auth.session?.user.id
+  if (!user) return base
+  const { data } = await getSupabase()
+    .from('compositions')
+    .select('name')
+    .eq('owner_id', user)
+    .like('name', base + '%')
+  const names = new Set((data ?? []).map((x: { name: string }) => x.name))
+  if (!names.has(base)) return base
+  for (let i = 2; i < 500; i++) {
+    const n = base + ' ' + i
+    if (!names.has(n)) return n
+  }
+  return base + ' ' + Date.now()
+}
+
+/** 空态「新建方案」：不弹列表，直接建 */
+async function createNewDirect() {
+  if (creating.value) return
+  creating.value = true
+  try {
+    newName.value = await nextUntitledName()
+    await createNew()
+  } finally {
+    creating.value = false
+  }
 }
 
 async function duplicateComposition(id: string) {
@@ -349,13 +414,18 @@ async function duplicateComposition(id: string) {
 async function deleteComposition(id: string) {
   const c = compositions.value.find((x) => x.id === id)
   if (!window.confirm(t('compose.confirmDelete', { name: c?.name ?? '' }))) return
+
+  // 先从 UI 移除（立即反馈），网络删除后台完成
+  const snapshot = compositions.value
+  compositions.value = compositions.value.filter((x) => x.id !== id)
+  if (compId.value === id) router.push({ name: 'compose-new' })
+
   const { error } = await getSupabase().from('compositions').delete().eq('id', id)
   if (error) {
+    compositions.value = snapshot
     pageError.value = error.message
     return
   }
-  await loadCompositions()
-  if (compId.value === id) router.push({ name: 'compose-new' })
 }
 
 async function loadAll(id: string) {
@@ -367,7 +437,7 @@ async function loadAll(id: string) {
     const sb = getSupabase()
     const { data: c, error: ce } = await sb.from('compositions').select('*').eq('id', id).single()
     if (ce) throw new Error(ce.code === 'PGRST116' ? t('compose.errors.notFound') : ce.message)
-    comp.value = c as Comp
+    comp.value = { ...(c as Comp), visibility: normalizeVis((c as Comp).visibility) }
     const { data: its, error: ie } = await sb
       .from('composition_items')
       .select(
@@ -391,7 +461,7 @@ function normalizeQ(q: unknown): QLite | null {
 
 // ---------- 属性保存 ----------
 async function persistComp(fields: (keyof Comp)[]) {
-  if (!comp.value || !isOwner.value) return
+  if (!comp.value || !canEdit.value) return
   const body: Record<string, unknown> = {}
   for (const f of fields) body[f as string] = comp.value[f]
   const { error } = await getSupabase().from('compositions').update(body).eq('id', comp.value.id)
@@ -466,46 +536,89 @@ watch(
   },
 )
 
+const ITEM_SELECT = `id, composition_id, question_id, sort_order, item_type, blank_pages,
+       questions ( id, question_no, section, notes, papers ( exam_code, year_token, filename ), question_sections ( section_name ), question_boxes ( image_key, page ) )`
+
+function makeOptimisticQuestion(q: BankQ): Item {
+  return {
+    id: --tempSeq,
+    composition_id: comp.value!.id,
+    question_id: q.id,
+    sort_order: items.value.length,
+    item_type: 'question',
+    blank_pages: 0,
+    questions: {
+      id: q.id,
+      question_no: q.question_no,
+      section: q.section,
+      notes: null,
+      papers: q.papers ? { exam_code: q.papers.exam_code, year_token: null, filename: '' } : null,
+      question_sections: q.question_sections ?? [],
+      question_boxes: [],
+    },
+  }
+}
+
+function swapItem(tempId: number, real: Item) {
+  const idx = items.value.findIndex((i) => i.id === tempId)
+  if (idx >= 0) items.value.splice(idx, 1, real)
+  else items.value = [...items.value, real]
+  loadingIds.value.delete(tempId)
+  loadingIds.value.delete(real.id)
+}
+
 async function toggleQuestion(q: BankQ) {
-  if (!isOwner.value || !comp.value) return
+  if (!canEdit.value || !comp.value) return
   const sb = getSupabase()
   const existing = items.value.find((i) => i.question_id === q.id)
   if (existing) {
-    const { error } = await sb.from('composition_items').delete().eq('id', existing.id)
+    // 乐观移除：列表先消失，网络回包后台补
+    const removedId = existing.id
+    const backup = items.value
+    items.value = items.value.filter((i) => i.id !== removedId)
+    if (selectedItemId.value === removedId) selectedItemId.value = null
+    renumber()
+    void (async () => {
+      const { error } = await sb.from('composition_items').delete().eq('id', removedId)
+      if (error) {
+        items.value = backup
+        pageError.value = error.message
+        return
+      }
+      void persistOrder()
+    })()
+    return
+  }
+  // 乐观加题：立刻进预览，回包后换成带裁剪图的真数据
+  const optimistic = makeOptimisticQuestion(q)
+  loadingIds.value.add(optimistic.id)
+  items.value = [...items.value, optimistic]
+  renumber()
+  void (async () => {
+    const { data, error } = await sb
+      .from('composition_items')
+      .insert({
+        composition_id: comp.value!.id,
+        question_id: q.id,
+        sort_order: optimistic.sort_order,
+        item_type: 'question',
+        blank_pages: 0,
+      })
+      .select(ITEM_SELECT)
+      .single()
     if (error) {
-      pageError.value = error.message
+      items.value = items.value.filter((i) => i.id !== optimistic.id)
+      loadingIds.value.delete(optimistic.id)
+      if (error.code !== '23505') pageError.value = error.message
       return
     }
-    items.value = items.value.filter((i) => i.id !== existing.id)
-    if (selectedItemId.value === existing.id) selectedItemId.value = null
-    renumber()
-    await persistOrder()
-    return
-  }
-  const { data, error } = await sb
-    .from('composition_items')
-    .insert({
-      composition_id: comp.value.id,
-      question_id: q.id,
-      sort_order: items.value.length,
-      item_type: 'question',
-      blank_pages: 0,
-    })
-    .select(
-      `id, composition_id, question_id, sort_order, item_type, blank_pages,
-       questions ( id, question_no, section, notes, papers ( exam_code, year_token, filename ), question_sections ( section_name ), question_boxes ( image_key, page ) )`,
-    )
-    .single()
-  if (error) {
-    if (error.code !== '23505') pageError.value = error.message
-    return
-  }
-  items.value = [
-    ...items.value,
-    { ...(data as unknown as Item), questions: normalizeQ((data as { questions: unknown }).questions) },
-  ]
-  renumber()
-  await persistOrder()
+    const real = {
+      ...(data as unknown as Item),
+      questions: normalizeQ((data as { questions: unknown }).questions),
+    }
+    swapItem(optimistic.id, real)
+    // 追加到末尾时 sort_order 已正确，无需全量重写
+  })()
 }
 
 function isInComposition(qid: number): boolean {
@@ -520,6 +633,7 @@ function renumber() {
 }
 
 async function persistOrder() {
+  if (!canEdit.value) return
   const sb = getSupabase()
   await Promise.all(
     items.value.map((it, idx) =>
@@ -532,53 +646,65 @@ async function persistOrder() {
 }
 
 async function insertBlankAfter(index: number) {
-  if (!isOwner.value || !comp.value || index < 0) return
-  const { data, error } = await getSupabase()
-    .from('composition_items')
-    .insert({
-      composition_id: comp.value.id,
-      question_id: null,
-      sort_order: index + 1,
-      item_type: 'blank_page',
-      blank_pages: 0,
-    })
-    .select('id, composition_id, question_id, sort_order, item_type, blank_pages')
-    .single()
-  if (error) {
-    pageError.value = error.message
-    return
+  if (!canEdit.value || !comp.value || index < 0) return
+  const tempId = --tempSeq
+  const optimistic: Item = {
+    id: tempId,
+    composition_id: comp.value.id,
+    question_id: null,
+    sort_order: index + 1,
+    item_type: 'blank_page',
+    blank_pages: 0,
+    questions: null,
   }
-  items.value.splice(index + 1, 0, { ...(data as unknown as Item), questions: null })
+  loadingIds.value.add(tempId)
+  items.value.splice(index + 1, 0, optimistic)
   renumber()
-  await persistOrder()
+  void (async () => {
+    const { data, error } = await getSupabase()
+      .from('composition_items')
+      .insert({
+        composition_id: comp.value!.id,
+        question_id: null,
+        sort_order: optimistic.sort_order,
+        item_type: 'blank_page',
+        blank_pages: 0,
+      })
+      .select('id, composition_id, question_id, sort_order, item_type, blank_pages')
+      .single()
+    if (error) {
+      items.value = items.value.filter((i) => i.id !== tempId)
+      loadingIds.value.delete(tempId)
+      pageError.value = error.message
+      return
+    }
+    swapItem(tempId, { ...(data as unknown as Item), questions: null })
+    void persistOrder()
+  })()
 }
 
 async function removeItemById(id: number) {
-  if (!isOwner.value) return
-  const { error } = await getSupabase().from('composition_items').delete().eq('id', id)
-  if (error) {
-    pageError.value = error.message
-    return
-  }
+  if (!canEdit.value) return
+  const backup = items.value
   items.value = items.value.filter((i) => i.id !== id)
   if (selectedItemId.value === id) selectedItemId.value = null
   renumber()
-  await persistOrder()
-}
-
-async function updateBlankPages(id: number, n: number) {
-  const it = items.value.find((i) => i.id === id)
-  if (!it || !isOwner.value) return
-  const v = Math.max(0, n)
-  const { error } = await getSupabase().from('composition_items').update({ blank_pages: v }).eq('id', id)
-  if (error) {
-    pageError.value = error.message
-    return
-  }
-  it.blank_pages = v
+  void (async () => {
+    const { error } = await getSupabase().from('composition_items').delete().eq('id', id)
+    if (error) {
+      items.value = backup
+      pageError.value = error.message
+      return
+    }
+    void persistOrder()
+  })()
 }
 
 function onDragStart(e: DragEvent, id: number) {
+  if (!canEdit.value) {
+    e.preventDefault()
+    return
+  }
   if (ptrActive) {
     e.preventDefault()
     return
@@ -594,6 +720,7 @@ let ptrStartY = 0
 let ptrActive = false
 
 function onPointerDown(e: PointerEvent, id: number) {
+  if (!canEdit.value) return
   if (e.button != null && e.button !== 0) return
   // 输入框等可交互元素不启动拖拽
   const target = e.target as HTMLElement | null
@@ -604,6 +731,7 @@ function onPointerDown(e: PointerEvent, id: number) {
 }
 
 function onPointerMove(e: PointerEvent, id: number) {
+  if (!canEdit.value) return
   if (ptrId !== id) return
   if (!ptrActive) {
     if (Math.abs(e.clientY - ptrStartY) < 6) return
@@ -636,7 +764,7 @@ function onPointerMove(e: PointerEvent, id: number) {
   else dragOverId.value = null
 }
 
-function onPointerUp(e: PointerEvent, id: number) {
+function onPointerUp(_e: PointerEvent, id: number) {
   if (ptrId !== id) return
   const wasActive = ptrActive
   const overId = dragOverId.value
@@ -659,11 +787,13 @@ function onPointerUp(e: PointerEvent, id: number) {
   void persistOrder()
 }
 function onDragOver(e: DragEvent, id: number) {
+  if (!canEdit.value) return
   if (dragSourceId.value == null || dragSourceId.value === id) return
   e.preventDefault()
   dragOverId.value = id
 }
 function onDrop(e: DragEvent, targetId: number) {
+  if (!canEdit.value) return
   e.preventDefault()
   const sourceId = dragSourceId.value
   dragOverId.value = null
@@ -754,9 +884,13 @@ const exportPreset = computed(() => {
 
 const exportFilenameDefault = computed(() => exportPreset.value?.filename ?? 'composition')
 
-onMounted(async () => {
-  await Promise.all([loadFilterOptions(), loadCompositions(), searchBank(), loadFavIds()])
-  if (compId.value) await loadAll(compId.value)
+onMounted(() => {
+  // 方案优先渲染；题库/筛选并行，不阻塞打开
+  if (compId.value) void loadAll(compId.value)
+  void loadFilterOptions()
+  void loadCompositions()
+  void searchBank()
+  void loadFavIds()
 })
 </script>
 
@@ -775,7 +909,7 @@ onMounted(async () => {
         <p class="muted">{{ t('compose.empty.desc') }}</p>
         <div style="display: flex; gap: 12px; justify-content: center">
           <button class="btn btn-primary" @click="showListModal = true">{{ t('compose.empty.open') }}</button>
-          <button class="btn" @click="showListModal = true">{{ t('compose.empty.new') }}</button>
+          <button class="btn" :disabled="creating" @click="createNewDirect">{{ creating ? t('compose.modal.create') : t('compose.empty.new') }}</button>
         </div>
       </div>
     </div>
@@ -791,22 +925,33 @@ onMounted(async () => {
           <input
             v-model="comp.name"
             class="cv-name-input"
-            :disabled="!isOwner"
+            :disabled="!canEdit"
             @change="renameComp"
           />
-          <span v-if="!isOwner" class="badge-ro">{{ t('compose.toolbar.readonly') }}</span>
-          <span v-if="comp.visibility === 'shared'" class="tag tag-ok">{{ t('compose.toolbar.shared') }}</span>
+          <span v-if="!canEdit" class="badge-ro">{{ t('compose.toolbar.readonly') }}</span>
+          <span v-else-if="comp.visibility === 'edit' && !isOwner" class="tag tag-ok">{{ t('compose.vis.edit') }}</span>
+          <span v-else-if="comp.visibility !== 'private'" class="tag tag-ok">{{ t('compose.toolbar.shared') }}</span>
         </div>
         <div class="cv-toolbar-right">
-          <button class="btn btn-soft" :disabled="!isOwner" :title="t('compose.toolbar.copy')" @click="duplicateComposition(comp.id)">{{ t('compose.toolbar.copy') }}</button>
+          <button class="btn btn-soft" :title="t('compose.settings.title')" @click="showSettings = true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span class="btn-text">{{ t('compose.settings.title') }}</span>
+          </button>
+          <button class="btn btn-soft" :disabled="!canView" :title="t('compose.toolbar.copy')" @click="duplicateComposition(comp.id)">{{ t('compose.toolbar.copy') }}</button>
           <button class="btn btn-danger" :disabled="!isOwner" :title="t('compose.toolbar.delete')" @click="deleteComposition(comp.id)">{{ t('compose.toolbar.delete') }}</button>
           <button
             class="btn btn-primary"
-            :disabled="!isOwner || !items.filter((i) => i.item_type === 'question').length"
+            :disabled="!items.filter((i) => i.item_type === 'question').length"
             :title="t('compose.toolbar.export')"
             @click="exportVisible = true"
           >{{ t('compose.toolbar.export') }}</button>
         </div>
+      </div>
+
+      <!-- 手机分段：题目 / 预览 -->
+      <div class="cv-segment">
+        <button :class="{ active: mobileTab === 'bank' }" @click="mobileTab = 'bank'">{{ t('compose.segment.bank') }}</button>
+        <button :class="{ active: mobileTab === 'preview' }" @click="mobileTab = 'preview'">{{ t('compose.segment.preview') }}</button>
       </div>
 
       <p v-if="pageError" class="error-text" style="margin: 8px 0 0">{{ pageError }}</p>
@@ -814,7 +959,7 @@ onMounted(async () => {
       <!-- 三栏 -->
       <div class="cv-body">
         <!-- 左：题库 -->
-        <aside class="cv-panel cv-panel--bank">
+        <aside class="cv-panel cv-panel--bank" :class="{ 'cv-panel--m-hide': mobileTab !== 'bank' }">
           <div class="cv-panel-header">{{ t('compose.panelBank') }}</div>
           <div class="cv-bank-filters">
             <SectionCascadeSelect
@@ -875,7 +1020,11 @@ onMounted(async () => {
               <button :class="{ active: previewMode === 'grouped' }" @click="previewMode = 'grouped'">{{ t('compose.grouped') }}</button>
               <button :class="{ active: previewMode === 'free' }" @click="previewMode = 'free'">{{ t('compose.free') }}</button>
             </div>
-            <span class="muted" style="font-size: 12px">{{ t('compose.statsLine', { q: questionItemCount, p: estimatedPages }) }}</span>
+            <div class="cv-stats-inline">
+              <span class="cv-stat-pill"><b>{{ questionItemCount }}</b><span>{{ t('compose.stats.questions') }}</span></span>
+              <span class="cv-stat-pill"><b>{{ blankPageCount }}</b><span>{{ t('compose.stats.blanks') }}</span></span>
+              <span class="cv-stat-pill"><b>~{{ estimatedPages }}</b><span>{{ t('compose.stats.pages') }}</span></span>
+            </div>
           </div>
 
           <div ref="previewRef" class="cv-preview-scroll protected">
@@ -896,93 +1045,12 @@ onMounted(async () => {
             </div>
 
             <template v-else>
-              <!-- 分组模式 -->
-              <template v-if="groupedItems">
-                <template v-for="group in groupedItems" :key="group.section">
-                  <div v-if="comp.show_section_headers" class="cv-section-header">
-                    {{ group.section === '__ungrouped' ? t('compose.preview.ungrouped') : group.section }}
-                  </div>
-                  <template v-for="item in group.items" :key="item.id">
-                    <div
-                      v-if="item.item_type === 'question'"
-                      class="cv-page"
-                      :data-item-id="item.id"
-                      :class="{
-                        'cv-page--selected': selectedItemId === item.id,
-                        'cv-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
-                        'cv-page--dragging': dragSourceId === item.id,
-                      }"
-                      draggable="true"
-                      @click="selectedItemId = item.id"
-                      @dragstart="onDragStart($event, item.id)"
-                      @dragover="onDragOver($event, item.id)"
-                      @drop="onDrop($event, item.id)"
-                      @dragend="onDragEnd"
-                      @pointerdown="onPointerDown($event, item.id)"
-                      @pointermove="onPointerMove($event, item.id)"
-                      @pointerup="onPointerUp($event, item.id)"
-                      @pointercancel="onPointerUp($event, item.id)"
-                    >
-                      <div v-if="comp.show_question_info" class="cv-page-header">
-                        <span class="cv-page-qno">{{ item.questions?.question_no || '?' }}</span>
-                        <span>{{ sectionsOf(item).join(', ') }}</span>
-                        <span class="cv-page-source">{{ paperOf(item) }}</span>
-                      </div>
-                      <div class="cv-page-content">
-                        <div class="cv-page-frame">
-                          <img
-                            v-for="b in boxesOf(item)"
-                            :key="b.image_key"
-                            class="skel"
-                            :src="imageUrl(b.image_key)"
-                            alt=""
-                            crossorigin="anonymous"
-                            loading="lazy"
-                            @load="($event.currentTarget as HTMLElement).classList.add('is-loaded')"
-                            @error="($event.currentTarget as HTMLElement).classList.add('is-loaded')"
-                          />
-                          <div v-if="!boxesOf(item).length" class="cv-page-noimg">{{ t('compose.preview.noImage') }}</div>
-                        </div>
-                      </div>
-                    </div>
-                    <!-- 附属空白页 -->
-                    <div
-                      v-for="n in item.item_type === 'question' ? item.blank_pages : 0"
-                      :key="`blank-${item.id}-${n}`"
-                      class="cv-page cv-page--blank"
-                    >
-                      <span class="cv-blank-label">{{ t('compose.preview.blank') }}</span>
-                    </div>
-                    <!-- 独立空白页 -->
-                    <div
-                      v-if="item.item_type === 'blank_page'"
-                      class="cv-page cv-page--blank"
-                      :data-item-id="item.id"
-                      :class="{
-                        'cv-page--selected': selectedItemId === item.id,
-                        'cv-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
-                        'cv-page--dragging': dragSourceId === item.id,
-                      }"
-                      draggable="true"
-                      @click="selectedItemId = item.id"
-                      @dragstart="onDragStart($event, item.id)"
-                      @dragover="onDragOver($event, item.id)"
-                      @drop="onDrop($event, item.id)"
-                      @dragend="onDragEnd"
-                      @pointerdown="onPointerDown($event, item.id)"
-                      @pointermove="onPointerMove($event, item.id)"
-                      @pointerup="onPointerUp($event, item.id)"
-                      @pointercancel="onPointerUp($event, item.id)"
-                    >
-                      <span class="cv-blank-label">{{ t('compose.preview.blank') }}</span>
-                    </div>
-                  </template>
-                </template>
-              </template>
-
-              <!-- 自由模式 -->
-              <template v-else>
-                <template v-for="item in items" :key="item.id">
+              <template v-for="group in previewGroups" :key="group.section || 'free'">
+                <div v-if="previewMode === 'grouped' && comp.show_section_headers && group.section" class="cv-section-header">
+                  {{ group.section === '__ungrouped' ? t('compose.preview.ungrouped') : group.section }}
+                </div>
+                <template v-for="item in group.items" :key="item.id">
+                  <!-- question page -->
                   <div
                     v-if="item.item_type === 'question'"
                     class="cv-page"
@@ -992,7 +1060,7 @@ onMounted(async () => {
                       'cv-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
                       'cv-page--dragging': dragSourceId === item.id,
                     }"
-                    draggable="true"
+                    :draggable="canEdit"
                     @click="selectedItemId = item.id"
                     @dragstart="onDragStart($event, item.id)"
                     @dragover="onDragOver($event, item.id)"
@@ -1021,17 +1089,20 @@ onMounted(async () => {
                           @load="($event.currentTarget as HTMLElement).classList.add('is-loaded')"
                           @error="($event.currentTarget as HTMLElement).classList.add('is-loaded')"
                         />
-                        <div v-if="!boxesOf(item).length" class="cv-page-noimg">{{ t('compose.preview.noImage') }}</div>
+                        <div v-if="loadingIds.has(item.id)" class="cv-page-noimg skel">{{ t('compose.loading') }}</div>
+                        <div v-else-if="!boxesOf(item).length" class="cv-page-noimg">{{ t('compose.preview.noImage') }}</div>
                       </div>
                     </div>
                   </div>
+                  <!-- attached blank pages (legacy, read-only render) -->
                   <div
                     v-for="n in item.item_type === 'question' ? item.blank_pages : 0"
                     :key="`blank-${item.id}-${n}`"
-                    class="cv-page cv-page--blank"
+                    class="cv-page cv-page--blank cv-page--attached"
                   >
                     <span class="cv-blank-label">{{ t('compose.preview.blank') }}</span>
                   </div>
+                  <!-- independent blank page -->
                   <div
                     v-if="item.item_type === 'blank_page'"
                     class="cv-page cv-page--blank"
@@ -1041,7 +1112,7 @@ onMounted(async () => {
                       'cv-page--drag-over': dragOverId === item.id && dragSourceId !== item.id,
                       'cv-page--dragging': dragSourceId === item.id,
                     }"
-                    draggable="true"
+                    :draggable="canEdit"
                     @click="selectedItemId = item.id"
                     @dragstart="onDragStart($event, item.id)"
                     @dragover="onDragOver($event, item.id)"
@@ -1060,81 +1131,8 @@ onMounted(async () => {
           </div>
         </section>
 
-        <!-- 右：统计 + 属性 + 选中项 -->
-        <aside class="cv-panel cv-panel--props">
-          <div class="cv-props-card">
-            <div class="cv-props-title">{{ t('compose.stats.title') }}</div>
-            <div class="cv-stats-row">
-              <div class="cv-stat-pill"><b>{{ questionItemCount }}</b><span>{{ t('compose.stats.questions') }}</span></div>
-              <div class="cv-stat-pill"><b>{{ blankPageCount }}</b><span>{{ t('compose.stats.blanks') }}</span></div>
-              <div class="cv-stat-pill"><b>~{{ estimatedPages }}</b><span>{{ t('compose.stats.pages') }}</span></div>
-            </div>
-          </div>
-
-          <div class="cv-props-card">
-            <div class="cv-props-title">{{ t('compose.settings.title') }}</div>
-            <label class="cv-prop-label">{{ t('compose.settings.titleLabel') }}</label>
-            <input v-model="comp.title" class="cv-prop-input" :disabled="!isOwner" :placeholder="t('compose.settings.titlePh')" @change="persistComp(['title'])" />
-
-            <label class="cv-prop-label">{{ t('compose.settings.header') }}</label>
-            <input v-model="comp.header_text" class="cv-prop-input" :disabled="!isOwner" @change="persistComp(['header_text'])" />
-
-            <label class="cv-prop-label">{{ t('compose.settings.coverLines') }}</label>
-            <div class="cv-cover-lines-editor">
-              <div v-for="(line, idx) in coverLinesList" :key="idx" class="cv-cover-line-row">
-                <input class="cv-prop-input" :value="line" :placeholder="t('compose.settings.coverLinePh')" :disabled="!isOwner" @input="updateCoverLine(idx, ($event.target as HTMLInputElement).value)" />
-                <button class="cv-cover-line-x" :disabled="!isOwner" @click="removeCoverLine(idx)">×</button>
-              </div>
-              <div class="cv-cover-presets">
-                <div class="cv-chip-row">
-                  <button v-for="p in coverLinePresets" :key="p.key" class="btn btn-soft btn-sm" :disabled="!isOwner" @click="addCoverLine(p.template)">{{ p.label }}</button>
-                  <button class="btn btn-sm" :disabled="!isOwner" @click="addCoverLine()">{{ t('compose.settings.addLine') }}</button>
-                </div>
-              </div>
-            </div>
-
-            <label class="cv-prop-label">{{ t('compose.settings.footer') }}</label>
-            <input v-model="comp.footer_text" class="cv-prop-input" :disabled="!isOwner" @change="persistComp(['footer_text'])" />
-
-            <label class="cv-prop-check">
-              <input v-model="comp.include_answers" type="checkbox" :disabled="!isOwner" @change="persistComp(['include_answers'])" />
-              <span>{{ t('compose.settings.includeAnswers') }}</span>
-            </label>
-            <template v-if="comp.include_answers">
-              <label class="cv-prop-label">{{ t('compose.settings.answersPlacement') }}</label>
-              <select v-model="comp.answers_placement" class="cv-prop-input" :disabled="!isOwner" @change="persistComp(['answers_placement'])">
-                <option value="end">{{ t('compose.settings.placementEnd') }}</option>
-                <option value="interleaved">{{ t('compose.settings.placementInterleaved') }}</option>
-              </select>
-            </template>
-
-            <div class="cv-prop-divider"></div>
-            <label class="cv-prop-check">
-              <input v-model="comp.show_question_info" type="checkbox" :disabled="!isOwner" @change="persistComp(['show_question_info'])" />
-              <span>{{ t('compose.settings.showInfo') }}</span>
-            </label>
-            <label class="cv-prop-check">
-              <input v-model="comp.show_section_headers" type="checkbox" :disabled="!isOwner" @change="persistComp(['show_section_headers'])" />
-              <span>{{ t('compose.settings.showSectionHeaders') }}</span>
-            </label>
-            <label class="cv-prop-check">
-              <input v-model="comp.show_page_numbers" type="checkbox" :disabled="!isOwner" @change="persistComp(['show_page_numbers'])" />
-              <span>{{ t('compose.settings.showPageNumbers') }}</span>
-            </label>
-
-            <div class="cv-prop-divider"></div>
-            <label class="cv-prop-check">
-              <input
-                :checked="comp.visibility === 'shared'"
-                type="checkbox"
-                :disabled="!isOwner"
-                @change="comp.visibility = ($event.target as HTMLInputElement).checked ? 'shared' : 'private'; persistComp(['visibility'])"
-              />
-              <span>{{ t('compose.settings.share') }}</span>
-            </label>
-          </div>
-
-          <!-- 选中条目 -->
+        <!-- 右：选中条目 -->
+        <aside class="cv-panel cv-panel--props" :class="{ 'cv-panel--m-hide': mobileTab !== 'preview' }">
           <div v-if="selectedItem" class="cv-props-card">
             <div class="cv-props-title">{{ t('compose.selected.title') }}</div>
             <template v-if="selectedItem.item_type === 'question'">
@@ -1143,33 +1141,143 @@ onMounted(async () => {
                 <div><span>{{ t('compose.selected.source') }}</span><b>{{ paperOf(selectedItem) || '-' }}</b></div>
                 <div v-if="sectionsOf(selectedItem).length"><span>{{ t('compose.selected.section') }}</span><b>{{ sectionsOf(selectedItem).join(', ') }}</b></div>
               </div>
-              <div class="cv-blank-ctl">
-                <span class="cv-prop-label" style="margin: 0">{{ t('compose.selected.blankPages') }}</span>
-                <div class="cv-blank-stepper">
-                  <button class="btn btn-soft btn-sm btn-icon" :disabled="!isOwner" @click="updateBlankPages(selectedItem.id, selectedItem.blank_pages - 1)">−</button>
-                  <b>{{ selectedItem.blank_pages }}</b>
-                  <button class="btn btn-soft btn-sm btn-icon" :disabled="!isOwner" @click="updateBlankPages(selectedItem.id, selectedItem.blank_pages + 1)">+</button>
-                </div>
+            </template>
+            <template v-else>
+              <div class="cv-sel-info">
+                <div><span>{{ t('compose.preview.blank') }}</span><b>#{{ selectedItem.sort_order + 1 }}</b></div>
               </div>
             </template>
-            <button class="btn btn-sm btn-danger" style="width: 100%" :disabled="!isOwner" @click="removeItemById(selectedItem.id)">
-              {{ t('compose.selected.remove') }}
-            </button>
             <button
-              v-if="selectedItem.item_type === 'question'"
               class="btn btn-sm"
               style="width: 100%"
-              :disabled="!isOwner"
+              :disabled="!canEdit"
               @click="insertBlankAfter(items.findIndex((i) => i.id === selectedItem!.id))"
             >
               {{ t('compose.selected.insertBlank') }}
             </button>
+            <button class="btn btn-sm btn-danger" style="width: 100%" :disabled="!canEdit" @click="removeItemById(selectedItem.id)">
+              {{ t('compose.selected.remove') }}
+            </button>
+          </div>
+          <div v-else class="cv-props-card cv-props-empty">
+            <div class="muted">{{ t('compose.selected.emptyHint') }}</div>
           </div>
         </aside>
       </div>
+
+      <!-- 手机底部操作条 -->
+      <div v-if="selectedItem" class="cv-mobile-bar">
+        <button class="btn btn-soft btn-sm" :disabled="!canEdit" @click="insertBlankAfter(items.findIndex((i) => i.id === selectedItem!.id))">
+          {{ t('compose.selected.insertBlank') }}
+        </button>
+        <button class="btn btn-danger btn-sm" :disabled="!canEdit" @click="removeItemById(selectedItem.id)">
+          {{ t('compose.selected.remove') }}
+        </button>
+      </div>
     </template>
 
-    <div v-else class="cv-empty"><div class="muted">{{ t('compose.loading') }}</div></div>
+    <div v-else class="cv-empty">
+      <div v-if="pageError" class="error-text">{{ pageError }}</div>
+      <div v-else class="muted">{{ t('compose.loading') }}</div>
+    </div>
+
+    <!-- 试卷设置弹层 -->
+    <Teleport to="body">
+      <div v-if="showSettings && comp" class="cv-modal-overlay" @click.self="showSettings = false">
+        <div class="cv-modal cv-modal--settings">
+          <div class="cv-modal-header">
+            <h3>{{ t('compose.settings.title') }}</h3>
+            <button class="cv-modal-x" @click="showSettings = false">×</button>
+          </div>
+          <div class="cv-modal-body">
+            <label class="cv-prop-label">{{ t('compose.settings.titleLabel') }}</label>
+            <input v-model="comp.title" class="cv-prop-input" :disabled="!canEdit" :placeholder="t('compose.settings.titlePh')" @change="persistComp(['title'])" />
+
+            <label class="cv-prop-label">{{ t('compose.settings.header') }}</label>
+            <input v-model="comp.header_text" class="cv-prop-input" :disabled="!canEdit" @change="persistComp(['header_text'])" />
+
+            <label class="cv-prop-label">{{ t('compose.settings.coverLines') }}</label>
+            <div class="cv-cover-lines-editor">
+              <div v-for="(line, idx) in coverLinesList" :key="idx" class="cv-cover-line-row">
+                <input class="cv-prop-input" :value="line" :placeholder="t('compose.settings.coverLinePh')" :disabled="!canEdit" @input="updateCoverLine(idx, ($event.target as HTMLInputElement).value)" />
+                <button class="cv-cover-line-x" :disabled="!canEdit" @click="removeCoverLine(idx)">×</button>
+              </div>
+              <div class="cv-cover-presets">
+                <div class="cv-chip-row">
+                  <button v-for="p in coverLinePresets" :key="p.key" class="btn btn-soft btn-sm" :disabled="!canEdit" @click="addCoverLine(p.template)">{{ p.label }}</button>
+                  <button class="btn btn-sm" :disabled="!canEdit" @click="addCoverLine()">{{ t('compose.settings.addLine') }}</button>
+                </div>
+              </div>
+            </div>
+
+            <label class="cv-prop-label">{{ t('compose.settings.footer') }}</label>
+            <input v-model="comp.footer_text" class="cv-prop-input" :disabled="!canEdit" @change="persistComp(['footer_text'])" />
+
+            <label class="cv-prop-check">
+              <input v-model="comp.include_answers" type="checkbox" :disabled="!canEdit" @change="persistComp(['include_answers'])" />
+              <span>{{ t('compose.settings.includeAnswers') }}</span>
+            </label>
+            <template v-if="comp.include_answers">
+              <label class="cv-prop-label">{{ t('compose.settings.answersPlacement') }}</label>
+              <select v-model="comp.answers_placement" class="cv-prop-input" :disabled="!canEdit" @change="persistComp(['answers_placement'])">
+                <option value="end">{{ t('compose.settings.placementEnd') }}</option>
+                <option value="interleaved">{{ t('compose.settings.placementInterleaved') }}</option>
+              </select>
+            </template>
+
+            <div class="cv-prop-divider"></div>
+            <label class="cv-prop-check">
+              <input v-model="comp.show_question_info" type="checkbox" :disabled="!canEdit" @change="persistComp(['show_question_info'])" />
+              <span>{{ t('compose.settings.showInfo') }}</span>
+            </label>
+            <label class="cv-prop-check">
+              <input v-model="comp.show_section_headers" type="checkbox" :disabled="!canEdit" @change="persistComp(['show_section_headers'])" />
+              <span>{{ t('compose.settings.showSectionHeaders') }}</span>
+            </label>
+            <label class="cv-prop-check">
+              <input v-model="comp.show_page_numbers" type="checkbox" :disabled="!canEdit" @change="persistComp(['show_page_numbers'])" />
+              <span>{{ t('compose.settings.showPageNumbers') }}</span>
+            </label>
+
+            <div class="cv-prop-divider"></div>
+            <label class="cv-prop-label">{{ t('compose.settings.shareLevel') }}</label>
+            <div class="cv-share-opts">
+              <label class="cv-prop-check" :class="{ 'is-active': comp.visibility === 'private' }">
+                <input
+                  type="radio"
+                  name="cv-share"
+                  :checked="comp.visibility === 'private'"
+                  :disabled="!isOwner"
+                  @change="comp.visibility = 'private'; persistComp(['visibility'])"
+                />
+                <span>{{ t('compose.vis.private') }}</span>
+              </label>
+              <label class="cv-prop-check" :class="{ 'is-active': comp.visibility === 'view' }">
+                <input
+                  type="radio"
+                  name="cv-share"
+                  :checked="comp.visibility === 'view'"
+                  :disabled="!isOwner"
+                  @change="comp.visibility = 'view'; persistComp(['visibility'])"
+                />
+                <span>{{ t('compose.vis.view') }}</span>
+              </label>
+              <label class="cv-prop-check" :class="{ 'is-active': comp.visibility === 'edit' }">
+                <input
+                  type="radio"
+                  name="cv-share"
+                  :checked="comp.visibility === 'edit'"
+                  :disabled="!isOwner"
+                  @change="comp.visibility = 'edit'; persistComp(['visibility'])"
+                />
+                <span>{{ t('compose.vis.edit') }}</span>
+              </label>
+            </div>
+            <p class="muted" style="font-size: 12px; margin: 8px 0 0">{{ t('compose.settings.shareHint') }}</p>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 方案列表弹窗 -->
     <Teleport to="body">
@@ -1194,7 +1302,7 @@ onMounted(async () => {
               >
                 <div style="flex: 1; min-width: 0">
                   <div class="cv-comp-name">{{ c.name }}</div>
-                  <div class="cv-comp-meta">{{ t('compose.meta', { n: c.item_count ?? 0, v: c.visibility === 'shared' ? t('compose.vis.shared') : t('compose.vis.private') }) }}</div>
+                  <div class="cv-comp-meta">{{ t('compose.meta', { n: c.item_count ?? 0, v: visLabel(c.visibility) }) }}</div>
                 </div>
                 <div class="cv-row-actions">
                   <button class="btn btn-soft btn-sm" :title="t('compose.toolbar.copy')" @click.stop="duplicateComposition(c.id)">{{ t('compose.toolbar.copy') }}</button>

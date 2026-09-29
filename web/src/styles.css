@@ -1967,6 +1967,86 @@ input[type="checkbox"]:focus-visible {
   gap: 8px;
 }
 
+/* 预览顶栏内联统计 */
+.cv-stats-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cv-stats-inline .cv-stat-pill {
+  padding: 4px 10px;
+}
+
+/* 手机分段切换（桌面隐藏） */
+.cv-segment {
+  display: none;
+  gap: 2px;
+  padding: 3px;
+  margin: 0 0 6px;
+  background: var(--bg-input);
+  border-radius: 12px;
+}
+
+.cv-segment button {
+  flex: 1;
+  padding: 7px 12px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-secondary);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.cv-segment button.active {
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-xs);
+}
+
+/* 共享三态 */
+.cv-share-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cv-share-opts .cv-prop-check.is-active {
+  background: var(--accent-soft);
+}
+
+.cv-share-opts input[type='radio'] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
+/* 右栏空态 */
+.cv-props-empty {
+  text-align: center;
+  padding: 28px 16px;
+}
+
+/* 附属空白页：略淡，表示不可编辑 */
+.cv-page--attached {
+  opacity: 0.72;
+}
+
+/* 设置弹层 */
+.cv-modal--settings {
+  width: 440px;
+}
+
+/* 手机底部操作条 */
+.cv-mobile-bar {
+  display: none;
+}
+
 /* 方案弹窗：对齐管理端 .modal-overlay / AppDialogHost */
 .cv-modal-overlay {
   position: fixed;
@@ -2572,44 +2652,85 @@ input[type="checkbox"]:focus-visible {
     padding: 10px 8px;
   }
 
-  /* 组卷：三栏纵排，左栏列表内部限高可滚 */
+  /* compose mobile: segmented bank/preview + bottom bar */
+  .cv-segment {
+    display: flex;
+  }
+
   .cv-body {
     flex-direction: column;
     overflow-y: auto;
+    min-height: 0;
+    flex: 1;
   }
 
   .cv-panel {
     flex: none;
+    width: 100% !important;
+  }
+
+  .cv-panel--m-hide {
+    display: none !important;
   }
 
   .cv-panel--bank {
-    width: 100%;
-    max-height: 38vh;
+    max-height: none;
     border-right: none;
-    border-bottom: 1px solid var(--border);
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .cv-panel--preview {
+    min-height: 0;
+    overflow: hidden;
   }
 
   .cv-panel--props {
-    width: 100%;
-    border-left: none;
-    border-top: 1px solid var(--border);
-    overflow-y: visible;
+    display: none;
   }
 
   .cv-toolbar {
     flex-wrap: wrap;
-    gap: 8px;
-    padding: 10px;
+    gap: 6px;
+    padding: 8px;
   }
 
-  .cv-toolbar-left,
+  .cv-toolbar-left {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+
   .cv-toolbar-right {
     width: 100%;
   }
 
+  .cv-toolbar-right .btn-text {
+    display: none;
+  }
+
   .cv-name-input {
     width: 100%;
+    min-width: 0;
   }
+
+  .cv-mobile-bar {
+    display: flex;
+    gap: 8px;
+    padding: 8px 10px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .cv-mobile-bar .btn {
+    flex: 1;
+  }
+
+  .cv-modal--settings {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 48px);
+  }
+
 
   .cv-page,
   .cv-section-header,
@@ -2714,4 +2835,329 @@ input[type="checkbox"]:focus-visible {
   cursor: grabbing;
   opacity: 0.45;
   touch-action: none;
+}
+
+/* ── 考情雷达 ── */
+.radar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px 28px;
+  min-height: 0;
+}
+
+.radar-subjects {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.radar-subjects-label,
+.radar-toolbar-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.radar-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.radar-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+}
+
+.radar-pill:hover {
+  background: var(--bg-hover);
+}
+
+.radar-pill--active {
+  background: var(--accent-soft);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+}
+
+.radar-pill-code {
+  font-variant-numeric: tabular-nums;
+}
+
+.radar-pill-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--bg-input);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.radar-pill--active .radar-pill-count {
+  background: var(--surface);
+  color: var(--text-accent);
+}
+
+.radar-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.radar-seasons,
+.radar-modes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.radar-toolbar-right {
+  margin-left: auto;
+}
+
+.radar-chip {
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.radar-chip:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.radar-chip--on {
+  background: var(--accent-soft);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+}
+
+.radar-chip--ghost {
+  background: transparent;
+}
+
+.radar-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.radar-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+  align-items: start;
+}
+
+.radar-heat {
+  padding: 16px;
+  min-width: 0;
+}
+
+.radar-heat-scroll {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+
+.radar-table {
+  border-collapse: separate;
+  border-spacing: 4px;
+  width: 100%;
+  min-width: 520px;
+}
+
+.radar-th-corner,
+.radar-th-year,
+.radar-th-total,
+.radar-th-sec {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 6px 8px;
+  white-space: nowrap;
+}
+
+.radar-th-sec {
+  text-align: left;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+
+.radar-cell {
+  min-width: 48px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--bg-input);
+  text-align: center;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.radar-cell:hover {
+  outline: 1px solid var(--border-accent);
+}
+
+.radar-cell--sel {
+  outline: 2px solid var(--accent);
+}
+
+.radar-cell--total {
+  background: var(--bg-hover);
+  cursor: default;
+  color: var(--text-secondary);
+}
+
+.radar-cell--total:hover {
+  outline: none;
+}
+
+.radar-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.radar-side-card {
+  padding: 14px 16px;
+}
+
+.radar-detail-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.radar-detail-kv b {
+  color: var(--text-primary);
+  font-weight: 650;
+  text-align: right;
+  word-break: break-all;
+}
+
+.radar-id-list {
+  font-size: 12px;
+  font-weight: 600 !important;
+  color: var(--text-accent) !important;
+}
+
+.radar-trend-row,
+.radar-share-row {
+  display: grid;
+  grid-template-columns: 48px 1fr 36px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.radar-trend-label,
+.radar-share-label {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radar-share-row {
+  grid-template-columns: 72px 1fr 36px;
+}
+
+.radar-trend-bar,
+.radar-share-bar {
+  height: 8px;
+  background: var(--bg-input);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.radar-trend-fill,
+.radar-share-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.radar-trend-num,
+.radar-share-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.radar-overdue-desc {
+  margin: 4px 0 10px;
+  font-size: 12px;
+}
+
+.radar-overdue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radar-overdue-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.radar-empty,
+.radar-error {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.radar-error {
+  color: var(--danger);
+}
+
+@media (max-width: 960px) {
+  .radar-body {
+    grid-template-columns: 1fr;
+  }
+
+  .radar-toolbar-right {
+    margin-left: 0;
+    width: 100%;
+  }
 }

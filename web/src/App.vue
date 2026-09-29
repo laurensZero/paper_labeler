@@ -52,7 +52,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app">
-    <BrowseWatermark v-if="auth.session" />
+    <BrowseWatermark v-if="auth.session && !isAdmin" />
     <header class="topbar">
       <div class="brand">
         <img class="brand-mark" src="/logo.svg" alt="Paper Labeler" />
@@ -62,8 +62,14 @@ onBeforeUnmount(() => {
         <RouterLink to="/bank" class="nav-link" :class="{ active: route.path.startsWith('/bank') }">
           {{ t('app.nav.bank') }}
         </RouterLink>
+        <RouterLink to="/radar" class="nav-link" :class="{ active: route.path.startsWith('/radar') }">
+          {{ t('app.nav.radar') }}
+        </RouterLink>
         <RouterLink to="/compose" class="nav-link" :class="{ active: inCompose }">
           {{ t('app.nav.compose') }}
+        </RouterLink>
+        <RouterLink to="/download" class="nav-link" :class="{ active: route.path.startsWith('/download') }">
+          {{ t('app.nav.download') }}
         </RouterLink>
       </nav>
       <div class="user">

@@ -386,6 +386,7 @@ export async function buildQuestionsPdf(
     // 边框：从内容顶部延伸到页底（管理端规则）
     drawBorder(page, CONTENT_X - 2, startY - 2, maxW + 4, PAGE_BOTTOM - startY + 2)
     drawLine(page, CONTENT_X, cur + 3, CONTENT_X + maxW)
+    questionBandY.set(page, A4_H - mm((startY + Math.max(cur, startY + 12)) / 2))
 
     const avail = PAGE_BOTTOM - startY
     const contentH = cur - startY
@@ -425,6 +426,7 @@ export async function buildQuestionsPdf(
       if (cur <= startY) return
       const totalH = Math.max(0, cur - startY - 2) // 管理端 inter_gap=2mm
       drawBorder(page, CONTENT_X - 2, startY - 2, maxW + 4, totalH + 4)
+      questionBandY.set(page, A4_H - mm((startY + cur) / 2))
     }
 
     for (const im of imgs) {
@@ -465,6 +467,9 @@ export async function buildQuestionsPdf(
     const page = doc.addPage([A4_W, A4_H])
     drawBorder(page, BOX_X, 12, BOX_W, 297 - 20, LIGHT_GRAY)
   }
+
+  // 题目/答案内容带的 PDF y（水印用，避开页底留白）
+  const questionBandY = new Map<import('pdf-lib').PDFPage, number>()
 
   // 主循环（与管理端一致：interleaved / end 两种顺序；独立空白页按原顺序插入）
   const hasInlineBlanks = list.some((q) => q.isBlankPage)
@@ -543,7 +548,7 @@ export async function buildQuestionsPdf(
     })
   }
 
-  // ---- 导出水印：每页一条居中斜向浅灰（含封面/空白页），防盗追溯用 ----
+  // ---- 导出水印：打在题目内容带上，避开下方空白答题区 ----
   if (opts.watermarkText) {
     const wmSize = 22
     const angle = (30 * Math.PI) / 180
@@ -555,8 +560,9 @@ export async function buildQuestionsPdf(
     }
     if (wmWidth > 0) {
       const cx = A4_W / 2
-      const cy = A4_H / 2
       for (const page of doc.getPages()) {
+        // 有题目/答案图的页：水印对准内容带中点；封面等用偏上位置
+        const cy = questionBandY.get(page) ?? A4_H - mm(60)
         page.drawText(opts.watermarkText, {
           x: cx - (Math.cos(angle) * wmWidth) / 2,
           y: cy - (Math.sin(angle) * wmWidth) / 2,
