@@ -505,225 +505,52 @@ function updateLogPath() {
 // stub + Electron + backend), replace the exe, then always relaunch something
 // so the user is never left without an app. Paths travel via env to avoid
 // PowerShell -File quoting bugs on "Paper Labeler-1.0.0-portable.exe".
-function powershellExe() {
-  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows'
-  return path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+function updaterExeSource() {
+  // Packaged: extraResources copy next to app.asar. Dev: electron/ next to main.cjs.
+  const candidates = [
+    path.join(process.resourcesPath || '', 'PaperLabelerUpdater.exe'),
+    path.join(__dirname, 'PaperLabelerUpdater.exe'),
+    path.join(__dirname, '..', 'electron', 'PaperLabelerUpdater.exe'),
+  ]
+  for (const c of candidates) {
+    try { if (c && fs.existsSync(c)) return c } catch {}
+  }
+  return null
 }
 
-// Electron/Chromium put children in a Job Object that dies with the app.
-// A direct spawn(powershell) is killed on app.quit() before it can replace
-// anything. Escape via `cmd /c start` so the updater is a grandchild outside
-// that job, and write a bootstrap log line before any PowerShell runs.
-function launchUpdateHelper(helperScript, env) {
-  const logPath = env.PL_LOG
+// Stage Updater.exe beside the portable exe (stable path, survives NSIS
+// extract-dir cleanup). The updater is never the file being replaced.
+function stageUpdaterExe() {
+  const src = updaterExeSource()
+  if (!src) throw new Error('PaperLabelerUpdater.exe not found in package')
+  const destDir = portableExePath ? path.dirname(portableExePath) : os.tmpdir()
+  const dest = path.join(destDir, 'PaperLabelerUpdater.exe')
+  fs.copyFileSync(src, dest)
+  return dest
+}
+
+function launchUpdater(updaterExe, args, logPath) {
   const batPath = path.join(os.tmpdir(), `paper-labeler-updater-${Date.now()}.cmd`)
-  const ps = powershellExe()
+  const quoted = args.map((a) => '"' + String(a).replace(/"/g, '""') + '"').join(' ')
   const bat = [
     '@echo off',
     'setlocal',
-    `echo [%date% %time%] cmd-bootstrap>>"${logPath}"`,
-    `echo [%date% %time%] helper="${helperScript}">>"${logPath}"`,
-    `echo [%date% %time%] old="${env.PL_OLD_EXE}">>"${logPath}"`,
-    `echo [%date% %time%] new="${env.PL_NEW_EXE}">>"${logPath}"`,
-    `echo [%date% %time%] pids="${env.PL_WAIT_PIDS}">>"${logPath}"`,
-    `"${ps}" -NoProfile -ExecutionPolicy Bypass -File "${helperScript}"`,
-    `echo [%date% %time%] ps-exit=%errorlevel%>>"${logPath}"`,
+    `echo [%date% %time%] cmd-bootstrap updater="${updaterExe}">>"${logPath}"`,
+    `"${updaterExe}" ${quoted}`,
+    `echo [%date% %time%] updater-exit=%errorlevel%>>"${logPath}"`,
   ].join('\r\n')
   fs.writeFileSync(batPath, bat, 'utf-8')
 
-  const attempts = []
-  // 1) cmd /c start — classic breakaway from parent job / console
-  attempts.push(() => spawn('cmd.exe', ['/c', 'start', '""', '/b', batPath], {
+  // cmd /c start escapes Electron's job object so the updater outlives app.quit().
+  const child = spawn('cmd.exe', ['/c', 'start', '""', '/b', batPath], {
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
-    env,
-  }))
-  // 2) PowerShell Start-Process (ShellExecute, often outside the job)
-  attempts.push(() => spawn(ps, [
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-WindowStyle', 'Hidden',
-    '-Command',
-    `Start-Process -FilePath '${batPath.replace(/'/g, "''")}' -WindowStyle Hidden`,
-  ], {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-    env,
-  }))
-
-  let started = false
-  let lastErr = ''
-  for (const run of attempts) {
-    try {
-      const child = run()
-      child.on('error', (e) => { lastErr = e.message || String(e) })
-      child.unref()
-      started = true
-      break
-    } catch (e) {
-      lastErr = e.message || String(e)
-    }
-  }
-  return { ok: started, batPath, error: lastErr }
-}
-
-function writeReplaceHelper() {
-  const scriptPath = path.join(os.tmpdir(), `paper-labeler-update-${Date.now()}.ps1`)
-  const script = `
-$ErrorActionPreference = 'Continue'
-$old = $env:PL_OLD_EXE
-$new = $env:PL_NEW_EXE
-$logPath = $env:PL_LOG
-$helperScript = $env:PL_HELPER_SCRIPT
-$waitPids = @()
-if ($env:PL_WAIT_PIDS) {
-  $waitPids = @($env:PL_WAIT_PIDS -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { [int]$_ })
-}
-
-function Log([string]$msg) {
-  $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'), $msg
-  try { Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8 } catch {}
-}
-
-function Start-App([string]$exePath) {
-  if (-not $exePath -or -not (Test-Path -LiteralPath $exePath)) { return $null }
-  $workDir = Split-Path -Parent $exePath
-  try {
-    return Start-Process -FilePath $exePath -WorkingDirectory $workDir -PassThru -ErrorAction Stop
-  } catch {
-    Log ('Start-App failed for {0}: {1}' -f $exePath, $_.Exception.Message)
-    return $null
-  }
-}
-
-function Restore-BackupAndLaunch {
-  param([string]$target, [string]$backupPath, [string]$reason)
-  Log $reason
-  if (Test-Path -LiteralPath $backupPath) {
-    try {
-      if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue }
-      Move-Item -LiteralPath $backupPath -Destination $target -Force -ErrorAction Stop
-      Log 'restored previous exe from backup'
-    } catch {
-      Log ('restore failed: {0}' -f $_.Exception.Message)
-    }
-  }
-  $p = Start-App $target
-  if ($p) { Log ('relaunched pid={0}' -f $p.Id) } else { Log 'relaunch after restore failed' }
-  return $p
-}
-
-Log ('updater start old={0} new={1} pids={2}' -f $old, $new, ($waitPids -join ','))
-
-# 1) Wait until every recorded pid is gone (Electron + portable NSIS stub).
-#    The stub ExecWaits the real app and then RMDir /r the extract dir, so it
-#    keeps the portable exe locked after Electron itself has already exited.
-$deadline = (Get-Date).AddSeconds(120)
-foreach ($procId in $waitPids) {
-  while ((Get-Date) -lt $deadline) {
-    $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
-    if (-not $p) { break }
-    Start-Sleep -Milliseconds 200
-  }
-}
-Start-Sleep -Milliseconds 800
-
-if (-not $old -or -not (Test-Path -LiteralPath $old)) {
-  Log 'old exe missing; nothing to relaunch'
-  exit 1
-}
-if (-not $new -or -not (Test-Path -LiteralPath $new)) {
-  Log 'update file missing; relaunching current exe'
-  [void](Start-App $old)
-  exit 1
-}
-
-# 3) Replace with rollback. Prefer same-volume Move (fast); fall back to Copy.
-$backup = ($old + '.bak')
-$replaceAttempts = 30
-if ($env:PL_REPLACE_ATTEMPTS) { $replaceAttempts = [int]$env:PL_REPLACE_ATTEMPTS }
-$replaced = $false
-for ($attempt = 1; $attempt -le $replaceAttempts; $attempt++) {
-  try {
-    if (Test-Path -LiteralPath $backup) {
-      Remove-Item -LiteralPath $backup -Force -ErrorAction Stop
-    }
-    if (Test-Path -LiteralPath $old) {
-      Move-Item -LiteralPath $old -Destination $backup -Force -ErrorAction Stop
-    }
-    try {
-      Move-Item -LiteralPath $new -Destination $old -Force -ErrorAction Stop
-    } catch {
-      Copy-Item -LiteralPath $new -Destination $old -Force -ErrorAction Stop
-      Remove-Item -LiteralPath $new -Force -ErrorAction SilentlyContinue
-    }
-    if (-not (Test-Path -LiteralPath $old)) { throw 'replace produced no exe at target path' }
-    $replaced = $true
-    Log ('replaced ok (attempt {0})' -f $attempt)
-    break
-  } catch {
-    Log ('replace failed (attempt {0}): {1}' -f $attempt, $_.Exception.Message)
-    if (Test-Path -LiteralPath $backup) {
-      try {
-        if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
-        Move-Item -LiteralPath $backup -Destination $old -Force -ErrorAction Stop
-      } catch {
-        Log ('rollback failed: {0}' -f $_.Exception.Message)
-      }
-    }
-    Start-Sleep -Milliseconds 500
-  }
-}
-
-if (-not $replaced) {
-  Log 'replace abandoned; relaunching current exe'
-  [void](Start-App $old)
-  exit 2
-}
-
-# 4) Relaunch. Portable stub ExecWaits the real app, so the stub pid staying
-#    alive means startup succeeded. Do NOT treat a short-lived launcher as
-#    failure while a child is still running.
-$healthWaitSec = 8
-if ($env:PL_HEALTH_WAIT_SEC) { $healthWaitSec = [int]$env:PL_HEALTH_WAIT_SEC }
-$launched = Start-App $old
-if (-not $launched) {
-  [void](Restore-BackupAndLaunch -target $old -backupPath $backup -reason 'Start-Process failed for new exe')
-  exit 3
-}
-
-Log ('relaunched pid={0}' -f $launched.Id)
-Start-Sleep -Seconds $healthWaitSec
-$alive = Get-Process -Id $launched.Id -ErrorAction SilentlyContinue
-if (-not $alive) {
-  # Portable stub ExecWaits the real app, so the launched pid is the health signal.
-  # Accept a child still running under that pid, or another process from $old.
-  $children = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-    $_.ParentProcessId -eq $launched.Id
   })
-  $byPath = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-    $_.ExecutablePath -and ($_.ExecutablePath -ieq $old)
-  })
-  if ($children.Count -eq 0 -and $byPath.Count -eq 0) {
-    [void](Restore-BackupAndLaunch -target $old -backupPath $backup -reason 'relaunched process exited quickly; rolling back')
-    exit 3
-  }
+  child.on('error', () => {})
+  child.unref()
+  return batPath
 }
-Log 'startup looks healthy'
-if (Test-Path -LiteralPath $backup) {
-  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
-}
-if ($helperScript) {
-  Remove-Item -LiteralPath $helperScript -Force -ErrorAction SilentlyContinue
-}
-exit 0
-`
-  fs.writeFileSync(scriptPath, script, 'utf-8')
-  return scriptPath
-}
-
 
 function resolveShortcutTarget() {
   // Prefer the stable portable exe path so shortcuts keep working after update-replace.
@@ -864,27 +691,21 @@ function setupPortableUpdater() {
     }
 
     try {
-      const helper = writeReplaceHelper()
       const logPath = updateLogPath()
+      const updaterExe = stageUpdaterExe()
       // Wait for both the Electron process and its parent (portable NSIS stub).
       // The stub stays alive after Electron exits to delete its extract dir,
       // which keeps the portable exe locked during that cleanup.
       const waitPids = [process.pid, process.ppid].filter((n) => Number.isFinite(n) && n > 0)
-      const env = {
-        ...process.env,
-        PL_OLD_EXE: portableExePath,
-        PL_NEW_EXE: pendingUpdateFile,
-        PL_WAIT_PIDS: waitPids.join(','),
-        PL_LOG: logPath,
-        PL_HELPER_SCRIPT: helper,
-      }
-      const launched = launchUpdateHelper(helper, env)
-      if (!launched.ok) {
-        return { error: 'updater spawn failed: ' + (launched.error || 'unknown') }
-      }
+      launchUpdater(updaterExe, [
+        '--old', portableExePath,
+        '--new', pendingUpdateFile,
+        '--pids', waitPids.join(','),
+        '--log', logPath,
+      ], logPath)
 
-      // Confirm the detached cmd actually started before we quit; otherwise
-      // app.quit() kills the helper via the job object and replace never runs.
+      // Confirm the detached updater actually started before we quit; otherwise
+      // app.quit() kills it via the job object and replace never runs.
       const deadline = Date.now() + 3000
       let bootstrapped = false
       while (Date.now() < deadline) {
@@ -900,7 +721,7 @@ function setupPortableUpdater() {
         return { error: 'updater did not start (no bootstrap log). See: ' + logPath }
       }
 
-      console.log('[updater] helper launched, quitting app')
+      console.log('[updater] Updater.exe launched, quitting app')
       pendingUpdateFile = null
       setTimeout(() => {
         killBackend()
