@@ -180,28 +180,27 @@ def main() -> int:
     murl = r2.put_object(cfg, f"{APP_UPDATE_PREFIX}latest.json", payload, content_type="application/json")
     print(f"  OK -> {murl}")
 
-    # 只保留最近 KEEP_VERSIONS 个版本目录
+    # 只保留最近 KEEP_VERSIONS 个版本目录；清理失败不影响上传结果
     try:
         existing = r2.list_keys(cfg, APP_UPDATE_PREFIX)
-    except r2.R2Error as exc:
-        print(f"[warn] 列目录失败，跳过清理: {exc}")
-        existing = []
-    version_dirs = set()
-    for k in existing:
-        rest = k[len(APP_UPDATE_PREFIX):]
-        if not rest or rest == "latest.json":
-            continue
-        version_dirs.add(rest.split("/", 1)[0])
-    version_dirs.add(version_dir)
-    ordered = sorted(version_dirs, key=_version_sort_key)
-    keep = set(ordered[-KEEP_VERSIONS:]) if len(ordered) > KEEP_VERSIONS else set(ordered)
-    stale = _prune_old_versions(cfg, keep, dry_run=False)
-    if stale:
-        print(f"\n清理旧版本（保留 {sorted(keep)}）:")
-        for s in stale:
-            print(f"  delete {s}")
-    else:
-        print(f"\n版本保留: {sorted(keep)}")
+        version_dirs = set()
+        for k in existing:
+            rest = k[len(APP_UPDATE_PREFIX):]
+            if not rest or rest == "latest.json":
+                continue
+            version_dirs.add(rest.split("/", 1)[0])
+        version_dirs.add(version_dir)
+        ordered = sorted(version_dirs, key=_version_sort_key)
+        keep = set(ordered[-KEEP_VERSIONS:]) if len(ordered) > KEEP_VERSIONS else set(ordered)
+        stale = _prune_old_versions(cfg, keep, dry_run=False)
+        if stale:
+            print(f"\n清理旧版本（保留 {sorted(keep)}）:")
+            for s in stale:
+                print(f"  delete {s}")
+        else:
+            print(f"\n版本保留: {sorted(keep)}")
+    except Exception as exc:
+        print(f"[warn] 清理旧版本失败（更新包已上传）: {exc}")
 
     print("\n完成。桌面端将从 R2 读取该清单检查更新。")
     return 0

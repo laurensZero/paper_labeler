@@ -22,7 +22,7 @@ _TIMEOUT_S = 120
 
 class R2Error(RuntimeError):
     def __init__(self, status: int, body: str):
-        super().__init__(f"R2 PUT failed: HTTP {status}: {body[:300]}")
+        super().__init__(f"R2 request failed: HTTP {status}: {body[:300]}")
         self.status = status
 
 
@@ -40,6 +40,48 @@ def _signing_key(secret: str, datestamp: str) -> bytes:
     k = _hmac(k, _REGION)
     k = _hmac(k, _SERVICE)
     return _hmac(k, "aws4_request")
+
+
+def _sig_headers(cfg: CloudConfig, method: str, canonical_uri: str, canonical_query: str, payload: bytes) -> dict:
+    """SigV4 签名头（host / x-amz-*；Content-Type 由调用方按需另加且不入签）。"""
+    host = f"{cfg.r2_account_id}.r2.cloudflarestorage.com"
+    now = datetime.datetime.now(datetime.timezone.utc)
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    datestamp = now.strftime("%Y%m%d")
+    payload_hash = hashlib.sha256(payload).hexdigest()
+    canonical_headers = (
+        f"host:{host}\n"
+        f"x-amz-content-sha256:{payload_hash}\n"
+        f"x-amz-date:{amz_date}\n"
+    )
+    signed_headers = "host;x-amz-content-sha256;x-amz-date"
+    canonical_request = "\n".join(
+        [method, canonical_uri, canonical_query, canonical_headers, signed_headers, payload_hash]
+    )
+    scope = f"{datestamp}/{_REGION}/{_SERVICE}/aws4_request"
+    string_to_sign = "\n".join(
+        [
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            scope,
+            hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+        ]
+    )
+    signature = hmac.new(
+        _signing_key(cfg.r2_secret_access_key, datestamp),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    auth = (
+        f"AWS4-HMAC-SHA256 Credential={cfg.r2_access_key_id}/{scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+    return {
+        "Authorization": auth,
+        "Host": host,
+        "X-Amz-Content-Sha256": payload_hash,
+        "X-Amz-Date": amz_date,
+    }
 
 
 def _endpoint(cfg: CloudConfig) -> str:
