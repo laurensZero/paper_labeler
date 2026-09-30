@@ -700,8 +700,8 @@ function setupPortableUpdater() {
       launchUpdater(updaterExe, [
         '--old', portableExePath,
         '--new', pendingUpdateFile,
-        '--pids', waitPids.join(','),
         '--log', logPath,
+        '--pids', waitPids.join(',') || '-',
       ], logPath)
 
       // Confirm the detached updater actually started before we quit; otherwise
