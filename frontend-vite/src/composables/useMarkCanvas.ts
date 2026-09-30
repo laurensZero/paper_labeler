@@ -40,6 +40,7 @@ interface UseMarkCanvasOptions {
   captureMarkSnapshot: () => unknown
   commitMarkHistory: (snapshot: unknown) => void
   getMarkAlignBoundsForBox: (box: NewBox | null, isDrawing: boolean) => unknown
+  syncMarkBoxesAlignToBox?: (box: NewBox | null) => void
   alignMarkBBoxToBoundsX: (bbox: BoundingBox, bounds: unknown) => BoundingBox
 }
 
@@ -49,6 +50,7 @@ export function useMarkCanvas(options: UseMarkCanvasOptions) {
     pageQuestions, hasOcrDraftMode, selectedOcrDraftIdx, ocrDraftQuestions,
     editingQuestionId, pages, currentPageIndex, pageImgUrl,
     captureMarkSnapshot, commitMarkHistory, getMarkAlignBoundsForBox, alignMarkBBoxToBoundsX,
+    syncMarkBoxesAlignToBox,
   } = options
 
   const pageImg = ref<HTMLImageElement | null>(null)
@@ -360,10 +362,12 @@ export function useMarkCanvas(options: UseMarkCanvasOptions) {
         else if (op.corner === 'mr') { nx1 = x }
         b.bbox = normalizeBox([nx0, ny0, nx1, ny1])
       }
+      // Move AND resize participate in left-right alignment when enabled.
       const bounds = getMarkAlignBoundsForBox(b, false)
-      if (bounds && op.kind !== 'resize') {
+      if (bounds) {
         b.bbox = alignMarkBBoxToBoundsX(b.bbox, bounds)
       }
+      syncMarkBoxesAlignToBox?.(b)
       queueOverlayDraw()
       return
     }

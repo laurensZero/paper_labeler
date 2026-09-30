@@ -31,7 +31,8 @@ export class ApiError extends Error {
 
 /** Fetch JSON — no key conversion, use snake_case like the backend */
 export async function api<T = any>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, opts)
+  const isGet = !opts?.method || opts.method.toUpperCase() === 'GET'
+  const res = await fetch(`${API_BASE}${path}`, isGet ? { cache: 'no-store', ...opts } : opts)
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     logger.warn(`api ${res.status} ${path}`, {

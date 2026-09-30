@@ -388,8 +388,7 @@ def get_question_preview(question_id: int, w: int = 1200, db: Session = Depends(
 
 @router.post("/questions/{question_id}/boxes")
 def replace_question_boxes(question_id: int, payload: QuestionBoxesReplace, db: Session = Depends(get_db)):
-    if not payload.boxes:
-        raise HTTPException(status_code=400, detail="boxes required")
+    # Empty list is allowed: it clears all boxes (metadata-only edits / user deleted all boxes).
 
     q = db.query(Question).filter(Question.id == question_id).one_or_none()
     if q is None:

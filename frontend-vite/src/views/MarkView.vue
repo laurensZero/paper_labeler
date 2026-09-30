@@ -16,6 +16,7 @@ import { useMarkCanvas } from '@/composables/useMarkCanvas'
 import type { TagOptionGroup } from '@/components/ui/SectionTagEditor.vue'
 import type { BoundingBox } from '@/types/common'
 import type { Question } from '@/types'
+import { canSaveMarkQuestion, resolveEditingQuestionNo } from '@/utils/markEdit'
 
 defineOptions({ name: 'MarkView' })
 
@@ -41,7 +42,9 @@ const {
   markPersistBusy,
   pageQuestions,
   qNotes,
+  qDifficulty,
   editingQuestionId,
+  editingQuestionOriginal,
   selectedSectionsForNewQuestion,
   ocrDraftQuestions,
   selectedOcrDraftIdx,
@@ -88,6 +91,7 @@ const {
   captureMarkSnapshot: () => markStore.captureMarkSnapshot(),
   commitMarkHistory: (snap) => markStore.commitMarkHistory(snap as any),
   getMarkAlignBoundsForBox: (box, isDrawing) => markStore.getMarkAlignBoundsForBox(box, isDrawing) as any,
+  syncMarkBoxesAlignToBox: (box) => markStore.syncMarkBoxesAlignToBox(box),
   alignMarkBBoxToBoundsX: (bbox, bounds) => markStore.alignMarkBBoxToBoundsX(bbox, bounds as any) as any,
 })
 // overlayCanvas is used as a template ref
@@ -143,8 +147,12 @@ const canRedo = computed(() =>
   (markRedoStack.value.length > 0 || markSavedRedoStack.value.length > 0)
 )
 const canSave = computed(() =>
-  newBoxes.value.length > 0 && !markPersistBusy.value
+  canSaveMarkQuestion(editingQuestionId.value, newBoxes.value.length) && !markPersistBusy.value
 )
+
+const editingQuestionNo = computed(() => {
+  return resolveEditingQuestionNo(editingQuestionId.value, pageQuestions.value, editingQuestionOriginal.value)
+})
 
 // Form (module/notes/difficulty/box list) only while actively labeling:
 // OCR batch mode, editing an existing question, drawing, or holding draft boxes.
@@ -538,7 +546,7 @@ onBeforeUnmount(() => {
         <div class="card mark-right-panel">
           <!-- Edit mode hint -->
           <div v-if="editingQuestionId != null" class="edit-mode-banner">
-            <span>修改题目 #{{ editingQuestionId }}</span>
+            <span>修改题目 #{{ editingQuestionNo || '(未编号)' }} <small class="edit-mode-id">ID {{ editingQuestionId }}</small></span>
             <button class="btn btn-ghost btn-sm" @click="cancelEditQuestion">取消</button>
           </div>
 
@@ -565,10 +573,11 @@ onBeforeUnmount(() => {
           <div v-if="showMarkForm && !hasOcrDraftMode" class="prop-section">
             <label class="form-label">备注</label>
             <input
-              v-model="qNotes"
+              :model-value="qNotes"
               class="prop-input"
               type="text"
               placeholder="可空"
+              @update:model-value="(val: string) => markStore.setNotes(val)"
             />
           </div>
 
@@ -576,10 +585,10 @@ onBeforeUnmount(() => {
           <div v-if="showMarkForm && !hasOcrDraftMode" class="prop-section">
             <label class="form-label">{{ t('common.difficulty') }}</label>
             <StarRating
-              :model-value="markStore.qDifficulty"
-              @update:model-value="markStore.qDifficulty = $event"
+              :model-value="qDifficulty"
+              @update:model-value="(val: number | null) => markStore.setDifficulty(val)"
             />
-            <div class="difficulty-hint">{{ markStore.qDifficulty ? t('common.difficultyValue', { n: markStore.qDifficulty }) : t('common.difficultyUnset') }}</div>
+            <div class="difficulty-hint">{{ qDifficulty ? t('common.difficultyValue', { n: qDifficulty }) : t('common.difficultyUnset') }}</div>
           </div>
 
           <div v-if="showMarkForm" class="divider"></div>

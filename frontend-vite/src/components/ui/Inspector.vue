@@ -238,7 +238,7 @@ const answerButtonText = computed(() => {
           <div class="inspector-label">{{ t('inspector.difficulty') }}</div>
           <StarRating
             :model-value="question.difficulty ?? null"
-            @update:model-value="emit('set-difficulty', $event)"
+            readonly
           />
         </div>
 

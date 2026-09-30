@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onActivated, onDeactivated, onMounted, onBeforeUnmount, watch } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
@@ -210,6 +211,14 @@ const {
   onHeightMayChange: () => {},
 })
 
+/** Close over question id so unmount cleanup (el=null) never reads a nulled selectedQuestion. */
+function bindPreviewTargetRef(id: number | string | null | undefined) {
+  return (el: Element | ComponentPublicInstance | null) => {
+    if (id == null) return
+    setPreviewTargetRef(id, el instanceof Element ? el : null)
+  }
+}
+
 function getQuestionPreviewUrl(q: FilterQuestion): string {
   if (q?.__previewFailed) return ''
   return String(q?.preview_image_url || '')
@@ -247,19 +256,6 @@ function enterEditMode() {
 
 function cancelEdit() {
   editMode.value = false
-}
-
-async function onSetDifficulty(value: number | null) {
-  if (!selectedQuestion.value) return
-  editDifficulty.value = value
-  if (editMode.value) return // 编辑模式下随「保存」一起提交
-  try {
-    await questionsApi.update(selectedQuestion.value.id, { difficulty: value })
-    selectedQuestion.value.difficulty = value
-    filterStore.markQuestionDatasetChanged()
-  } catch {
-    // API layer surfaces the error
-  }
 }
 
 async function onCreateSection(name: string, groupId: string | number | null) {
@@ -409,21 +405,23 @@ async function onLocate() {
 }
 
 async function onDelete() {
-  if (!selectedQuestion.value) return
-  if (!await dialogStore.confirm(t('filter.confirmDelete', { id: selectedQuestion.value.id }), {
+  const current = selectedQuestion.value
+  if (!current) return
+  const questionId = current.id
+  if (!await dialogStore.confirm(t('filter.confirmDelete', { id: questionId }), {
     title: t('filter.deleteTitle'),
     confirmText: t('dialog.delete'),
     danger: true,
   })) return
   try {
-    await questionsApi.delete(selectedQuestion.value.id)
-    const idx = filterResults.value.findIndex((r) => r.id === selectedQuestion.value!.id)
+    await questionsApi.delete(questionId)
+    const idx = filterResults.value.findIndex((r) => r.id === questionId)
     selectedQuestion.value = null
     filterStore.markQuestionDatasetChanged()
     await filterStore.runFilter()
-    // Select next question
+    // Select next question (or first if deleted item was not on this page)
     if (filterResults.value.length) {
-      const nextIdx = Math.min(idx, filterResults.value.length - 1)
+      const nextIdx = idx >= 0 ? Math.min(idx, filterResults.value.length - 1) : 0
       selectQuestion(filterResults.value[nextIdx])
     }
   } catch {
@@ -503,7 +501,23 @@ onMounted(async () => {
   await refreshFilterOnEnter({ silent: false })
 })
 
+async function refreshSelectedQuestionFromServer(id: number) {
+  try {
+    const res = await questionsApi.get(id)
+    const full = normalizeFilterQuestion(res.question)
+    questionCache.set(id, full)
+    // Replace the selected object so boxes/notes/difficulty reflect the save.
+    selectedQuestion.value = full
+  } catch {
+    // keep whatever we have; API layer surfaces errors
+  }
+}
+
 onActivated(() => {
+  // Stale full-question cache is the main reason box/difficulty edits look unsaved.
+  questionCache.clear()
+  const selectedId = selectedQuestion.value?.id
+  if (selectedId != null) void refreshSelectedQuestionFromServer(Number(selectedId))
   if (skipNextActivatedRefresh) {
     skipNextActivatedRefresh = false
     return
@@ -683,7 +697,7 @@ const {
         <!-- Question image -->
         <div v-else-if="selectedQuestion" class="ws-question">
           <div
-            :ref="(el) => setPreviewTargetRef(selectedQuestion!.id, el as Element | null)"
+            :ref="bindPreviewTargetRef(selectedQuestion?.id)"
             class="ws-question-img"
           >
             <img
@@ -752,7 +766,6 @@ const {
         @update:editSections="editSections = $event"
         @update:editNotes="editNotes = $event"
         @update:editDifficulty="editDifficulty = $event"
-        @set-difficulty="onSetDifficulty"
         @create-section="onCreateSection"
       />
       </div>

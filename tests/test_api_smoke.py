@@ -248,6 +248,33 @@ class TestQuestionRoutes:
         assert body["notes"] == "n2"
         assert body["sections"] == ["Mechanics"]
 
+    def test_replace_boxes_updates_bbox_and_allows_clear(self, client):
+        db = SessionLocal()
+        try:
+            paper = _make_paper(db)
+        finally:
+            db.close()
+        _make_page_image(paper.id)
+        created = client.post(
+            f"/papers/{paper.id}/questions",
+            json={"boxes": [{"page": 1, "bbox": [0.1, 0.1, 0.4, 0.2]}], "notes": "keep"},
+        )
+        assert created.status_code == 200
+        qid = created.json()["question"]["id"]
+
+        replaced = client.post(
+            f"/questions/{qid}/boxes",
+            json={"boxes": [{"page": 1, "bbox": [0.25, 0.35, 0.55, 0.45]}]},
+        )
+        assert replaced.status_code == 200
+        boxes = replaced.json()["question"]["boxes"]
+        assert len(boxes) == 1
+        assert boxes[0]["bbox"] == [0.25, 0.35, 0.55, 0.45]
+
+        cleared = client.post(f"/questions/{qid}/boxes", json={"boxes": []})
+        assert cleared.status_code == 200
+        assert cleared.json()["question"]["boxes"] == []
+
     def test_answer_upsert_replace_and_clear(self, client):
         db = SessionLocal()
         try:

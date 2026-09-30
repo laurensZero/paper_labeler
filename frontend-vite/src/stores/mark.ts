@@ -12,6 +12,7 @@ import { useFilterStore } from './filter'
 import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
+import { logger } from '@/utils/logger'
 import type { BoundingBox } from '@/types/common'
 import type { Question, QuestionBox } from '@/types'
 import { normalizeOcrDrafts, normalizeOcrBoxes } from '@/utils/paper'
@@ -25,6 +26,7 @@ import {
 import type { AlignBounds } from '@/utils/alignment'
 import { createMarkMachine } from '@/utils/markMachine'
 import type { MarkEvent, MarkMachineState } from '@/utils/markMachine'
+import { buildMarkEditPayload } from '@/utils/markEdit'
 
 const MARK_HISTORY_LIMIT = 50
 const MARK_SAVED_HISTORY_LIMIT = 30
@@ -111,6 +113,7 @@ function clonePersistedBoxPayload(boxes: { page: number; bbox: number[] }[]): { 
 }
 
 interface PersistedQuestionPayload {
+  question_no?: string | null
   sections?: unknown[]
   notes?: string | null
   difficulty?: number | null
@@ -176,7 +179,12 @@ export const useMarkStore = defineStore('mark', () => {
   const markSaving = computed(() => markState.value.saving)
   const markDirty = computed(() => markState.value.dirty)
   const markMode = computed(() => markState.value.mode)
-  const editingQuestionId = computed(() => markState.value.editingQuestionId)
+  /**
+   * Source of truth for "which question is being edited".
+   * Kept as a dedicated ref so a stuck mark machine (failed SET_MODE)
+   * cannot silently turn an edit save into a create.
+   */
+  const editingQuestionId = ref<number | null>(null)
 
   /** OCR draft selection; setter clamps via the machine. */
   const selectedOcrDraftIdx = computed({
@@ -419,6 +427,9 @@ export const useMarkStore = defineStore('mark', () => {
   }
 
   function getMarkAlignBoundsForBox(targetBox: NewBox | null = null, isNew = false): AlignBounds | null {
+    // Within one question: 2nd+ boxes stay glued to that question's first box.
+    // Paper-first only applies when drawing a brand-new first box — editing an
+    // existing question must stay draggable (otherwise the box cannot move).
     const papersStore = usePapersStore()
     const settingsStore = useSettingsStore()
     const allBoxes = (newBoxes.value || []).filter((b) => b && Array.isArray(b.bbox) && b.bbox.length === 4)
@@ -426,18 +437,18 @@ export const useMarkStore = defineStore('mark', () => {
       ? allBoxes.filter((b) => b.source === 'ocr' && Number(b.draftIdx) === Number(selectedOcrDraftIdx.value))
       : allBoxes
 
-    if (settingsStore.alignPaperFirstEnabled && papersStore.currentPaperId != null) {
-      return getActivePaperAlignBounds(settingsStore.paperAlignRef, papersStore.currentPaperId, allBoxes)
+    const first = scopeBoxes[0] || null
+    const isNonFirst = !!(first && targetBox && targetBox !== first)
+    const isNewSibling = !!(isNew && first)
+
+    if (isNonFirst || isNewSibling) {
+      return [first!.bbox[0], first!.bbox[2]]
     }
-    if (settingsStore.alignLeftEnabled) {
-      const first = scopeBoxes[0] || null
-      if (!first) return null
-      if (isNew) {
-        if (scopeBoxes.length === 0) return null
-      } else if (targetBox && targetBox === first) {
-        return null
-      }
-      return [first.bbox[0], first.bbox[2]]
+
+    // Drawing the first box of a new question: paper-first is allowed.
+    // Editing that first box: leave X free so the question can be dragged.
+    if (isNew && !first && settingsStore.alignPaperFirstEnabled && papersStore.currentPaperId != null) {
+      return getActivePaperAlignBounds(settingsStore.paperAlignRef, papersStore.currentPaperId, allBoxes)
     }
     return null
   }
@@ -463,22 +474,54 @@ export const useMarkStore = defineStore('mark', () => {
     }
   }
 
-  function alignBoxesForSave(boxesPayload: MarkBoxPayload[]): MarkBoxPayload[] {
+  function alignBoxesForSave(boxesPayload: MarkBoxPayload[], options: { forEdit?: boolean } = {}): MarkBoxPayload[] {
     const papersStore = usePapersStore()
     const settingsStore = useSettingsStore()
     let next = boxesPayload
-    if (settingsStore.alignLeftEnabled && next.length > 1) {
-      const first = next[0]
-      if (first && Array.isArray(first.bbox) && first.bbox.length === 4) {
-        next = alignBoxesPayloadToBoundsX(next, [first.bbox[0], first.bbox[2]]) as MarkBoxPayload[]
-      }
-    }
-    if (settingsStore.alignPaperFirstEnabled && papersStore.currentPaperId != null && next.length) {
+    const first = next[0]
+    // Paper-first pins the first box when creating. Skip it while editing so
+    // the user's manual box position is not snapped back on save.
+    if (!options.forEdit && settingsStore.alignPaperFirstEnabled && papersStore.currentPaperId != null && first && Array.isArray(first.bbox) && first.bbox.length === 4) {
       const ref = getPaperAlignBounds(settingsStore.paperAlignRef, papersStore.currentPaperId)
       const bounds = ref || computeUnionAlignBoundsFromBoxesPayload(next)
-      if (bounds) next = alignBoxesPayloadToBoundsX(next, bounds) as MarkBoxPayload[]
+      if (bounds) {
+        next = next.map((b, i) => {
+          if (i !== 0) return b
+          const aligned = alignMarkBBoxToBoundsX(b.bbox, bounds)
+          return { ...b, bbox: (Array.isArray(aligned) && aligned.length === 4 ? aligned : b.bbox) as BoundingBox }
+        })
+      }
+    }
+    // Every box in the question shares the first box's left/right edges.
+    if (next.length > 1) {
+      const head = next[0]
+      if (head && Array.isArray(head.bbox) && head.bbox.length === 4) {
+        next = alignBoxesPayloadToBoundsX(next, [head.bbox[0], head.bbox[2]]) as MarkBoxPayload[]
+      }
     }
     return next
+  }
+
+  /**
+   * When the first box of a question is edited, pull every other box in the
+   * same question onto its left/right edges (works with paper-first too).
+   */
+  function syncMarkBoxesAlignToBox(refBox: NewBox | null) {
+    if (!refBox || !Array.isArray(refBox.bbox) || refBox.bbox.length !== 4) return
+    const allBoxes = (newBoxes.value || []).filter((b) => b && Array.isArray(b.bbox) && b.bbox.length === 4)
+    const scopeBoxes = hasOcrDraftMode.value
+      ? allBoxes.filter((b) => b.source === 'ocr' && Number(b.draftIdx) === Number(selectedOcrDraftIdx.value))
+      : allBoxes
+    const first = scopeBoxes[0]
+    if (!first || first !== refBox) return
+    const bounds: AlignBounds = [refBox.bbox[0], refBox.bbox[2]]
+    for (const b of scopeBoxes) {
+      if (b === refBox) continue
+      const aligned = alignMarkBBoxToBoundsX(b.bbox, bounds)
+      if (Array.isArray(aligned) && aligned.length === 4) {
+        b.bbox = aligned as BoundingBox
+      }
+    }
   }
 
   function savePaperAlignRefFromBoxes(boxesPayload: MarkBoxPayload[]) {
@@ -575,16 +618,54 @@ export const useMarkStore = defineStore('mark', () => {
   }
 
   // --- edit question ---
+  /** Recover a mark machine stuck in opening/saving so SET_MODE can succeed. */
+  function recoverMarkMachineForEdit() {
+    if (markState.value.phase === 'opening') {
+      sendMark({ type: 'OPEN_FAIL', error: 'recover-stale-open' })
+    }
+    if (markState.value.saving || markState.value.phase === 'saving') {
+      sendMark({ type: 'SAVE_FAIL', error: 'recover-stale-save' })
+    }
+    if (markState.value.persistBusy) {
+      sendMark({ type: 'PERSIST_END' })
+    }
+    if (markState.value.drawing) {
+      sendMark({ type: 'EDIT_DRAW_END', changed: false })
+    }
+    if (markState.value.phase !== 'ready') {
+      sendMark({ type: 'CLOSE' })
+    }
+  }
+
   function enterEditQuestionMode(questionId: number, original: PersistedQuestionPayload | null = null, isLocal = false) {
-    sendMark({ type: 'SET_MODE', mode: 'edit', editingQuestionId: questionId })
+    logger.debug('enterEditQuestionMode', {
+      questionId,
+      questionNo: (original as any)?.question_no ?? null,
+      original,
+      isLocal,
+    }, 'mark')
+    const safeId = Number(questionId)
+    if (!Number.isFinite(safeId)) return
+    recoverMarkMachineForEdit()
+    if (!sendMark({ type: 'SET_MODE', mode: 'edit', editingQuestionId: safeId })) {
+      recoverMarkMachineForEdit()
+      sendMark({ type: 'SET_MODE', mode: 'edit', editingQuestionId: safeId })
+    }
+    editingQuestionId.value = safeId
     editingQuestionOriginal.value = original || null
     isLocalEdit.value = !!isLocal
   }
 
   function exitEditQuestionMode() {
-    sendMark({ type: 'SET_MODE', mode: 'create', editingQuestionId: null })
+    logger.debug('exitEditQuestionMode', {
+      wasEditingId: editingQuestionId.value,
+      wasEditingOriginal: editingQuestionOriginal.value,
+    }, 'mark')
+    editingQuestionId.value = null
     editingQuestionOriginal.value = null
     isLocalEdit.value = false
+    recoverMarkMachineForEdit()
+    sendMark({ type: 'SET_MODE', mode: 'create', editingQuestionId: null })
   }
 
   async function editQuestion(q: Question) {
@@ -598,10 +679,6 @@ export const useMarkStore = defineStore('mark', () => {
       const resp = await api(`/questions/${q.id}`)
       const full = resp?.question || q
       const boxes = Array.isArray(full?.boxes) ? full.boxes : (Array.isArray(q?.boxes) ? q.boxes : [])
-      if (!boxes.length) {
-        appStore.setStatus('题目没有框', 'err')
-        return
-      }
       newBoxes.value = boxes.map((b: QuestionBox) => ({ page: b.page, bbox: b.bbox }))
       selectedNewBox.value = newBoxes.value[0] || null
       qSectionSelectValue.value = (full?.section ?? null) || ''
@@ -610,6 +687,7 @@ export const useMarkStore = defineStore('mark', () => {
       selectedSectionsForNewQuestion.value = full?.sections && Array.isArray(full.sections) ? [...full.sections] : []
       resetMarkHistory()
       enterEditQuestionMode(q.id, {
+        question_no: full?.question_no ?? q.question_no ?? null,
         sections: full?.sections ?? [],
         notes: full?.notes ?? null,
         difficulty: qDifficulty.value,
@@ -669,6 +747,8 @@ export const useMarkStore = defineStore('mark', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sections: sectionsToSave, notes, difficulty }),
     })
+    // Always write the current box list (including empty = clear all).
+    // Previously an empty list 400'd and aborted the save after metadata was already patched.
     await api(`/questions/${qid}/boxes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -683,8 +763,8 @@ export const useMarkStore = defineStore('mark', () => {
     })
     newBoxes.value = []
     resetMarkHistory()
-    await postSaveRefresh()
     exitEditQuestionMode()
+    await postSaveRefresh()
     appStore.setStatus('已保存', 'ok')
     const filterStore = useFilterStore()
     if (filterStore.filterReturnQid != null) {
@@ -738,8 +818,12 @@ export const useMarkStore = defineStore('mark', () => {
 
   // --- save question ---
   async function saveQuestion() {
+    const appStore = useAppStore()
     if (editingQuestionId.value == null && hasOcrDraftMode.value) {
-      if (!sendMark({ type: 'SAVE' })) return
+      if (!sendMark({ type: 'SAVE' })) {
+        appStore.setStatus('当前无法保存（请稍后再试）', 'err')
+        return
+      }
       try {
         const ok = await saveOcrDraftQuestionsBatch()
         if (ok) {
@@ -753,15 +837,25 @@ export const useMarkStore = defineStore('mark', () => {
       }
       return
     }
-    if (!newBoxes.value.length) return
-    if (!sendMark({ type: 'SAVE' })) return
-    let section = qSectionSelectValue.value || null
-    let notes = qNotes.value || null
-    let difficulty: number | null = qDifficulty.value
-    const boxesPayload = alignBoxesForSave(newBoxes.value.map((b) => ({ page: b.page, bbox: b.bbox })))
+    // Editing metadata is valid even when the question currently has no boxes.
+    // Creating a question still requires at least one box.
+    if (editingQuestionId.value == null && !newBoxes.value.length) {
+      appStore.setStatus('请先框选题目区域再保存', 'err')
+      return
+    }
+    if (!sendMark({ type: 'SAVE' })) {
+      appStore.setStatus('当前无法保存（请稍后再试）', 'err')
+      return
+    }
+    const section = qSectionSelectValue.value || null
+    const isEdit = editingQuestionId.value != null
+    const boxesPayload = alignBoxesForSave(
+      newBoxes.value.map((b) => ({ page: b.page, bbox: [...b.bbox] as BoundingBox })),
+      { forEdit: isEdit },
+    )
 
-    if (editingQuestionId.value != null) {
-      const qid = editingQuestionId.value
+    if (isEdit) {
+      const qid = editingQuestionId.value!
       const original = editingQuestionOriginal.value || {}
       const beforePayload = clonePersistedQuestionPayload({
         sections: Array.isArray(original.sections) ? original.sections : (original.section ? [original.section] : []),
@@ -769,18 +863,16 @@ export const useMarkStore = defineStore('mark', () => {
         difficulty: original.difficulty ?? null,
         boxes: Array.isArray(original.boxes) ? original.boxes : [],
       })
-      let sectionsToSave = selectedSectionsForNewQuestion.value.length > 0
-        ? selectedSectionsForNewQuestion.value
-        : (section ? [section] : [])
-      if (sectionsToSave.length === 0 && editingQuestionOriginal.value) {
-        const origSections = editingQuestionOriginal.value.sections || (editingQuestionOriginal.value.section ? [editingQuestionOriginal.value.section] : [])
-        sectionsToSave = origSections
-      }
-      if (editingQuestionOriginal.value && notes == null) {
-        notes = editingQuestionOriginal.value.notes ?? null
-      }
+      const editPayload = buildMarkEditPayload({
+        section,
+        selectedSections: selectedSectionsForNewQuestion.value,
+        original,
+        notes: qNotes.value,
+        difficulty: qDifficulty.value,
+        boxes: boxesPayload,
+      })
       try {
-        await updateExistingQuestion(qid, sectionsToSave, notes, difficulty, boxesPayload, beforePayload)
+        await updateExistingQuestion(qid, editPayload.sections, editPayload.notes, editPayload.difficulty, editPayload.boxes, beforePayload)
         sendMark({ type: 'SAVE_OK', mode: 'create', editingQuestionId: null, dirty: false })
       } catch (e) {
         sendMark({ type: 'SAVE_FAIL', error: String(e) })
@@ -792,6 +884,8 @@ export const useMarkStore = defineStore('mark', () => {
     const sectionsToSave = selectedSectionsForNewQuestion.value.length > 0
       ? selectedSectionsForNewQuestion.value
       : (section ? [section] : [])
+    const notes = qNotes.value || null
+    const difficulty: number | null = qDifficulty.value
     try {
       await createNewQuestion(sectionsToSave, notes, difficulty, boxesPayload)
       sendMark({ type: 'SAVE_OK', mode: 'create', editingQuestionId: null, dirty: false })
@@ -1104,6 +1198,18 @@ export const useMarkStore = defineStore('mark', () => {
     sendMark({ type: 'SET_SECTIONS' })
   }
 
+  function setNotes(notes: string | null | undefined) {
+    qNotes.value = notes == null ? '' : String(notes)
+    sendMark({ type: 'SET_SECTIONS' })
+  }
+
+  function setDifficulty(value: number | null | undefined) {
+    qDifficulty.value = (typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 5)
+      ? Math.round(value)
+      : null
+    sendMark({ type: 'SET_SECTIONS' })
+  }
+
   function setOcrDraftSections(idx: number, sections: string[]) {
     const q = ocrDraftQuestions.value[idx]
     if (!q) return
@@ -1201,12 +1307,15 @@ export const useMarkStore = defineStore('mark', () => {
     deleteBox,
     cancelEditQuestion,
     setSections,
+    setNotes,
+    setDifficulty,
     setOcrDraftSections,
     dispatchMark,
     // drawing helpers
     canvasPointToNorm,
     hitTestNewBoxes,
     getMarkAlignBoundsForBox,
+    syncMarkBoxesAlignToBox,
     alignMarkBBoxToBoundsX,
     ensurePaperAlignRefFromFirstQuestion,
     // section helpers
