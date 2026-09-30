@@ -58,7 +58,7 @@ def get_cloud_config() -> CloudConfig:
         r2_account_id=_env("R2_ACCOUNT_ID"),
         r2_access_key_id=_env("R2_ACCESS_KEY_ID"),
         r2_secret_access_key=_env("R2_SECRET_ACCESS_KEY"),
-        r2_bucket=_env("R2_BUCKET") or "paper-labeler",
+        r2_bucket=_env("R2_BUCKET") or "paperlabeler",
         r2_public_base=_env("R2_PUBLIC_BASE").rstrip("/"),
     )
 

@@ -79,7 +79,7 @@ jobs:
             Write-Host "::error::Missing R2 secrets (R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY)"
             exit 1
           }
-          if ([string]::IsNullOrWhiteSpace($env:R2_BUCKET)) { $env:R2_BUCKET = 'paper-labeler' }
+          if ([string]::IsNullOrWhiteSpace($env:R2_BUCKET)) { $env:R2_BUCKET = 'paperlabeler' }
           if ([string]::IsNullOrWhiteSpace($env:R2_PUBLIC_BASE)) { $env:R2_PUBLIC_BASE = 'https://img.paperlabeler.de5.net' }
 
           if ('${{ github.event_name }}' -eq 'workflow_dispatch') {

@@ -13,6 +13,8 @@
 R2 对象布局：
   app-update/{version}/{filename}   更新包（只保留最近 2 个版本）
   app-update/latest.json            桌面端检查更新用清单
+
+Bucket 默认 paperlabeler（与 .env / R2 控制台一致）。
 """
 from __future__ import annotations
 
