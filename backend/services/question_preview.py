@@ -90,6 +90,7 @@ def build_question_preview_png(question_id: int, boxes: list[QuestionBox], width
                 right = max(left + 1, min(img_w, int(round(x1 * img_w))))
                 bottom = max(top + 1, min(img_h, int(round(y1 * img_h))))
                 crop = img.crop((left, top, right, bottom))
+                # 去题号默认关闭：需要时用 backend.services.qnum.strip_question_number
                 if crop.width > safe_width:
                     next_h = max(1, int(round(crop.height * (safe_width / crop.width))))
                     # BILINEAR is much cheaper than LANCZOS and fine for previews

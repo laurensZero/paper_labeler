@@ -419,16 +419,16 @@ export const useAnswerStore = defineStore('answer', () => {
   }
 
   // --- open answer mode ---
-  async function openAnswerForPaper(forcedMsId: number | null = null, forcedQuestionId: number | null = null) {
+  async function openAnswerForPaper(forcedMsId: number | null = null, forcedQuestionId: number | null = null): Promise<boolean> {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
-    if (!papersStore.currentPaperId) return
-    if (!dispatch({ type: 'OPEN' })) return
+    if (!papersStore.currentPaperId) return false
+    if (!dispatch({ type: 'OPEN' })) return false
     const openSeq = machine.getState().seq
     resetAnswerWorkspace({ clearMs: true })
     try {
       const qp = await api(`/papers/${papersStore.currentPaperId}`)
-      if (!machine.isCurrentSeq(openSeq)) return
+      if (!machine.isCurrentSeq(openSeq)) return false
       let answerPapers: AnswerPaperListItem[] = []
       if (!forcedMsId) {
         try {
@@ -439,28 +439,28 @@ export const useAnswerStore = defineStore('answer', () => {
           answerPapers = []
         }
       }
-      if (!machine.isCurrentSeq(openSeq)) return
+      if (!machine.isCurrentSeq(openSeq)) return false
       const msMatch = forcedMsId ? { id: forcedMsId } : findMatchedMsPaper(qp, answerPapers)
       const msId = msMatch?.id || null
       if (!msId) {
         dispatch({ type: 'OPEN_FAIL', seq: openSeq })
         appStore.setStatus(t('answer.msNotFound'), 'err')
-        return
+        return false
       }
       msPaperId.value = msId
       const msDetail = await api(`/papers/${msId}`)
-      if (!machine.isCurrentSeq(openSeq)) return
+      if (!machine.isCurrentSeq(openSeq)) return false
       papersStore.currentMsCacheToken = extractCacheBustToken(msDetail?.pdf_url)
       const msPagesData = await api(`/papers/${msId}/pages`)
-      if (!machine.isCurrentSeq(openSeq)) return
+      if (!machine.isCurrentSeq(openSeq)) return false
       msPages.value = msPagesData.pages || []
       const qData = await api(`/papers/${papersStore.currentPaperId}/questions`)
-      if (!machine.isCurrentSeq(openSeq)) return
+      if (!machine.isCurrentSeq(openSeq)) return false
       const qs = qData.questions || []
       if (!qs.length) {
         dispatch({ type: 'OPEN_FAIL', seq: openSeq })
         appStore.setStatus(t('answer.noQuestions'), 'err')
-        return
+        return false
       }
       answerQuestions.value = sortQuestionsByNoAsc(qs)
       answerQIndex.value = 0
@@ -475,7 +475,7 @@ export const useAnswerStore = defineStore('answer', () => {
         } else {
           try {
             const status = await questionsApi.getAnswerStatus(papersStore.currentPaperId)
-            if (!machine.isCurrentSeq(openSeq)) return
+            if (!machine.isCurrentSeq(openSeq)) return false
             const firstUnanswered = findFirstUnansweredIndex(answerQuestions.value, status.answered_ids)
             answerQIndex.value = firstUnanswered >= 0 ? firstUnanswered : 0
           } catch {
@@ -485,18 +485,20 @@ export const useAnswerStore = defineStore('answer', () => {
       }
       answerAlignRef.value = loadAnswerAlignRef(papersStore.currentPaperId, msId)
       await ensureAnswerAlignRefFromFirstQuestion()
-      if (!machine.isCurrentSeq(openSeq)) return
+      if (!machine.isCurrentSeq(openSeq)) return false
       appStore.setView('answer')
       await loadAnswerQuestion(answerQIndex.value, { seq: openSeq })
-      if (!machine.isCurrentSeq(openSeq)) return
+      if (!machine.isCurrentSeq(openSeq)) return false
       dispatch({ type: 'OPEN_OK', seq: openSeq })
       answerReadyPaperId.value = papersStore.currentPaperId
       appStore.setStatus(t('answer.modeActive', { count: answerQuestions.value.length }), 'ok')
+      return true
     } catch (e) {
       if (machine.isCurrentSeq(openSeq)) {
         dispatch({ type: 'OPEN_FAIL', seq: openSeq })
         appStore.setStatus(t('answer.loadFailed', { error: String(e) }), 'err')
       }
+      return false
     }
   }
 

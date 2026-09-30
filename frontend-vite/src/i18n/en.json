@@ -410,7 +410,23 @@
       "cleanAnswerBoxes": "Clean answer boxes",
       "cleanSections": "Clean section links",
       "fillQuestionNoLabel": "Fill question numbers",
-      "renumberLabel": "Resequence numbers"
+      "renumberLabel": "Resequence numbers",
+      "stripQnumDesc": "White-out original printed question numbers on page images (bbox unchanged). Unnumbered items are skipped — stems are never touched. Dry-run first.",
+      "stripQnumDry": "Dry Run Strip",
+      "stripQnumExecute": "Strip Question Numbers",
+      "stripQnumConfirm": "This paints out printed question numbers on page images (not reversible; back up first). Unnumbered items are skipped. Continue?",
+      "stripQnumConfirmTitle": "Strip Question Numbers",
+      "stripQnumConfirmButton": "Continue Strip",
+      "stripQnumLabel": "strip",
+      "stripQnumQuestions": "Scanned",
+      "stripQnumHit": "Hit",
+      "stripQnumMiss": "Skipped",
+      "stripQnumPages": "Pages",
+      "stripQnumMissExamples": "Skipped nos: ",
+      "stripQnumPapers": "Papers processed",
+      "stripQnumPapersSkipped": "Papers skipped (already stripped)",
+      "sourceFrom": "From",
+      "sourceQno": "Q {no}"
     },
     "export": {
       "title": "Export Settings",
@@ -688,7 +704,9 @@
     "labels": "Labels",
     "unsectioned": "Uncategorized",
     "answerLabel": "Answer",
-    "selectQuestion": "Select a question"
+    "selectQuestion": "Select a question",
+    "sourceFrom": "From",
+    "sourceQno": "Q {no}"
   },
   "answerAdmin": {
     "title": "Answer Paper Management"
@@ -807,5 +825,9 @@
     "showSectionHeaders": "Show section headers",
     "localOnlyHint": "Local compositions are not synced to the cloud web app",
     "noCompositions": "No compositions yet"
+  },
+  "bank": {
+    "sourcePaper": "Source paper",
+    "sourceLine": "From"
   }
 }

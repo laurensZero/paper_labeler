@@ -37,6 +37,7 @@ const {
   answerRedoStack,
   answerPendingSnapshot,
   answerReplaceMode,
+  answerReplaceQuestionId,
   answerReadyPaperId,
   answerOpening,
   currentAnswerQuestion,
@@ -820,10 +821,12 @@ async function ensureAnswerReady() {
       }
 
       const routePaperReady = currentPaperId.value && answerReadyPaperId.value === currentPaperId.value && !!msPaperId.value
-      if (currentPaperId.value && !routePaperReady && !answerReplaceMode.value) {
+      if (currentPaperId.value && !routePaperReady) {
         // openAnswerForPaper dispatches OPEN/OPEN_OK/OPEN_FAIL on the machine;
         // a restart invalidates the previous open via seq.
-        await answerStore.openAnswerForPaper()
+        // Replace mode still opens — otherwise a failed start leaves an empty page.
+        const forcedQid = answerReplaceMode.value ? answerReplaceQuestionId.value : null
+        await answerStore.openAnswerForPaper(null, forcedQid)
       }
 
       await refreshMsPaperInfo()

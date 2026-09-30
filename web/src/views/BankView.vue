@@ -28,6 +28,7 @@ interface PaperLite {
 interface QFull {
   id: number
   question_no: string | null
+  paper_qno?: number | null
   status: string
   notes: string | null
   difficulty: number | null
@@ -35,7 +36,7 @@ interface QFull {
   section: string | null
   papers: PaperLite | PaperLite[] | null
   question_sections: { section_name: string }[]
-  question_boxes: { id: number; image_key: string; page: number }[]
+  question_boxes: { id: number; image_key: string; page: number; bbox?: number[] | string | null }[]
 }
 
 /** 每账号独立的收藏/备注（question_user_data，RLS 限定本人） */
@@ -294,6 +295,68 @@ function paperLabel(p: PaperLite | null): string {
   return p.exam_code || p.filename || `#${p.id}`
 }
 
+function paperFullLabel(p: PaperLite | null): string {
+  if (!p) return t('bank.unknownPaper')
+  const name = p.exam_code || p.filename || `#${p.id}`
+  const y = (p.year_token || '').trim()
+  const s = (p.season_token || '').trim()
+  const ys = [y, s].filter(Boolean).join(' ')
+  return ys ? `${name} (${ys})` : name
+}
+
+function sourceLine(r: QFull | null): string {
+  if (!r) return ''
+  const paper = paperFullLabel(paperOf(r))
+  // 「该试卷的第几题」= 卷内序号
+  const localNo = r.paper_qno
+  const no = localNo != null && localNo > 0 ? localNo : r.question_no
+  if (paper && no != null && no !== '') return `${paper} · ${t('bank.qno')} ${no}`
+  if (paper) return paper
+  return no != null && no !== '' ? `${t('bank.qno')} ${no}` : '—'
+}
+
+/** 为每题计算卷内序号（按首框 page / bbox y0） */
+function assignPaperQno(rows: QFull[]): QFull[] {
+  const byPaper = new Map<number, QFull[]>()
+  for (const r of rows) {
+    const list = byPaper.get(r.paper_id) ?? []
+    list.push(r)
+    byPaper.set(r.paper_id, list)
+  }
+  const sortKey = (r: QFull): [number, number] => {
+    let page = 1e9
+    let y0 = 0
+    for (const b of r.question_boxes || []) {
+      let y = 0
+      const bb = b.bbox
+      if (Array.isArray(bb) && bb.length >= 2) y = Number(bb[1]) || 0
+      else if (typeof bb === 'string') {
+        try {
+          const parsed = JSON.parse(bb)
+          if (Array.isArray(parsed) && parsed.length >= 2) y = Number(parsed[1]) || 0
+        } catch {}
+      }
+      const cand: [number, number] = [Number(b.page) || 0, y]
+      if (cand[0] < page || (cand[0] === page && cand[1] < y0)) {
+        page = cand[0]
+        y0 = cand[1]
+      }
+    }
+    return [page, y0]
+  }
+  for (const list of byPaper.values()) {
+    list.sort((a, b) => {
+      const [ap, ay] = sortKey(a)
+      const [bp, by] = sortKey(b)
+      return ap - bp || ay - by || a.id - b.id
+    })
+    list.forEach((r, i) => {
+      r.paper_qno = i + 1
+    })
+  }
+  return rows
+}
+
 function sectionsOf(r: QFull): string[] {
   if (r.question_sections?.length) return r.question_sections.map((s) => s.section_name)
   return r.section ? [r.section] : []
@@ -344,7 +407,7 @@ async function loadQuestions() {
         `id, question_no, status, notes, difficulty, paper_id, section,
          papers ( id, filename, exam_code, year_token, season_token ),
          question_sections ( section_name ),
-         question_boxes ( id, image_key, page )`,
+         question_boxes ( id, image_key, page, bbox )`,
       )
     if (filters.years.length) query = query.in('papers.year_token', filters.years)
     if (filters.seasons.length) query = query.in('papers.season_token', filters.seasons)
@@ -353,7 +416,7 @@ async function loadQuestions() {
     const { data, error } = await query.order('id', { ascending: false }).limit(MAX_ROWS)
     if (token !== loadToken) return
     if (error) throw error
-    allRows.value = (data ?? []) as unknown as QFull[]
+    allRows.value = assignPaperQno((data ?? []) as unknown as QFull[])
   } catch (e) {
     if (token !== loadToken) return
     loadError.value = e instanceof Error ? e.message : String(e)
@@ -772,7 +835,14 @@ onBeforeUnmount(() => {
             {{ isFav(selected.id) ? t('bank.favYes') : t('bank.fav') }}
           </button>
         </div>
-        <div class="bank-info-row"><span class="bank-info-k">{{ t('bank.source') }}</span><span style="text-align: right">{{ paperLabel(paperOf(selected)) }}</span></div>
+        <div class="bank-info-row">
+          <span class="bank-info-k">{{ t('bank.source') }}</span>
+          <span style="text-align: right">{{ sourceLine(selected) }}</span>
+        </div>
+        <div class="bank-info-row">
+          <span class="bank-info-k">{{ t('bank.sourcePaper') }}</span>
+          <span style="text-align: right">{{ paperFullLabel(paperOf(selected)) }}</span>
+        </div>
         <div class="bank-info-row bank-info-row--top">
           <span class="bank-info-k">{{ t('bank.section') }}</span>
           <span class="bank-info-tags">

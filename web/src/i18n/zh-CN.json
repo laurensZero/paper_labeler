@@ -273,7 +273,9 @@
     "difficulty": "难度",
     "difficultyUnset": "未标注",
     "allDifficulties": "全部难度",
-    "jumpGo": "跳转"
+    "jumpGo": "跳转",
+    "sourcePaper": "来源试卷",
+    "sourceLine": "来自"
   },
   "compose": {
     "empty": {

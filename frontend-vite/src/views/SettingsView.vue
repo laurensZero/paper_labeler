@@ -115,6 +115,7 @@ const {
   maintenanceRenumberQuestionNo,
   maintenanceIntegrityReport,
   maintenanceRepairReport,
+  maintenanceStripQnumReport,
   darkImageInvert,
   filmStripSectionDots,
 } = storeToRefs(settingsStore)
@@ -268,6 +269,14 @@ function runRepairDry() {
 
 function runRepairApply() {
   settingsStore.runRepair(true)
+}
+
+function runStripQnumDry() {
+  settingsStore.runStripQnum(false)
+}
+
+function runStripQnumApply() {
+  settingsStore.runStripQnum(true)
 }
 
 // ── 云端同步 ──────────────────────────────────────────────
@@ -781,6 +790,38 @@ onUnmounted(() => {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
             {{ t('settings.maintenance.execute') }}
           </button>
+        </div>
+
+        <!-- 去题号（卷面原题号） -->
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border)">
+          <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px">
+            {{ t('settings.maintenance.stripQnumDesc') }}
+          </div>
+          <div style="display: flex; gap: 10px">
+            <button class="btn" :disabled="maintenanceBusy" @click="runStripQnumDry">
+              {{ t('settings.maintenance.stripQnumDry') }}
+            </button>
+            <button class="btn" :disabled="maintenanceBusy" style="color: var(--warning); border-color: rgba(255, 159, 10, 0.3)" @click="runStripQnumApply">
+              {{ t('settings.maintenance.stripQnumExecute') }}
+            </button>
+          </div>
+          <div
+            v-if="maintenanceStripQnumReport"
+            style="margin-top: 10px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; padding: 12px; background: var(--bg-input); border-radius: var(--radius-sm)"
+          >
+            {{ t('settings.maintenance.last') }}{{ maintenanceStripQnumReport.dry_run ? t('settings.maintenance.dryRunLabel') : t('settings.maintenance.stripQnumLabel') }}：
+            {{ t('settings.maintenance.stripQnumQuestions') }} {{ maintenanceStripQnumReport.questions || 0 }}，
+            {{ t('settings.maintenance.stripQnumHit') }} {{ maintenanceStripQnumReport.hit || 0 }}，
+            {{ t('settings.maintenance.stripQnumMiss') }} {{ maintenanceStripQnumReport.miss || 0 }}，
+            {{ t('settings.maintenance.stripQnumPages') }} {{ maintenanceStripQnumReport.pages_touched || 0 }}
+            <div>
+              {{ t('settings.maintenance.stripQnumPapers') }} {{ maintenanceStripQnumReport.papers_processed || 0 }}，
+              {{ t('settings.maintenance.stripQnumPapersSkipped') }} {{ maintenanceStripQnumReport.papers_skipped || 0 }}
+            </div>
+            <div v-if="maintenanceStripQnumReport.miss_question_nos?.length" style="margin-top: 4px">
+              {{ t('settings.maintenance.stripQnumMissExamples') }}{{ maintenanceStripQnumReport.miss_question_nos.slice(0, 12).join(', ') }}
+            </div>
+          </div>
         </div>
 
         <!-- 完整性检查结果 -->

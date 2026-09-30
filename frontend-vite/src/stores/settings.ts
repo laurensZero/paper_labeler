@@ -4,7 +4,7 @@ import { useAppStore } from './app'
 import { useDialogStore } from './dialog'
 import { i18n } from '@/i18n'
 import { api } from '@/api/client'
-import type { QuestionsIntegrityReport, QuestionsRepairReport } from '@/types/question'
+import type { QuestionsIntegrityReport, QuestionsRepairReport, QuestionsStripQnumReport } from '@/types/question'
 import type { AlignBounds, PaperAlignRef } from '@/utils/alignment'
 import { clampInt } from '@/utils/geometry'
 
@@ -28,6 +28,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const maintenanceRenumberQuestionNo = ref(false)
   const maintenanceIntegrityReport = ref<QuestionsIntegrityReport | null>(null)
   const maintenanceRepairReport = ref<QuestionsRepairReport | null>(null)
+  const maintenanceStripQnumReport = ref<QuestionsStripQnumReport | null>(null)
 
 
   // --- appearance ---
@@ -244,6 +245,45 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  async function runStripQnum(applyNow = false) {
+    if (maintenanceBusy.value) return
+    if (applyNow) {
+      const t = i18n.global.t
+      const ok = await useDialogStore().confirm(t('settings.maintenance.stripQnumConfirm'), {
+        title: t('settings.maintenance.stripQnumConfirmTitle'),
+        confirmText: t('settings.maintenance.stripQnumConfirmButton'),
+        danger: true,
+      })
+      if (!ok) return
+    }
+    maintenanceBusy.value = true
+    const appStore = useAppStore()
+    try {
+      const data = await api('/maintenance/questions_strip_qnum', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: !applyNow }),
+      })
+      maintenanceStripQnumReport.value = data?.report || null
+      const r = data?.report
+      if (applyNow) {
+        appStore.setStatus(
+          `去题号完成：命中 ${r?.hit ?? 0}，跳过 ${r?.miss ?? 0}（含无题号）`,
+          'ok',
+        )
+      } else {
+        appStore.setStatus(
+          `去题号干跑：将处理 ${r?.hit ?? 0} 题，跳过 ${r?.miss ?? 0}（含无题号，不会误伤）`,
+          'ok',
+        )
+      }
+    } catch (e) {
+      appStore.setStatus(`去题号${applyNow ? '' : '干跑'}失败：${String(e)}`, 'err')
+    } finally {
+      maintenanceBusy.value = false
+    }
+  }
+
   // --- cloud management token (sent to /cloud/* write APIs) ---
   const cloudToken = ref('')
 
@@ -338,6 +378,7 @@ export const useSettingsStore = defineStore('settings', () => {
     maintenanceRenumberQuestionNo,
     maintenanceIntegrityReport,
     maintenanceRepairReport,
+    maintenanceStripQnumReport,
     // appearance
     darkImageInvert,
     filmStripSectionDots,
@@ -368,5 +409,6 @@ export const useSettingsStore = defineStore('settings', () => {
     saveFilterVirtualOverscanPx,
     runIntegrityCheck,
     runRepair,
+    runStripQnum,
   }
 })

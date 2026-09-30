@@ -58,6 +58,8 @@ class Paper(Base):
     done = Column(Boolean, nullable=False, default=False)
     paired_paper_id = Column(Integer, nullable=True, index=True)
     is_answer = Column(Boolean, nullable=False, default=False, index=True)
+    # 原题号已在整页图上涂白的时间；非空表示本卷已处理，去题号时跳过
+    qnum_stripped_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -192,6 +194,8 @@ def init_db():
                 conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN season_token VARCHAR")
             if "updated_at" not in cols:
                 conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN updated_at DATETIME")
+            if "qnum_stripped_at" not in cols:
+                conn.exec_driver_sql("ALTER TABLE papers ADD COLUMN qnum_stripped_at DATETIME")
             # Backfill: legacy rows have NULL updated_at, which breaks cloud dirty-check.
             conn.exec_driver_sql(
                 "UPDATE papers SET updated_at = created_at WHERE updated_at IS NULL"

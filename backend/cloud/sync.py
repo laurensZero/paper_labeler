@@ -130,6 +130,7 @@ def crop_webp(box, quality: int = 88) -> bytes | None:
             right = max(left + 1, min(w, int(round(x1 * w))))
             bottom = max(top + 1, min(h, int(round(y1 * h))))
             crop = img.crop((left, top, right, bottom))
+            # 去题号默认关闭：需要时用 backend.services.qnum.strip_question_number
             buf = io.BytesIO()
             crop.save(buf, "WEBP", quality=quality)
             return buf.getvalue()

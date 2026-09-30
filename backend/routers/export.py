@@ -598,6 +598,7 @@ def _make_pdf(job_id, ids, options, progress_cb=None):
                 try:
                     with Image.open(final_path) as full_img:
                         cropped_img = _crop_image_with_bbox(full_img, b.bbox)
+                        # 去题号默认关闭：需要时用 backend.services.qnum.strip_question_number
                         w_px, h_px = cropped_img.size
                         if w_px <= 0 or h_px <= 0:
                             return None

@@ -410,7 +410,23 @@
       "cleanAnswerBoxes": "清理答案框",
       "cleanSections": "清理模块关联",
       "fillQuestionNoLabel": "填充题号",
-      "renumberLabel": "重排题号"
+      "renumberLabel": "重排题号",
+      "stripQnumDesc": "抹掉卷面原题号（涂白，不改裁切框）。无题号的题会跳过，不会误伤正文。先干跑确认再执行。",
+      "stripQnumDry": "干跑去题号",
+      "stripQnumExecute": "执行去题号",
+      "stripQnumConfirm": "将在整页图上涂白原题号（不可撤销，建议先备份）。无题号的题会跳过。确认执行？",
+      "stripQnumConfirmTitle": "执行去题号",
+      "stripQnumConfirmButton": "继续去题号",
+      "stripQnumLabel": "去题号",
+      "stripQnumQuestions": "扫描",
+      "stripQnumHit": "命中",
+      "stripQnumMiss": "跳过",
+      "stripQnumPages": "涉及页",
+      "stripQnumMissExamples": "跳过题号：",
+      "stripQnumPapers": "处理卷数",
+      "stripQnumPapersSkipped": "跳过卷数（已涂白）",
+      "sourceFrom": "来自",
+      "sourceQno": "第 {no} 题"
     },
     "export": {
       "title": "导出设置",
@@ -688,7 +704,9 @@
     "labels": "标签",
     "unsectioned": "未分类",
     "answerLabel": "答案",
-    "selectQuestion": "选择题目查看属性"
+    "selectQuestion": "选择题目查看属性",
+    "sourceFrom": "来自",
+    "sourceQno": "第 {no} 题"
   },
   "answerAdmin": {
     "title": "答案卷管理"
@@ -807,5 +825,9 @@
     "showSectionHeaders": "显示 Section 标题",
     "localOnlyHint": "本机组卷不会同步到云端网页端",
     "noCompositions": "暂无方案"
+  },
+  "bank": {
+    "sourcePaper": "来源试卷",
+    "sourceLine": "来自"
   }
 }

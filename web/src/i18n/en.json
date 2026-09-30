@@ -273,7 +273,9 @@
     "difficulty": "Difficulty",
     "difficultyUnset": "Unset",
     "allDifficulties": "All difficulties",
-    "jumpGo": "Go"
+    "jumpGo": "Go",
+    "sourcePaper": "Source paper",
+    "sourceLine": "From"
   },
   "compose": {
     "empty": {

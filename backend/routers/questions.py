@@ -17,6 +17,7 @@ from backend.config import PAGE_DIR
 from backend.utils import _with_cache_bust, _file_mtime_token
 from backend.services.paper_utils import resolve_page_image, page_image_url_suffix
 from backend.services.question_preview import build_question_preview_png, question_preview_version
+from backend.services.qnum_wipe import mark_paper_qnum_dirty
 
 router = APIRouter(tags=["questions"])
 
@@ -91,11 +92,55 @@ def _matching_paper_ids_for_year_season(
         matched.add(int(pid))
     return matched
 
+def _paper_qno_map(db: Session, paper_ids: list[int] | None = None) -> dict[int, int]:
+    """Map question_id -> 1-based index within its paper (by first box page/y0).
+
+    「该试卷的第几题」— not the global question_no.
+    """
+    q = db.query(Question.id, Question.paper_id)
+    if paper_ids:
+        q = q.filter(Question.paper_id.in_(sorted(set(int(x) for x in paper_ids))))
+    q_rows = q.all()
+    if not q_rows:
+        return {}
+    qids = [int(r[0]) for r in q_rows]
+
+    # first box per question: min page, then min bbox y0
+    box_rows = (
+        db.query(QuestionBox.question_id, QuestionBox.page, QuestionBox.bbox)
+        .filter(QuestionBox.question_id.in_(qids))
+        .all()
+    )
+    first: dict[int, tuple[int, float]] = {}
+    for qid, page, bbox in box_rows:
+        try:
+            vals = list(bbox or [])
+            y0 = float(vals[1]) if len(vals) >= 2 else 0.0
+        except Exception:
+            y0 = 0.0
+        key = int(qid)
+        cand = (int(page or 0), y0)
+        if key not in first or cand < first[key]:
+            first[key] = cand
+
+    by_paper: dict[int, list[int]] = {}
+    for qid, pid in q_rows:
+        by_paper.setdefault(int(pid), []).append(int(qid))
+
+    out: dict[int, int] = {}
+    for pid, qids in by_paper.items():
+        qids_sorted = sorted(qids, key=lambda i: first.get(i, (10**9, 0.0)))
+        for idx, qid in enumerate(qids_sorted, start=1):
+            out[qid] = idx
+    return out
+
+
 def _question_to_dict(
     q: Question,
     boxes: list[QuestionBox],
     db: Session = None,
     sections_override: list[str] | None = None,
+    paper_qno_override: int | None = None,
 ) -> dict:
     # sections_override is authoritative when provided (including empty list) —
     # avoids N+1 lookups on list endpoints.
@@ -116,10 +161,30 @@ def _question_to_dict(
         version = question_preview_version(boxes)
         preview_url = f"/questions/{int(q.id)}/preview.png?w=1200&v={version}"
 
+    paper_info = None
+    paper_qno = paper_qno_override
+    if db is not None and q.paper_id:
+        pp = db.query(Paper).filter(Paper.id == q.paper_id).one_or_none()
+        if pp is not None:
+            paper_info = {
+                "id": int(pp.id),
+                "filename": pp.filename,
+                "exam_code": pp.exam_code,
+                "year_token": getattr(pp, "year_token", None),
+                "season_token": getattr(pp, "season_token", None),
+            }
+        if paper_qno is None:
+            try:
+                paper_qno = _paper_qno_map(db, [int(q.paper_id)]).get(int(q.id))
+            except Exception:
+                paper_qno = None
+
     return {
         "id": q.id,
         "paper_id": q.paper_id,
         "question_no": q.question_no,
+        "paper_qno": paper_qno,
+        "paper": paper_info,
         "section": sections[0] if sections else None,  # 兼容老字段
         "sections": sections,  # 新：多个分类
         "status": q.status,
@@ -236,6 +301,8 @@ def create_question(paper_id: int, payload: QuestionCreate, db: Session = Depend
     db.commit()
     for br in box_rows:
         db.refresh(br)
+    mark_paper_qnum_dirty(db, paper_id)
+    db.commit()
 
     return {"question": _question_to_dict(q, box_rows, db)}
 
@@ -422,6 +489,8 @@ def replace_question_boxes(question_id: int, payload: QuestionBoxesReplace, db: 
     db.commit()
     for r in rows:
         db.refresh(r)
+    mark_paper_qnum_dirty(db, q.paper_id)
+    db.commit()
     return {"question": _question_to_dict(q, rows, db)}
 
 @router.delete("/question_boxes/{box_id}")
@@ -429,7 +498,10 @@ def delete_question_box(box_id: int, db: Session = Depends(get_db)):
     b = db.query(QuestionBox).filter(QuestionBox.id == box_id).one_or_none()
     if b is None:
         raise HTTPException(status_code=404, detail="box not found")
+    paper_id = b.paper_id
     db.delete(b)
+    db.commit()
+    mark_paper_qnum_dirty(db, paper_id)
     db.commit()
     return {"ok": True}
 
@@ -484,6 +556,7 @@ def list_questions_for_paper(paper_id: int, section: str | None = None, status: 
         ):
             sections_by_qid.setdefault(int(qid), []).append(section_name)
 
+    pmap = _paper_qno_map(db, [int(paper_id)]) if qids else {}
     results = []
     for item in qs:
         boxes = boxes_by_qid.get(int(item.id), [])
@@ -495,6 +568,7 @@ def list_questions_for_paper(paper_id: int, section: str | None = None, status: 
                 boxes,
                 db,
                 sections_override=sections_by_qid.get(int(item.id), []),
+                paper_qno_override=pmap.get(int(item.id)),
             )
         )
 
@@ -701,11 +775,24 @@ def _search_questions_core(
     for box in box_rows:
         boxes_by_qid.setdefault(int(box.question_id), []).append(box)
 
+    pmap = _paper_qno_map(db, [int(pp.id) for _, pp in page_entries]) if page_entries else {}
     results = []
     for qq, pp in page_entries:
         boxes = boxes_by_qid.get(int(qq.id), [])
-        d = _question_to_dict(qq, boxes, db, sections_override=sections_by_qid.get(int(qq.id), []))
-        d["paper"] = {"id": pp.id, "filename": pp.filename, "exam_code": pp.exam_code}
+        d = _question_to_dict(
+            qq,
+            boxes,
+            db,
+            sections_override=sections_by_qid.get(int(qq.id), []),
+            paper_qno_override=pmap.get(int(qq.id)),
+        )
+        d["paper"] = {
+            "id": pp.id,
+            "filename": pp.filename,
+            "exam_code": pp.exam_code,
+            "year_token": getattr(pp, "year_token", None),
+            "season_token": getattr(pp, "season_token", None),
+        }
         results.append(d)
 
     return {
@@ -1087,6 +1174,21 @@ def questions_repair(payload: dict, db: Session = Depends(get_db)):
             db.commit()
 
     return {"ok": True, "report": report}
+
+
+@router.post("/maintenance/questions_strip_qnum")
+def questions_strip_qnum(payload: dict, db: Session = Depends(get_db)):
+    """Wipe printed original question numbers from source page images.
+
+    Manual Settings action only — not applied during export/sync.
+    Body: {"dry_run": true|false}. dry_run defaults to true.
+    """
+    from backend.services.qnum_wipe import wipe_printed_qnums
+
+    dry_run = bool(payload.get("dry_run", True))
+    report = wipe_printed_qnums(db, dry_run=dry_run)
+    return {"ok": True, "report": report}
+
 
 @router.post("/random_by_sections")
 def get_random_questions_by_sections(payload: dict, db: Session = Depends(get_db)):

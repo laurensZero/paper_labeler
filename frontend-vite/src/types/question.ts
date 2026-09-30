@@ -13,6 +13,8 @@ export interface Question {
   id: number
   paper_id: number
   question_no: string | null
+  /** 1-based index within its paper (该试卷第几题) */
+  paper_qno?: number | null
   /** Legacy single-section field (first section) */
   section: string | null
   /** All sections this question belongs to */
@@ -30,6 +32,8 @@ export interface Question {
     id: number
     filename: string
     exam_code: string | null
+    year_token?: string | null
+    season_token?: string | null
   }
 }
 
@@ -176,6 +180,20 @@ export interface QuestionsRepairReport {
 export interface QuestionsRepairResponse {
   ok: boolean
   report: QuestionsRepairReport
+}
+
+/** Strip printed original question numbers from page images */
+export interface QuestionsStripQnumReport {
+  dry_run: boolean
+  questions: number
+  hit: number
+  miss: number
+  pages_touched: number
+  miss_question_nos: string[]
+  papers_total?: number
+  papers_skipped?: number
+  papers_processed?: number
+  papers_skipped_ids?: number[]
 }
 
 /** Filter result item — a Question augmented with UI state for the filter view */

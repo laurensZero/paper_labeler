@@ -683,14 +683,14 @@ export const useFilterStore = defineStore('filter', () => {
     await markStore.editQuestion(q)
   }
 
-  async function editAnswerBoxesFromFilter(q: Question) {
+  async function editAnswerBoxesFromFilter(q: Question): Promise<boolean> {
     const appStore = useAppStore()
     const papersStore = usePapersStore()
     const answerStore = useAnswerStore()
-    if (!q?.paper_id || !q?.id) return
+    if (!q?.paper_id || !q?.id) return false
     const paperId = Number(q.paper_id)
     const questionId = Number(q.id)
-    if (!Number.isFinite(paperId) || !Number.isFinite(questionId)) return
+    if (!Number.isFinite(paperId) || !Number.isFinite(questionId)) return false
     appStore.pushNav({ kind: 'filter', state: captureFilterState() })
     filterReturnQid.value = q.id
     answerStore.beginAnswerReplaceMode(questionId)
@@ -698,7 +698,15 @@ export const useFilterStore = defineStore('filter', () => {
     if (papersStore.currentPaperId !== paperId || !papersStore.pages.length) {
       await papersStore.openPaper(paperId)
     }
-    await answerStore.openAnswerForPaper(null, questionId)
+    const ok = await answerStore.openAnswerForPaper(null, questionId)
+    if (!ok) {
+      // Stay on the current view — do not jump into an empty answer workspace.
+      answerStore.resetAnswerWorkspace({ clearMs: true })
+      appStore.popNav()
+      filterReturnQid.value = null
+      return false
+    }
+    return true
   }
 
   async function returnToFilterFromNavStack() {

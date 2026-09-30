@@ -394,7 +394,8 @@ function onEdit() {
 
 async function onEditAnswer() {
   if (!selectedQuestion.value?.paper_id) return
-  await filterStore.editAnswerBoxesFromFilter(selectedQuestion.value)
+  const ok = await filterStore.editAnswerBoxesFromFilter(selectedQuestion.value)
+  if (!ok) return
   await router.push({ name: 'answer', params: { paperId: String(selectedQuestion.value.paper_id) } })
 }
 

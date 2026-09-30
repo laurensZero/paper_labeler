@@ -13,6 +13,7 @@ export interface QuestionData {
   id: number
   paper_id: number
   question_no: string | null
+  paper_qno?: number | null
   section: string | null
   sections: string[]
   status: 'draft' | 'confirmed'
@@ -24,6 +25,8 @@ export interface QuestionData {
     id: number
     filename: string
     exam_code: string | null
+    year_token?: string | null
+    season_token?: string | null
   }
   __ansBoxes?: { image_url: string; bbox: number[] }[]
   __ansOpen?: boolean
@@ -87,6 +90,29 @@ const paperLabel = computed(() => {
   const p = props.question?.paper
   if (!p) return ''
   return p.exam_code || p.filename || ''
+})
+
+const paperFullLabel = computed(() => {
+  const p = props.question?.paper
+  if (!p) return ''
+  const name = p.exam_code || p.filename || ''
+  const y = (p.year_token || '').trim()
+  const s = (p.season_token || '').trim()
+  const ys = [y, s].filter(Boolean).join(' ')
+  return ys ? `${name} (${ys})` : name
+})
+
+const sourceLine = computed(() => {
+  const q = props.question
+  if (!q) return ''
+  const paper = paperFullLabel.value || paperLabel.value
+  // 「该试卷的第几题」= 卷内序号，不是题库全局题号
+  const localNo = q.paper_qno
+  const no = localNo != null && localNo !== 0 ? localNo : q.question_no
+  if (paper && no) return `${paper} · ${t('inspector.sourceQno', { no })}`
+  if (paper) return paper
+  if (no) return t('inspector.sourceQno', { no })
+  return ''
 })
 
 const sectionDisplay = computed(() => {
@@ -170,7 +196,7 @@ const answerButtonText = computed(() => {
       <div class="inspector-section">
         <div class="inspector-qno">{{ question.question_no || '?' }}</div>
         <div class="inspector-meta">
-          <span v-if="paperLabel" class="inspector-paper">{{ paperLabel }}</span>
+          <span v-if="sourceLine" class="inspector-paper" :title="t('inspector.sourceFrom')">{{ sourceLine }}</span>
           <span class="inspector-status" :class="{ 'inspector-status--confirmed': question.status === 'confirmed', 'inspector-status--draft': question.status === 'draft' }">{{ statusLabel }}</span>
         </div>
       </div>
