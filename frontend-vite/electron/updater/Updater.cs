@@ -26,16 +26,37 @@ class PaperLabelerUpdater
 
         for (int i = 0; i < args.Length; i++)
         {
-            var a = args[i];
-            if (a == "--old" && i + 1 < args.Length) oldExe = args[++i];
-            else if (a == "--new" && i + 1 < args.Length) newExe = args[++i];
-            else if (a == "--pids" && i + 1 < args.Length) waitPids = args[++i];
-            else if (a == "--log" && i + 1 < args.Length) logPath = args[++i];
-            else if (a == "--health-wait" && i + 1 < args.Length) int.TryParse(args[++i], out healthWaitSec);
-            else if (a == "--attempts" && i + 1 < args.Length) int.TryParse(args[++i], out replaceAttempts);
+            string a = args[i] ?? "";
+            string key = a;
+            string val = null;
+            int eq = a.IndexOf('=');
+            if (a.StartsWith("--") && eq > 2)
+            {
+                key = a.Substring(0, eq);
+                val = a.Substring(eq + 1);
+            }
+
+            if (val == null && i + 1 < args.Length)
+            {
+                string peek = args[i + 1] ?? "";
+                if (peek.Length > 0 && !peek.StartsWith("--"))
+                {
+                    val = peek;
+                    i++;
+                }
+            }
+            if (val == null) continue;
+
+            if (key == "--old") oldExe = val;
+            else if (key == "--new") newExe = val;
+            else if (key == "--pids") waitPids = val;
+            else if (key == "--log") logPath = val;
+            else if (key == "--health-wait") int.TryParse(val, out healthWaitSec);
+            else if (key == "--attempts") int.TryParse(val, out replaceAttempts);
         }
 
         if (string.IsNullOrEmpty(logPath)) logPath = "update.log";
+        if (waitPids == "-") waitPids = "";
         Log("updater start old=" + oldExe + " new=" + newExe + " pids=" + waitPids);
 
         if (string.IsNullOrEmpty(oldExe) || !File.Exists(oldExe))
