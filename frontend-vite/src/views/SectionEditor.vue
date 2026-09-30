@@ -3,6 +3,7 @@ import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useSectionsStore } from '@/stores/sections'
+import { useSettingsStore } from '@/stores/settings'
 import SimpleSelect from '@/components/ui/SimpleSelect.vue'
 import AppCheckbox from '@/components/ui/AppCheckbox.vue'
 import { api } from '@/api/client'
@@ -12,6 +13,8 @@ const { t } = useI18n()
 defineOptions({ name: 'SectionEditor' })
 
 const store = useSectionsStore()
+const settingsStore = useSettingsStore()
+const filmStripSectionDots = computed(() => settingsStore.filmStripSectionDots)
 
 const {
   sectionDefs,
@@ -421,7 +424,7 @@ onMounted(() => {
               @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
             />
             <!-- Color picker -->
-            <div class="se-color-picker" @click.stop>
+            <div v-if="filmStripSectionDots" class="se-color-picker" @click.stop>
               <button
                 class="se-color-swatch"
                 :class="{ 'se-color-swatch--empty': !s.color }"

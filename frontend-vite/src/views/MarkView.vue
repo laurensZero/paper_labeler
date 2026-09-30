@@ -145,6 +145,12 @@ const canRedo = computed(() =>
 const canSave = computed(() =>
   newBoxes.value.length > 0 && !markPersistBusy.value
 )
+
+// Form (module/notes/difficulty/box list) only while actively labeling:
+// OCR batch mode, editing an existing question, drawing, or holding draft boxes.
+const showMarkForm = computed(() =>
+  hasOcrDraftMode.value || editingQuestionId.value != null || drawing.value || newBoxes.value.length > 0
+)
 const canReturnToFilter = computed(() => appStore.navStack.some((x) => x.kind === 'filter'))
 
 const sectionTagGroups = computed<TagOptionGroup[]>(() => {
@@ -537,7 +543,7 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- Section selector -->
-          <div v-if="!hasOcrDraftMode" class="prop-section">
+          <div v-if="showMarkForm && !hasOcrDraftMode" class="prop-section">
             <label class="form-label">模块 <span class="form-label-hint">(1-{{ Math.min(9, sectionTagGroups.reduce((n, g) => n + g.options.length, 0)) }} 快捷切换)</span></label>
             <SectionTagEditor
               :model-value="selectedSectionsForNewQuestion"
@@ -556,7 +562,7 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- Notes -->
-          <div v-if="!hasOcrDraftMode" class="prop-section">
+          <div v-if="showMarkForm && !hasOcrDraftMode" class="prop-section">
             <label class="form-label">备注</label>
             <input
               v-model="qNotes"
@@ -567,7 +573,7 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- Difficulty -->
-          <div v-if="!hasOcrDraftMode" class="prop-section">
+          <div v-if="showMarkForm && !hasOcrDraftMode" class="prop-section">
             <label class="form-label">{{ t('common.difficulty') }}</label>
             <StarRating
               :model-value="markStore.qDifficulty"
@@ -576,10 +582,10 @@ onBeforeUnmount(() => {
             <div class="difficulty-hint">{{ markStore.qDifficulty ? t('common.difficultyValue', { n: markStore.qDifficulty }) : t('common.difficultyUnset') }}</div>
           </div>
 
-          <div class="divider"></div>
+          <div v-if="showMarkForm" class="divider"></div>
 
           <!-- Box list -->
-          <div class="prop-section">
+          <div v-if="showMarkForm" class="prop-section">
             <div class="prop-section-header">
               <span class="card-title" style="margin-bottom: 0">{{ hasOcrDraftMode ? '批量分类（自动识别）' : '框选列表' }}</span>
               <div style="display: flex; align-items: center; gap: 6px">
@@ -663,7 +669,7 @@ onBeforeUnmount(() => {
             </template>
           </div>
 
-          <div class="divider"></div>
+          <div v-if="showMarkForm" class="divider"></div>
 
           <!-- Page questions -->
           <div class="prop-section">

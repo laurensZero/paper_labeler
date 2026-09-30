@@ -52,6 +52,8 @@ const { currentPaperId, currentQpPaperName } = storeToRefs(papersStore)
 // --- local refs ---
 const jumpMsPageInput = ref('')
 const msPaperName = ref('')
+const answerQpScrollRef = ref<HTMLElement | null>(null)
+const answerMsScrollRef = ref<HTMLElement | null>(null)
 const msPageCount = ref(0)
 const msPageAspectRatio = ref('1.294 / 1')
 let answerEnsuring = false
@@ -746,6 +748,12 @@ function onKeyDown(evt: KeyboardEvent) {
 // rely on scheduleAnswerDraw / pointerup full sweep instead.
 let _answerGestureActive = false
 
+watch(answerQIndex, () => {
+  // Keep preview panes from staying mid-scroll on question switch.
+  if (answerQpScrollRef.value) answerQpScrollRef.value.scrollTop = 0
+  if (answerMsScrollRef.value) answerMsScrollRef.value.scrollTop = 0
+})
+
 watch(answerExistingBoxes, () => {
   if (_answerGestureActive) return
   nextTick(() => scheduleAnswerDraw(0, { full: true }))
@@ -1021,7 +1029,7 @@ function formatBbox(bbox: number[]): string {
         <!-- Right panel -->
         <div class="card answer-right-panel">
           <!-- Question info -->
-          <div class="prop-section">
+          <div ref="answerQpScrollRef" class="prop-section answer-qp-zone">
             <div class="prop-section-header">
               <span class="card-title" style="margin-bottom: 0">当前题目（QP）</span>
               <span class="meta-text">{{ answerQuestionMetaText }}</span>
@@ -1052,7 +1060,7 @@ function formatBbox(bbox: number[]): string {
           <div class="divider"></div>
 
           <!-- Answer boxes preview -->
-          <div class="prop-section">
+          <div ref="answerMsScrollRef" class="prop-section answer-ms-zone">
             <div class="prop-section-header">
               <span class="card-title" style="margin-bottom: 0">答案预览（MS）</span>
               <span class="meta-text">{{ answerPreviewMetaText }}</span>
@@ -1126,7 +1134,7 @@ function formatBbox(bbox: number[]): string {
           <div class="divider"></div>
 
           <!-- Question list -->
-          <div class="prop-section">
+          <div class="prop-section answer-list-zone">
             <div class="prop-section-header">
               <span class="card-title" style="margin-bottom: 0">题目列表</span>
               <span class="meta-text">{{ answerQuestions.length }} 题</span>
@@ -1373,11 +1381,45 @@ function formatBbox(bbox: number[]): string {
   max-width: 100%;
   flex-shrink: 0;
   margin-bottom: 0;
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 0;
   padding: 12px;
+  min-height: 0;
+}
+
+/* Three stable zones: QP / MS preview / question list.
+   Fixed flex-basis so short or tall content never resizes a zone and
+   shoves the sections below. Each zone scrolls internally when needed. */
+.prop-section.answer-qp-zone {
+  flex: 0 0 30%;
+  min-height: 140px;
+  max-height: 36%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.prop-section.answer-ms-zone {
+  flex: 0 0 34%;
+  min-height: 160px;
+  max-height: 40%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.prop-section.answer-list-zone {
+  flex: 1 1 auto;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
 }
 
 .prop-section {
@@ -1393,6 +1435,7 @@ function formatBbox(bbox: number[]): string {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .meta-text {
@@ -1474,6 +1517,12 @@ function formatBbox(bbox: number[]): string {
   border-radius: 0;
   box-shadow: none;
   background: var(--bg-primary);
+  max-height: 220px;
+}
+
+.question-crop :deep(.crop-canvas-element) {
+  max-height: 220px;
+  object-fit: contain;
 }
 
 .answer-preview-crops {
@@ -1560,7 +1609,8 @@ function formatBbox(bbox: number[]): string {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 300px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
 
