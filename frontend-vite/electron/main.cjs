@@ -492,24 +492,96 @@ function sha256File(filePath) {
   })
 }
 
-function writeReplaceHelper(oldExe, newExe, pidToWait) {
+function updateLogPath() {
+  try {
+    if (portableExePath) {
+      return path.join(path.dirname(portableExePath), 'update.log')
+    }
+  } catch {}
+  return path.join(os.tmpdir(), 'paper-labeler-update.log')
+}
+
+// Independent updater helper: wait for the whole portable process tree (NSIS
+// stub + Electron + backend), replace the exe, then always relaunch something
+// so the user is never left without an app. Paths travel via env to avoid
+// PowerShell -File quoting bugs on "Paper Labeler-1.0.0-portable.exe".
+function writeReplaceHelper() {
   const scriptPath = path.join(os.tmpdir(), `paper-labeler-update-${Date.now()}.ps1`)
   const script = `
-$ErrorActionPreference = 'Stop'
-$old = $args[0]
-$new = $args[1]
-$pidWait = [int]$args[2]
-$deadline = (Get-Date).AddSeconds(90)
-while ((Get-Date) -lt $deadline) {
-  $p = Get-Process -Id $pidWait -ErrorAction SilentlyContinue
-  if (-not $p) { break }
-  Start-Sleep -Milliseconds 250
+$ErrorActionPreference = 'Continue'
+$old = $env:PL_OLD_EXE
+$new = $env:PL_NEW_EXE
+$logPath = $env:PL_LOG
+$helperScript = $env:PL_HELPER_SCRIPT
+$waitPids = @()
+if ($env:PL_WAIT_PIDS) {
+  $waitPids = @($env:PL_WAIT_PIDS -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { [int]$_ })
 }
-Start-Sleep -Milliseconds 500
-if (-not (Test-Path -LiteralPath $new)) { throw "Update file missing: $new" }
-$backup = "$old.bak"
+
+function Log([string]$msg) {
+  $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'), $msg
+  try { Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8 } catch {}
+}
+
+function Start-App([string]$exePath) {
+  if (-not $exePath -or -not (Test-Path -LiteralPath $exePath)) { return $null }
+  $workDir = Split-Path -Parent $exePath
+  try {
+    return Start-Process -FilePath $exePath -WorkingDirectory $workDir -PassThru -ErrorAction Stop
+  } catch {
+    Log ('Start-App failed for {0}: {1}' -f $exePath, $_.Exception.Message)
+    return $null
+  }
+}
+
+function Restore-BackupAndLaunch {
+  param([string]$target, [string]$backupPath, [string]$reason)
+  Log $reason
+  if (Test-Path -LiteralPath $backupPath) {
+    try {
+      if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue }
+      Move-Item -LiteralPath $backupPath -Destination $target -Force -ErrorAction Stop
+      Log 'restored previous exe from backup'
+    } catch {
+      Log ('restore failed: {0}' -f $_.Exception.Message)
+    }
+  }
+  $p = Start-App $target
+  if ($p) { Log ('relaunched pid={0}' -f $p.Id) } else { Log 'relaunch after restore failed' }
+  return $p
+}
+
+Log ('updater start old={0} new={1} pids={2}' -f $old, $new, ($waitPids -join ','))
+
+# 1) Wait until every recorded pid is gone (Electron + portable NSIS stub).
+#    The stub ExecWaits the real app and then RMDir /r the extract dir, so it
+#    keeps the portable exe locked after Electron itself has already exited.
+$deadline = (Get-Date).AddSeconds(120)
+foreach ($procId in $waitPids) {
+  while ((Get-Date) -lt $deadline) {
+    $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+    if (-not $p) { break }
+    Start-Sleep -Milliseconds 200
+  }
+}
+Start-Sleep -Milliseconds 800
+
+if (-not $old -or -not (Test-Path -LiteralPath $old)) {
+  Log 'old exe missing; nothing to relaunch'
+  exit 1
+}
+if (-not $new -or -not (Test-Path -LiteralPath $new)) {
+  Log 'update file missing; relaunching current exe'
+  [void](Start-App $old)
+  exit 1
+}
+
+# 3) Replace with rollback. Prefer same-volume Move (fast); fall back to Copy.
+$backup = ($old + '.bak')
+$replaceAttempts = 30
+if ($env:PL_REPLACE_ATTEMPTS) { $replaceAttempts = [int]$env:PL_REPLACE_ATTEMPTS }
 $replaced = $false
-for ($attempt = 1; $attempt -le 20; $attempt++) {
+for ($attempt = 1; $attempt -le $replaceAttempts; $attempt++) {
   try {
     if (Test-Path -LiteralPath $backup) {
       Remove-Item -LiteralPath $backup -Force -ErrorAction Stop
@@ -517,35 +589,72 @@ for ($attempt = 1; $attempt -le 20; $attempt++) {
     if (Test-Path -LiteralPath $old) {
       Move-Item -LiteralPath $old -Destination $backup -Force -ErrorAction Stop
     }
-    # The download is in %TEMP%, which may be on another volume than the app.
-    # Copy works across volumes; Move-Item does not reliably do so.
-    Copy-Item -LiteralPath $new -Destination $old -Force -ErrorAction Stop
-    $newSize = (Get-Item -LiteralPath $new).Length
-    $oldSize = (Get-Item -LiteralPath $old).Length
-    if ($newSize -ne $oldSize) { throw "Copied update size mismatch" }
-    Remove-Item -LiteralPath $new -Force -ErrorAction Stop
+    try {
+      Move-Item -LiteralPath $new -Destination $old -Force -ErrorAction Stop
+    } catch {
+      Copy-Item -LiteralPath $new -Destination $old -Force -ErrorAction Stop
+      Remove-Item -LiteralPath $new -Force -ErrorAction SilentlyContinue
+    }
+    if (-not (Test-Path -LiteralPath $old)) { throw 'replace produced no exe at target path' }
     $replaced = $true
+    Log ('replaced ok (attempt {0})' -f $attempt)
     break
   } catch {
+    Log ('replace failed (attempt {0}): {1}' -f $attempt, $_.Exception.Message)
     if (Test-Path -LiteralPath $backup) {
-      Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
-      Move-Item -LiteralPath $backup -Destination $old -Force -ErrorAction SilentlyContinue
+      try {
+        if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
+        Move-Item -LiteralPath $backup -Destination $old -Force -ErrorAction Stop
+      } catch {
+        Log ('rollback failed: {0}' -f $_.Exception.Message)
+      }
     }
     Start-Sleep -Milliseconds 500
   }
 }
-if (-not $replaced) { throw "Unable to replace the application after 20 attempts" }
-$newProcess = Start-Process -FilePath $old -WorkingDirectory (Split-Path -Parent $old) -PassThru
-Start-Sleep -Seconds 3
-if ($newProcess.HasExited) {
-  Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
-  if (Test-Path -LiteralPath $backup) {
-    Move-Item -LiteralPath $backup -Destination $old -Force -ErrorAction Stop
-  }
-  throw "Updated application exited during startup"
+
+if (-not $replaced) {
+  Log 'replace abandoned; relaunching current exe'
+  [void](Start-App $old)
+  exit 2
 }
-Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+
+# 4) Relaunch. Portable stub ExecWaits the real app, so the stub pid staying
+#    alive means startup succeeded. Do NOT treat a short-lived launcher as
+#    failure while a child is still running.
+$healthWaitSec = 8
+if ($env:PL_HEALTH_WAIT_SEC) { $healthWaitSec = [int]$env:PL_HEALTH_WAIT_SEC }
+$launched = Start-App $old
+if (-not $launched) {
+  [void](Restore-BackupAndLaunch -target $old -backupPath $backup -reason 'Start-Process failed for new exe')
+  exit 3
+}
+
+Log ('relaunched pid={0}' -f $launched.Id)
+Start-Sleep -Seconds $healthWaitSec
+$alive = Get-Process -Id $launched.Id -ErrorAction SilentlyContinue
+if (-not $alive) {
+  # Portable stub ExecWaits the real app, so the launched pid is the health signal.
+  # Accept a child still running under that pid, or another process from $old.
+  $children = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.ParentProcessId -eq $launched.Id
+  })
+  $byPath = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.ExecutablePath -and ($_.ExecutablePath -ieq $old)
+  })
+  if ($children.Count -eq 0 -and $byPath.Count -eq 0) {
+    [void](Restore-BackupAndLaunch -target $old -backupPath $backup -reason 'relaunched process exited quickly; rolling back')
+    exit 3
+  }
+}
+Log 'startup looks healthy'
+if (Test-Path -LiteralPath $backup) {
+  Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+}
+if ($helperScript) {
+  Remove-Item -LiteralPath $helperScript -Force -ErrorAction SilentlyContinue
+}
+exit 0
 `
   fs.writeFileSync(scriptPath, script, 'utf-8')
   return scriptPath
@@ -644,7 +753,15 @@ function setupPortableUpdater() {
       return { error: 'not a portable build' }
     }
 
-    const dest = path.join(os.tmpdir(), `paper-labeler-${Date.now()}-update.exe`)
+    // Download beside the portable exe so replace can Move (same volume)
+    // instead of a cross-volume Copy from %TEMP%.
+    const portableDir = path.dirname(portableExePath)
+    let dest = path.join(portableDir, `paper-labeler-update-${Date.now()}.exe`)
+    try {
+      fs.accessSync(portableDir, fs.constants.W_OK)
+    } catch {
+      dest = path.join(os.tmpdir(), `paper-labeler-${Date.now()}-update.exe`)
+    }
     try {
       await downloadFile(url, dest, (percent) => {
         if (mainWindow) {
@@ -683,18 +800,27 @@ function setupPortableUpdater() {
     }
 
     try {
-      const helper = writeReplaceHelper(portableExePath, pendingUpdateFile, process.pid)
+      const helper = writeReplaceHelper()
+      // Wait for both the Electron process and its parent (portable NSIS stub).
+      // The stub stays alive after Electron exits to delete its extract dir,
+      // which keeps the portable exe locked during that cleanup.
+      const waitPids = [process.pid, process.ppid].filter((n) => Number.isFinite(n) && n > 0)
       const child = spawn('powershell.exe', [
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
         '-File', helper,
-        portableExePath,
-        pendingUpdateFile,
-        String(process.pid),
       ], {
         detached: true,
         stdio: 'ignore',
         windowsHide: true,
+        env: {
+          ...process.env,
+          PL_OLD_EXE: portableExePath,
+          PL_NEW_EXE: pendingUpdateFile,
+          PL_WAIT_PIDS: waitPids.join(','),
+          PL_LOG: updateLogPath(),
+          PL_HELPER_SCRIPT: helper,
+        },
       })
       child.unref()
       console.log('[updater] helper launched, quitting app')
