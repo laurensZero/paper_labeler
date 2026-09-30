@@ -13,6 +13,9 @@ const checks = [
   ['no legacy args[0]', !src.includes('$args[0]')],
   ['health wait env', src.includes('PL_HEALTH_WAIT_SEC')],
   ['replace attempts env', src.includes('PL_REPLACE_ATTEMPTS')],
+  ['cmd bootstrap', src.includes('cmd-bootstrap')],
+  ['job breakaway start', src.includes('launchUpdateHelper') && src.includes("start', '\"\"'")],
+  ['confirm bootstrap before quit', src.includes('cmd-bootstrap') && src.includes('updater did not start')],
 ]
 let failed = 0
 for (const [n, ok] of checks) {

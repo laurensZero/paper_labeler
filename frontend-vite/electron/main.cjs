@@ -505,6 +505,70 @@ function updateLogPath() {
 // stub + Electron + backend), replace the exe, then always relaunch something
 // so the user is never left without an app. Paths travel via env to avoid
 // PowerShell -File quoting bugs on "Paper Labeler-1.0.0-portable.exe".
+function powershellExe() {
+  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows'
+  return path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+}
+
+// Electron/Chromium put children in a Job Object that dies with the app.
+// A direct spawn(powershell) is killed on app.quit() before it can replace
+// anything. Escape via `cmd /c start` so the updater is a grandchild outside
+// that job, and write a bootstrap log line before any PowerShell runs.
+function launchUpdateHelper(helperScript, env) {
+  const logPath = env.PL_LOG
+  const batPath = path.join(os.tmpdir(), `paper-labeler-updater-${Date.now()}.cmd`)
+  const ps = powershellExe()
+  const bat = [
+    '@echo off',
+    'setlocal',
+    `echo [%date% %time%] cmd-bootstrap>>"${logPath}"`,
+    `echo [%date% %time%] helper="${helperScript}">>"${logPath}"`,
+    `echo [%date% %time%] old="${env.PL_OLD_EXE}">>"${logPath}"`,
+    `echo [%date% %time%] new="${env.PL_NEW_EXE}">>"${logPath}"`,
+    `echo [%date% %time%] pids="${env.PL_WAIT_PIDS}">>"${logPath}"`,
+    `"${ps}" -NoProfile -ExecutionPolicy Bypass -File "${helperScript}"`,
+    `echo [%date% %time%] ps-exit=%errorlevel%>>"${logPath}"`,
+  ].join('\r\n')
+  fs.writeFileSync(batPath, bat, 'utf-8')
+
+  const attempts = []
+  // 1) cmd /c start — classic breakaway from parent job / console
+  attempts.push(() => spawn('cmd.exe', ['/c', 'start', '""', '/b', batPath], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    env,
+  }))
+  // 2) PowerShell Start-Process (ShellExecute, often outside the job)
+  attempts.push(() => spawn(ps, [
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-WindowStyle', 'Hidden',
+    '-Command',
+    `Start-Process -FilePath '${batPath.replace(/'/g, "''")}' -WindowStyle Hidden`,
+  ], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    env,
+  }))
+
+  let started = false
+  let lastErr = ''
+  for (const run of attempts) {
+    try {
+      const child = run()
+      child.on('error', (e) => { lastErr = e.message || String(e) })
+      child.unref()
+      started = true
+      break
+    } catch (e) {
+      lastErr = e.message || String(e)
+    }
+  }
+  return { ok: started, batPath, error: lastErr }
+}
+
 function writeReplaceHelper() {
   const scriptPath = path.join(os.tmpdir(), `paper-labeler-update-${Date.now()}.ps1`)
   const script = `
@@ -801,28 +865,41 @@ function setupPortableUpdater() {
 
     try {
       const helper = writeReplaceHelper()
+      const logPath = updateLogPath()
       // Wait for both the Electron process and its parent (portable NSIS stub).
       // The stub stays alive after Electron exits to delete its extract dir,
       // which keeps the portable exe locked during that cleanup.
       const waitPids = [process.pid, process.ppid].filter((n) => Number.isFinite(n) && n > 0)
-      const child = spawn('powershell.exe', [
-        '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', helper,
-      ], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-        env: {
-          ...process.env,
-          PL_OLD_EXE: portableExePath,
-          PL_NEW_EXE: pendingUpdateFile,
-          PL_WAIT_PIDS: waitPids.join(','),
-          PL_LOG: updateLogPath(),
-          PL_HELPER_SCRIPT: helper,
-        },
-      })
-      child.unref()
+      const env = {
+        ...process.env,
+        PL_OLD_EXE: portableExePath,
+        PL_NEW_EXE: pendingUpdateFile,
+        PL_WAIT_PIDS: waitPids.join(','),
+        PL_LOG: logPath,
+        PL_HELPER_SCRIPT: helper,
+      }
+      const launched = launchUpdateHelper(helper, env)
+      if (!launched.ok) {
+        return { error: 'updater spawn failed: ' + (launched.error || 'unknown') }
+      }
+
+      // Confirm the detached cmd actually started before we quit; otherwise
+      // app.quit() kills the helper via the job object and replace never runs.
+      const deadline = Date.now() + 3000
+      let bootstrapped = false
+      while (Date.now() < deadline) {
+        try {
+          if (fs.existsSync(logPath) && fs.readFileSync(logPath, 'utf-8').includes('cmd-bootstrap')) {
+            bootstrapped = true
+            break
+          }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      if (!bootstrapped) {
+        return { error: 'updater did not start (no bootstrap log). See: ' + logPath }
+      }
+
       console.log('[updater] helper launched, quitting app')
       pendingUpdateFile = null
       setTimeout(() => {
