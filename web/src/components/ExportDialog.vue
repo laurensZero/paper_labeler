@@ -141,7 +141,7 @@ function cancelExport() {
   cancelFlag.value.value = true
 }
 
-/** 管理端「导出管控」的导出水印（预设/自定义）；开启时返回水印文本 */
+/** 管理端「导出管控」的导出水印；开启时返回水印文本（支持自定义文字 + {email}/{date}） */
 async function loadWatermarkText(): Promise<string | undefined> {
   const { data, error } = await getSupabase()
     .from('app_config')
@@ -155,8 +155,8 @@ async function loadWatermarkText(): Promise<string | undefined> {
   const auth = useAuth()
   const email = auth.profile?.email || auth.session?.user.email || 'user'
   const date = new Date().toISOString().slice(0, 10)
-  const base =
-    wm.mode === 'custom' && wm.text ? wm.text : '{email} {date}'
+  const custom = (wm.text || '').trim()
+  const base = wm.mode === 'custom' && custom ? custom : '{email} {date}'
   return base.replaceAll('{email}', email).replaceAll('{date}', date)
 }
 
@@ -255,14 +255,21 @@ async function start() {
       },
     }
     const { blob, filename: outName, pageCount } = await buildQuestionsPdf(items, opts)
-    downloadBlob(blob, outName)
-    finishedPages.value = pageCount
+    // 先记账再下载：数据库触发器兜底周/月限额，避免「已下载但未计数」
     const isRandomExport = showRandomTab.value && mode.value === 'random'
-    void recordExport({
+    const recorded = await recordExport({
       compositionId: props.compositionId ?? null,
       includeAnswers: includeAnswers.value,
       source: props.compositionId ? 'compose' : isRandomExport ? 'random' : 'bank',
     })
+    if (!recorded.ok) {
+      errorMsg.value = recorded.quotaKey
+        ? t(recorded.quotaKey)
+        : t('quota.recordFailed', { msg: recorded.message })
+      return
+    }
+    downloadBlob(blob, outName)
+    finishedPages.value = pageCount
   } catch (e) {
     const qKey = quotaErrorKey(e)
     if (qKey) {

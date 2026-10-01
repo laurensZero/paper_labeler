@@ -389,7 +389,8 @@
     "compReached": "Composition limit reached — ask the admin to raise it or delete unused compositions.",
     "exportWeekReached": "Weekly export limit reached — ask the admin to raise it, or try again next week.",
     "exportMonthReached": "Monthly export limit reached — ask the admin to raise it, or try again next month.",
-    "exportItemsReached": "At most {max} questions per export — remove some questions and try again."
+    "exportItemsReached": "At most {max} questions per export — remove some questions and try again.",
+    "recordFailed": "Export could not be recorded, download skipped: {msg}"
   },
   "callback": {
     "failed": "This link is invalid or has expired. Ask the admin to send a new invite."

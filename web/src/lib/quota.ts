@@ -3,7 +3,7 @@
 // - 导出：按本周/本月窗口计数（防批量偷题库），失败的导出不计
 // - 单次导出题数：题库导出与组卷导出同受此限（纯前端生成，只能在导出前检查）
 import { getSupabase } from '@/lib/supabase'
-import { useAuth } from '@/composables/auth'
+import { refreshProfile, useAuth } from '@/composables/auth'
 
 function uid(): string | null {
   return useAuth().session?.user.id ?? null
@@ -21,6 +21,8 @@ function periodStarts(): { week: Date; month: Date } {
 
 /** 剩余组卷名额用尽时返回 'comp'；查不到计数时放行（数据库触发器兜底） */
 export async function checkCompositionQuota(): Promise<'comp' | null> {
+  // 管理端改上限后立刻生效，不必等用户重新登录
+  await refreshProfile()
   const auth = useAuth()
   const max = auth.profile?.max_compositions
   const user = uid()
@@ -35,6 +37,7 @@ export async function checkCompositionQuota(): Promise<'comp' | null> {
 
 /** 本周/本月导出名额用尽时返回 'export_week' | 'export_month'，否则 null */
 export async function checkExportQuota(): Promise<'export_week' | 'export_month' | null> {
+  await refreshProfile()
   const auth = useAuth()
   const user = uid()
   if (!user) return null
@@ -68,24 +71,6 @@ export function checkExportItemCount(n: number): { max: number } | null {
   return n > max ? { max } : null
 }
 
-/** 导出成功后记一次（周期计数与数据库兜底）；失败静默，不影响已下载的 PDF */
-export async function recordExport(opts: {
-  compositionId?: string | null
-  includeAnswers: boolean
-  source: 'compose' | 'bank' | 'random'
-}): Promise<void> {
-  const user = uid()
-  if (!user) return
-  // PostgREST 错误走返回值不抛异常；计数失败不阻断已下载的导出
-  await getSupabase().from('export_jobs').insert({
-    composition_id: opts.compositionId ?? null,
-    requested_by: user,
-    include_answers: opts.includeAnswers,
-    status: 'done',
-    options: { source: opts.source },
-  })
-}
-
 /** 数据库触发器报错（quota_exceeded:*）→ i18n key；非限额错误返回 null */
 export function quotaErrorKey(e: unknown): string | null {
   let msg: string
@@ -97,4 +82,27 @@ export function quotaErrorKey(e: unknown): string | null {
   if (msg.includes('quota_exceeded:exports_month')) return 'quota.exportMonthReached'
   if (msg.includes('quota_exceeded:exports')) return 'quota.exportWeekReached'
   return null
+}
+
+/** 导出记账（下载前调用；数据库触发器做周/月限额兜底）。
+ *  成功返回 {ok:true}；失败时带 quotaKey（限额）或 message（其它原因）。 */
+export async function recordExport(opts: {
+  compositionId?: string | null
+  includeAnswers: boolean
+  source: 'compose' | 'bank' | 'random'
+}): Promise<{ ok: true } | { ok: false; quotaKey?: string; message: string }> {
+  const user = uid()
+  if (!user) return { ok: false, message: 'not signed in' }
+  const { error } = await getSupabase().from('export_jobs').insert({
+    composition_id: opts.compositionId ?? null,
+    requested_by: user,
+    include_answers: opts.includeAnswers,
+    status: 'done',
+    options: { source: opts.source },
+  })
+  if (error) {
+    const quotaKey = quotaErrorKey(error)
+    return { ok: false, quotaKey: quotaKey ?? undefined, message: error.message }
+  }
+  return { ok: true }
 }

@@ -78,6 +78,13 @@ export async function signOut(): Promise<void> {
   await getSupabase().auth.signOut()
 }
 
+/** 重新拉取当前用户 profile（管理端改限额后无需重新登录即可生效） */
+export async function refreshProfile(): Promise<void> {
+  const user = state.session?.user.id
+  if (!user) return
+  await loadProfile(user)
+}
+
 export function useAuth() {
   return state
 }

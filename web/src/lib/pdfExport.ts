@@ -549,12 +549,18 @@ export async function buildQuestionsPdf(
   }
 
   // ---- 导出水印：打在题目内容带上，避开下方空白答题区 ----
+  // 自定义文字可任意长短；过长时自动缩号，保证仍是一行斜水印
   if (opts.watermarkText) {
-    const wmSize = 22
     const angle = (30 * Math.PI) / 180
+    let wmSize = 22
     let wmWidth = 0
     try {
       wmWidth = font.widthOfTextAtSize(opts.watermarkText, wmSize)
+      const maxWidth = A4_W * 0.72
+      if (wmWidth > maxWidth) {
+        wmSize = Math.max(10, Math.floor((wmSize * maxWidth) / wmWidth))
+        wmWidth = font.widthOfTextAtSize(opts.watermarkText, wmSize)
+      }
     } catch {
       wmWidth = 0 // 字体缺字时跳过水印，不阻断导出
     }

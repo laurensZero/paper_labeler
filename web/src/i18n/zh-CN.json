@@ -389,7 +389,8 @@
     "compReached": "组卷数已达上限，请联系管理员调高上限或删除不用的组卷。",
     "exportWeekReached": "本周导出次数已达上限，请联系管理员调高上限，或下周一再试。",
     "exportMonthReached": "本月导出次数已达上限，请联系管理员调高上限，或下月再试。",
-    "exportItemsReached": "单次导出最多 {max} 题，请减少题目后再试。"
+    "exportItemsReached": "单次导出最多 {max} 题，请减少题目后再试。",
+    "recordFailed": "导出次数记账失败，未生成下载：{msg}"
   },
   "callback": {
     "failed": "链接无效或已过期，请联系管理员重新发送邀请。"

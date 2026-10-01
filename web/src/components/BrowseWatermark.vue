@@ -36,14 +36,23 @@ const bg = computed(() => {
   const c = cfg.value
   if (!c?.enabled) return ''
   const email = auth.profile?.email || auth.session?.user.email || ''
-  if (!email) return ''
   const date = new Date().toISOString().slice(0, 10)
-  const base = c.mode === 'custom' && c.text ? c.text : '{email}'
+  // 自定义文字：支持任意文案（含中文）；{email}/{date} 按当前用户展开
+  const custom = (c.text || '').trim()
+  const base = c.mode === 'custom' && custom ? custom : '{email}'
+  // 预设模式依赖邮箱；纯自定义文案（不含 {email}）无邮箱也可铺
+  if (base === '{email}' && !email) return ''
+  if (base.includes('{email}') && !email) return ''
   const text = base.replaceAll('{email}', email).replaceAll('{date}', date)
+  if (!text.trim()) return ''
+  // SVG 背景需系统 CJK 字体栈，否则中文自定义文字会缺字
+  const font =
+    "'PingFang SC','Microsoft YaHei','Noto Sans SC','SimHei',Arial,Helvetica,sans-serif"
+  const size = text.length > 36 ? 11 : text.length > 22 ? 13 : 15
   const svg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="460" height="300">' +
     `<text x="230" y="150" transform="rotate(-24 230 150)" text-anchor="middle" ` +
-    'font-family="Arial, Helvetica, sans-serif" font-size="15" ' +
+    `font-family="${font}" font-size="${size}" ` +
     `fill="rgba(0,0,0,0.055)">${escapeXml(text)}</text></svg>`
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 })

@@ -9,13 +9,23 @@ _ROOT = Path(__file__).resolve().parents[2]
 _dotenv_loaded = False
 
 
+def _env_file() -> Path:
+    """返回运行时配置文件路径，打包版优先使用 EXE 同级目录。"""
+    app_root = os.getenv("PAPER_LABELER_ROOT", "").strip()
+    if app_root:
+        packaged_env = Path(app_root) / ".env"
+        if packaged_env.exists():
+            return packaged_env
+    return _ROOT / ".env"
+
+
 def _load_dotenv() -> None:
     """极简 .env 加载（无三方依赖）。已存在的环境变量优先，不被覆盖。"""
     global _dotenv_loaded
     if _dotenv_loaded:
         return
     _dotenv_loaded = True
-    path = _ROOT / ".env"
+    path = _env_file()
     if not path.exists():
         return
     try:
@@ -116,7 +126,7 @@ def save_env_values(values: dict[str, str]) -> None:
     空字符串语义 = 清除该配置（写成 KEY=，同时从 os.environ 移除）。
     管理端「设置 → 云端」的图形化保存走这里，发行版用户不手编文件。
     """
-    path = _ROOT / ".env"
+    path = _env_file()
     lines: list[str] = []
     if path.exists():
         try:

@@ -294,6 +294,9 @@ def list_profiles():
     from backend.cloud import supabase as sb
 
     cfg = _require_cloud()
+    week_start, month_start = _period_starts()
+    # 只拉本周期相关的导出记录（周窗口可能跨月，取两者较早者）
+    jobs_since = min(week_start, month_start)
     try:
         rows = sb.select(
             cfg,
@@ -304,7 +307,12 @@ def list_profiles():
             ),
         )
         comp_rows = sb.select(cfg, "compositions", columns="owner_id")
-        job_rows = sb.select(cfg, "export_jobs", columns="requested_by,status,created_at")
+        job_rows = sb.select(
+            cfg,
+            "export_jobs",
+            columns="requested_by,status,created_at",
+            filters={"created_at": f"gte.{jobs_since.isoformat()}"},
+        )
     except sb.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
 
@@ -314,7 +322,6 @@ def list_profiles():
         if oid:
             comp_counts[oid] = comp_counts.get(oid, 0) + 1
 
-    week_start, month_start = _period_starts()
     export_week: dict[str, int] = {}
     export_month: dict[str, int] = {}
     for r in job_rows:

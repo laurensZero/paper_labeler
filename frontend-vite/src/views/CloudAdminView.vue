@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { api } from '@/api/client'
@@ -259,14 +259,14 @@ function decodeGrantValue(raw: string): { scope: 'section' | 'section_group' | '
   return null
 }
 
-async function loadProfiles() {
-  permLoading.value = true
+async function loadProfiles(opts?: { silent?: boolean }) {
+  if (!opts?.silent) permLoading.value = true
   error.value = ''
   try {
     profiles.value = (await api('/cloud/profiles')) as ProfileRow[]
   } catch (e) {
     error.value = errText(e)
-    profiles.value = []
+    if (!opts?.silent) profiles.value = []
   } finally {
     permLoading.value = false
   }
@@ -525,6 +525,7 @@ async function exportCompPdf(row: CompRow) {
 
 // ---------------------------------------------------------------------------
 // 导出管控（双水印：预设/自定义 + 预览；每人组卷/周月导出/单次题数限额）
+// 交互原则：本地草稿即时预览，防抖/失焦落库；乐观更新，不整卡/整行锁死。
 // ---------------------------------------------------------------------------
 interface WmConfig {
   enabled: boolean
@@ -534,24 +535,47 @@ interface WmConfig {
 type WmKey = 'export_watermark' | 'browse_watermark'
 
 const wmSettings = ref<{ export_watermark: WmConfig; browse_watermark: WmConfig } | null>(null)
-const wmBusy = ref(false)
+const wmSaving = reactive<Record<WmKey, boolean>>({
+  export_watermark: false,
+  browse_watermark: false,
+})
 const guardLoaded = ref(false)
+/** 自定义水印文本草稿：打字即时预览，400ms 防抖 / 失焦落库 */
+const wmTextDrafts = reactive<Record<WmKey, string>>({
+  export_watermark: '',
+  browse_watermark: '',
+})
+const wmTextTimers: Record<WmKey, ReturnType<typeof setTimeout> | null> = {
+  export_watermark: null,
+  browse_watermark: null,
+}
 
 function wm(key: WmKey): WmConfig {
   return wmSettings.value?.[key] ?? { enabled: false, mode: 'preset', text: '' }
+}
+
+function syncWmDrafts() {
+  if (!wmSettings.value) return
+  wmTextDrafts.export_watermark = wmSettings.value.export_watermark.text
+  wmTextDrafts.browse_watermark = wmSettings.value.browse_watermark.text
 }
 
 async function loadSettings() {
   error.value = ''
   try {
     wmSettings.value = (await api('/cloud/settings')) as typeof wmSettings.value
+    syncWmDrafts()
   } catch (e) {
     error.value = t('cloud.guardWatermarkFailed') + ': ' + errText(e)
   }
 }
 
 async function patchWm(key: WmKey, patch: Partial<WmConfig>) {
-  wmBusy.value = true
+  const prev = wmSettings.value ? { ...wmSettings.value[key] } : null
+  if (wmSettings.value) {
+    wmSettings.value[key] = { ...wmSettings.value[key], ...patch }
+  }
+  wmSaving[key] = true
   error.value = ''
   try {
     const res = (await api('/cloud/settings', {
@@ -559,12 +583,19 @@ async function patchWm(key: WmKey, patch: Partial<WmConfig>) {
       headers: { 'Content-Type': 'application/json', ...cloudAuthHeaders() },
       body: JSON.stringify({ [key]: patch }),
     })) as Record<string, WmConfig>
-    if (wmSettings.value && res[key]) wmSettings.value[key] = res[key]
+    if (wmSettings.value && res[key]) {
+      wmSettings.value[key] = res[key]
+      // 服务端可能截断 text；没有待落库的输入时对齐草稿
+      if (patch.text === undefined && !wmTextTimers[key]) {
+        wmTextDrafts[key] = res[key].text
+      }
+    }
   } catch (e) {
+    if (prev && wmSettings.value) wmSettings.value[key] = prev
     error.value = errText(e)
-    await loadSettings() // 失败回读，界面回到服务端真实状态
+    syncWmDrafts()
   } finally {
-    wmBusy.value = false
+    wmSaving[key] = false
   }
 }
 
@@ -572,28 +603,46 @@ function onWmEnabled(key: WmKey, e: Event) {
   void patchWm(key, { enabled: (e.target as HTMLInputElement).checked })
 }
 
-function onWmMode(key: WmKey, e: Event) {
-  const mode = (e.target as HTMLSelectElement).value as WmConfig['mode']
-  void patchWm(key, { mode })
+async function saveWmText(key: WmKey) {
+  const text = wmTextDrafts[key]
+  if (text === wm(key).text) return
+  await patchWm(key, { text })
 }
 
-function onWmText(key: WmKey, e: Event) {
-  void patchWm(key, { text: (e.target as HTMLInputElement).value })
+function onWmTextInput(key: WmKey, e: Event) {
+  wmTextDrafts[key] = (e.target as HTMLInputElement).value
+  // 在预设下直接打字 → 自动切到自定义，所见即所得
+  if (wm(key).mode !== 'custom') {
+    void patchWm(key, { mode: 'custom', text: wmTextDrafts[key] })
+    return
+  }
+  if (wmTextTimers[key]) clearTimeout(wmTextTimers[key]!)
+  wmTextTimers[key] = setTimeout(() => {
+    wmTextTimers[key] = null
+    void saveWmText(key)
+  }, 400)
+}
+
+function onWmTextBlur(key: WmKey) {
+  if (wmTextTimers[key]) {
+    clearTimeout(wmTextTimers[key]!)
+    wmTextTimers[key] = null
+  }
+  void saveWmText(key)
 }
 
 // ---- 水印预览（示例邮箱/日期代入占位符；与网页端展开规则一致）----
 const wmExampleEmail = 'user@example.com'
 const wmExampleDate = computed(() => new Date().toISOString().slice(0, 10))
-const wmExampleTextPh = '{email} {date}'
+/** SVG/CSS 背景里要用系统 CJK 字体栈，否则中文自定义文字会变豆腐块 */
+const wmSvgFont =
+  "'PingFang SC','Microsoft YaHei','Noto Sans SC','SimHei',Arial,Helvetica,sans-serif"
 
-function wmResolveText(key: WmKey): string {
+function resolveWmText(key: WmKey): string {
   const cfg = wm(key)
-  const base =
-    cfg.mode === 'preset'
-      ? key === 'export_watermark'
-        ? '{email} {date}'
-        : '{email}'
-      : cfg.text || (key === 'export_watermark' ? '{email} {date}' : '{email}')
+  const custom = (wmTextDrafts[key] ?? cfg.text).trim()
+  const fallback = key === 'export_watermark' ? '{email} {date}' : '{email}'
+  const base = cfg.mode === 'preset' ? fallback : custom || fallback
   return base.replaceAll('{email}', wmExampleEmail).replaceAll('{date}', wmExampleDate.value)
 }
 
@@ -607,19 +656,101 @@ function escapeXml(s: string): string {
 
 /** 浏览水印平铺预览背景（SVG data-URI，与 web 端 BrowseWatermark 同构） */
 function wmTiledBg(text: string): string {
+  const size = text.length > 36 ? 11 : text.length > 22 ? 13 : 15
   const svg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="460" height="300">' +
     `<text x="230" y="150" transform="rotate(-24 230 150)" text-anchor="middle" ` +
-    'font-family="Arial, Helvetica, sans-serif" font-size="15" ' +
+    `font-family="${wmSvgFont}" font-size="${size}" ` +
     `fill="rgba(0,0,0,0.08)">${escapeXml(text)}</text></svg>`
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
 }
 
+const browseWmPreviewBg = computed(() => wmTiledBg(resolveWmText('browse_watermark')))
+const exportWmPreviewText = computed(() => resolveWmText('export_watermark'))
+
+/** 在自定义文字光标处插入占位符 */
+function insertWmPlaceholder(key: WmKey, token: '{email}' | '{date}') {
+  const el = document.getElementById(`wm-text-${key}`) as HTMLInputElement | null
+  const cur = wmTextDrafts[key] ?? ''
+  let next: string
+  if (!el) {
+    next = cur + token
+    wmTextDrafts[key] = next
+  } else {
+    const start = el.selectionStart ?? cur.length
+    const end = el.selectionEnd ?? cur.length
+    next = cur.slice(0, start) + token + cur.slice(end)
+    wmTextDrafts[key] = next
+    void nextTick(() => {
+      el.focus()
+      const caret = start + token.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
+  // 预设下点插入 → 切到自定义并落库
+  if (wm(key).mode !== 'custom') {
+    void patchWm(key, { mode: 'custom', text: next })
+    return
+  }
+  void saveWmText(key)
+}
+
+/** 切到自定义时若草稿为空，预填带身份占位的模板，避免用户面对空框不知写什么 */
+function onWmMode(key: WmKey, e: Event) {
+  const mode = (e.target as HTMLSelectElement).value as WmConfig['mode']
+  if (mode === 'custom' && !(wmTextDrafts[key] ?? '').trim()) {
+    wmTextDrafts[key] = key === 'export_watermark' ? '{email} {date}' : '{email}'
+  }
+  void patchWm(key, { mode, ...(mode === 'custom' ? { text: wmTextDrafts[key] } : {}) })
+}
+
+// ---- 用户限额：本地草稿 + 失焦保存，按字段标记保存中，不整行禁用 ----
 type QuotaField =
   | 'max_compositions'
   | 'max_exports_per_week'
   | 'max_exports_per_month'
   | 'max_export_items'
+
+const quotaDrafts = reactive<Record<string, string>>({})
+const quotaSaving = reactive<Record<string, boolean>>({})
+
+function quotaDraftKey(p: ProfileRow, field: QuotaField): string {
+  return `${p.id}:${field}`
+}
+
+function quotaDraft(p: ProfileRow, field: QuotaField): string {
+  const k = quotaDraftKey(p, field)
+  if (k in quotaDrafts) return quotaDrafts[k]
+  return p[field] == null ? '' : String(p[field])
+}
+
+function quotaSavingFlag(p: ProfileRow, field: QuotaField): boolean {
+  return !!quotaSaving[quotaDraftKey(p, field)]
+}
+
+function onQuotaInput(p: ProfileRow, field: QuotaField, e: Event) {
+  quotaDrafts[quotaDraftKey(p, field)] = (e.target as HTMLInputElement).value
+}
+
+async function saveQuota(p: ProfileRow, field: QuotaField, value: number | null) {
+  const k = quotaDraftKey(p, field)
+  quotaSaving[k] = true
+  error.value = ''
+  try {
+    await api(`/cloud/profiles/${p.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...cloudAuthHeaders() },
+      body: JSON.stringify({ [field]: value }),
+    })
+    p[field] = value
+    delete quotaDrafts[k]
+  } catch (e) {
+    error.value = errText(e)
+    delete quotaDrafts[k]
+  } finally {
+    quotaSaving[k] = false
+  }
+}
 
 function onQuotaChange(p: ProfileRow, field: QuotaField, e: Event) {
   const input = e.target as HTMLInputElement
@@ -629,12 +760,18 @@ function onQuotaChange(p: ProfileRow, field: QuotaField, e: Event) {
     const n = Number(raw)
     if (!Number.isInteger(n) || n < 0) {
       error.value = t('cloud.guardQuotaInvalid')
+      delete quotaDrafts[quotaDraftKey(p, field)]
       input.value = p[field] == null ? '' : String(p[field])
       return
     }
     value = n
   }
-  void patchProfile(p, { [field]: value })
+  const k = quotaDraftKey(p, field)
+  if (value === p[field]) {
+    delete quotaDrafts[k]
+    return
+  }
+  void saveQuota(p, field, value)
 }
 
 function setTab(next: 'feedback' | 'perm' | 'comps' | 'guard') {
@@ -990,14 +1127,16 @@ onMounted(() => {
       <div class="cl-wm-grid">
         <!-- 网页浏览水印 -->
         <div class="cl-card cl-wm-card">
-          <div class="cl-user-create-title" style="padding: 8px 8px 0">{{ t('cloud.guardWmBrowse') }}</div>
+          <div class="cl-wm-card-head">
+            <div class="cl-user-create-title" style="padding: 8px 8px 0">{{ t('cloud.guardWmBrowse') }}</div>
+            <span v-if="wmSaving.browse_watermark" class="cl-save-flag">{{ t('cloud.guardSaving') }}</span>
+          </div>
           <p class="cl-hint">{{ t('cloud.guardWmBrowseHint') }}</p>
           <div class="cl-wm-controls">
             <label class="cl-check" style="font-size: 13px">
               <input
                 type="checkbox"
                 :checked="wm('browse_watermark').enabled"
-                :disabled="wmBusy"
                 @change="onWmEnabled('browse_watermark', $event)"
               />
               {{ wm('browse_watermark').enabled ? t('cloud.guardWatermarkOn') : t('cloud.guardWatermarkOff') }}
@@ -1005,41 +1144,50 @@ onMounted(() => {
             <select
               class="cl-select"
               :value="wm('browse_watermark').mode"
-              :disabled="wmBusy"
               @change="onWmMode('browse_watermark', $event)"
             >
               <option value="preset">{{ t('cloud.guardWmPreset') }}</option>
               <option value="custom">{{ t('cloud.guardWmCustom') }}</option>
             </select>
           </div>
-          <input
-            v-if="wm('browse_watermark').mode === 'custom'"
-            class="cl-input"
-            style="width: calc(100% - 16px); margin: 0 8px; box-sizing: border-box"
-            type="text"
-            :value="wm('browse_watermark').text"
-            :placeholder="wmExampleEmail"
-            :disabled="wmBusy"
-            maxlength="200"
-            @change="onWmText('browse_watermark', $event)"
-          />
+          <div class="cl-wm-text-block">
+            <div class="cl-wm-text-label">{{ t('cloud.guardWmCustomText') }}</div>
+            <input
+              id="wm-text-browse_watermark"
+              class="cl-input"
+              type="text"
+              :value="wmTextDrafts.browse_watermark"
+              :placeholder="t('cloud.guardWmCustomPhBrowse')"
+              maxlength="200"
+              @input="onWmTextInput('browse_watermark', $event)"
+              @blur="onWmTextBlur('browse_watermark')"
+            />
+            <div class="cl-wm-tokens">
+              <button type="button" class="cl-wm-token" @click="insertWmPlaceholder('browse_watermark', '{email}')">
+                {'{email}'}
+              </button>
+              <button type="button" class="cl-wm-token" @click="insertWmPlaceholder('browse_watermark', '{date}')">
+                {'{date}'}
+              </button>
+              <span class="cl-muted" style="font-size: 11px">{{ t('cloud.guardWmCustomTip') }}</span>
+            </div>
+          </div>
           <div class="cl-wm-preview-label">{{ t('cloud.guardWmPreview') }}</div>
-          <div
-            class="cl-wm-preview-browse"
-            :style="{ backgroundImage: wmTiledBg(wmResolveText('browse_watermark')) }"
-          ></div>
+          <div class="cl-wm-preview-browse" :style="{ backgroundImage: browseWmPreviewBg }"></div>
         </div>
 
         <!-- 导出 PDF 水印 -->
         <div class="cl-card cl-wm-card">
-          <div class="cl-user-create-title" style="padding: 8px 8px 0">{{ t('cloud.guardWmExport') }}</div>
+          <div class="cl-wm-card-head">
+            <div class="cl-user-create-title" style="padding: 8px 8px 0">{{ t('cloud.guardWmExport') }}</div>
+            <span v-if="wmSaving.export_watermark" class="cl-save-flag">{{ t('cloud.guardSaving') }}</span>
+          </div>
           <p class="cl-hint">{{ t('cloud.guardWmExportHint') }}</p>
           <div class="cl-wm-controls">
             <label class="cl-check" style="font-size: 13px">
               <input
                 type="checkbox"
                 :checked="wm('export_watermark').enabled"
-                :disabled="wmBusy"
                 @change="onWmEnabled('export_watermark', $event)"
               />
               {{ wm('export_watermark').enabled ? t('cloud.guardWatermarkOn') : t('cloud.guardWatermarkOff') }}
@@ -1047,36 +1195,51 @@ onMounted(() => {
             <select
               class="cl-select"
               :value="wm('export_watermark').mode"
-              :disabled="wmBusy"
               @change="onWmMode('export_watermark', $event)"
             >
               <option value="preset">{{ t('cloud.guardWmPreset') }}</option>
               <option value="custom">{{ t('cloud.guardWmCustom') }}</option>
             </select>
           </div>
-          <input
-            v-if="wm('export_watermark').mode === 'custom'"
-            class="cl-input"
-            style="width: calc(100% - 16px); margin: 0 8px; box-sizing: border-box"
-            type="text"
-            :value="wm('export_watermark').text"
-            :placeholder="wmExampleTextPh"
-            :disabled="wmBusy"
-            maxlength="200"
-            @change="onWmText('export_watermark', $event)"
-          />
+          <div class="cl-wm-text-block">
+            <div class="cl-wm-text-label">{{ t('cloud.guardWmCustomText') }}</div>
+            <input
+              id="wm-text-export_watermark"
+              class="cl-input"
+              type="text"
+              :value="wmTextDrafts.export_watermark"
+              :placeholder="t('cloud.guardWmCustomPhExport')"
+              maxlength="200"
+              @input="onWmTextInput('export_watermark', $event)"
+              @blur="onWmTextBlur('export_watermark')"
+            />
+            <div class="cl-wm-tokens">
+              <button type="button" class="cl-wm-token" @click="insertWmPlaceholder('export_watermark', '{email}')">
+                {'{email}'}
+              </button>
+              <button type="button" class="cl-wm-token" @click="insertWmPlaceholder('export_watermark', '{date}')">
+                {'{date}'}
+              </button>
+              <span class="cl-muted" style="font-size: 11px">{{ t('cloud.guardWmCustomTip') }}</span>
+            </div>
+          </div>
           <div class="cl-wm-preview-label">{{ t('cloud.guardWmPreview') }}</div>
           <div class="cl-wm-preview-export">
-            <span class="cl-wm-preview-rot">{{ wmResolveText('export_watermark') }}</span>
+            <span class="cl-wm-preview-rot">{{ exportWmPreviewText }}</span>
           </div>
         </div>
       </div>
       <p class="cl-hint" style="margin: -4px 2px 0">{{ t('cloud.guardWmHint') }}</p>
 
       <div class="cl-card">
-        <div class="cl-user-create-title" style="padding: 8px 8px 0">{{ t('cloud.guardQuotaTitle') }}</div>
+        <div class="cl-wm-card-head">
+          <div class="cl-user-create-title" style="padding: 8px 8px 0">{{ t('cloud.guardQuotaTitle') }}</div>
+          <button class="cl-btn cl-btn--ghost cl-refresh-btn" @click="loadProfiles({ silent: true })">
+            {{ t('cloud.guardRefresh') }}
+          </button>
+        </div>
         <p class="cl-hint">{{ t('cloud.guardQuotaHint') }}</p>
-        <div v-if="permLoading" class="cl-empty">…</div>
+        <div v-if="permLoading && !profiles.length" class="cl-empty">…</div>
         <table v-else class="cl-table">
           <thead>
             <tr>
@@ -1091,43 +1254,64 @@ onMounted(() => {
               <td>{{ p.email }}</td>
               <td>
                 <div class="cl-quota-cell">
-                  <span class="cl-muted">{{ t('cloud.guardQuotaUsage', { used: p.composition_count }) }}</span>
+                  <span class="cl-muted">
+                    {{
+                      p.max_compositions == null
+                        ? t('cloud.guardQuotaUsage', { used: p.composition_count })
+                        : t('cloud.guardQuotaUsageOf', { used: p.composition_count, max: p.max_compositions })
+                    }}
+                  </span>
                   <input
                     class="cl-quota-input"
+                    :class="{ 'is-saving': quotaSavingFlag(p, 'max_compositions') }"
                     type="number"
                     min="0"
                     step="1"
-                    :value="p.max_compositions ?? ''"
+                    :value="quotaDraft(p, 'max_compositions')"
                     :placeholder="t('cloud.guardQuotaUnlimited')"
-                    :disabled="busyUserId === p.id"
+                    @input="onQuotaInput(p, 'max_compositions', $event)"
                     @change="onQuotaChange(p, 'max_compositions', $event)"
                   />
                 </div>
               </td>
               <td>
                 <div class="cl-quota-cell">
-                  <span class="cl-muted">{{ t('cloud.guardQuotaUsageWeek', { used: p.export_count_week }) }}</span>
+                  <span class="cl-muted">
+                    {{
+                      p.max_exports_per_week == null
+                        ? t('cloud.guardQuotaUsageWeek', { used: p.export_count_week })
+                        : t('cloud.guardQuotaUsageOfWeek', { used: p.export_count_week, max: p.max_exports_per_week })
+                    }}
+                  </span>
                   <input
                     class="cl-quota-input"
+                    :class="{ 'is-saving': quotaSavingFlag(p, 'max_exports_per_week') }"
                     type="number"
                     min="0"
                     step="1"
-                    :value="p.max_exports_per_week ?? ''"
+                    :value="quotaDraft(p, 'max_exports_per_week')"
                     :placeholder="t('cloud.guardQuotaUnlimited')"
-                    :disabled="busyUserId === p.id"
+                    @input="onQuotaInput(p, 'max_exports_per_week', $event)"
                     @change="onQuotaChange(p, 'max_exports_per_week', $event)"
                   />
                 </div>
                 <div class="cl-quota-cell" style="margin-top: 6px">
-                  <span class="cl-muted">{{ t('cloud.guardQuotaUsageMonth', { used: p.export_count_month }) }}</span>
+                  <span class="cl-muted">
+                    {{
+                      p.max_exports_per_month == null
+                        ? t('cloud.guardQuotaUsageMonth', { used: p.export_count_month })
+                        : t('cloud.guardQuotaUsageOfMonth', { used: p.export_count_month, max: p.max_exports_per_month })
+                    }}
+                  </span>
                   <input
                     class="cl-quota-input"
+                    :class="{ 'is-saving': quotaSavingFlag(p, 'max_exports_per_month') }"
                     type="number"
                     min="0"
                     step="1"
-                    :value="p.max_exports_per_month ?? ''"
+                    :value="quotaDraft(p, 'max_exports_per_month')"
                     :placeholder="t('cloud.guardQuotaUnlimited')"
-                    :disabled="busyUserId === p.id"
+                    @input="onQuotaInput(p, 'max_exports_per_month', $event)"
                     @change="onQuotaChange(p, 'max_exports_per_month', $event)"
                   />
                 </div>
@@ -1135,13 +1319,14 @@ onMounted(() => {
               <td>
                 <input
                   class="cl-quota-input"
+                  :class="{ 'is-saving': quotaSavingFlag(p, 'max_export_items') }"
                   style="width: 100%; box-sizing: border-box"
                   type="number"
                   min="0"
                   step="1"
-                  :value="p.max_export_items ?? ''"
+                  :value="quotaDraft(p, 'max_export_items')"
                   :placeholder="t('cloud.guardQuotaUnlimited')"
-                  :disabled="busyUserId === p.id"
+                  @input="onQuotaInput(p, 'max_export_items', $event)"
                   @change="onQuotaChange(p, 'max_export_items', $event)"
                 />
               </td>
@@ -1630,6 +1815,51 @@ onMounted(() => {
   padding: 4px 8px 10px;
 }
 
+.cl-wm-text-block {
+  padding: 0 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cl-wm-text-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.cl-wm-text-block .cl-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cl-wm-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.cl-wm-token {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+
+.cl-wm-token:hover:not(:disabled) {
+  border-color: var(--accent, #4a7cf7);
+  color: var(--text-primary);
+}
+
+.cl-wm-token:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .cl-wm-preview-label {
   padding: 0 8px 4px;
   font-size: 11px;
@@ -1665,6 +1895,30 @@ onMounted(() => {
   color: #888;
   opacity: 0.35;
   pointer-events: none;
+}
+
+.cl-wm-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 8px;
+}
+
+.cl-save-flag {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.cl-refresh-btn {
+  margin: 8px 8px 0 auto;
+  flex-shrink: 0;
+}
+
+.cl-quota-input.is-saving {
+  border-color: var(--accent, #4a7cf7);
+  opacity: 0.75;
 }
 
 .cl-quota-input {
