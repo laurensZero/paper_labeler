@@ -7,7 +7,6 @@
 范围（与产品确认）：
   - 清空全部业务表（papers/questions/boxes/answers/sections/compositions/...）
   - 清空 R2 全部对象
-  - 账号只保留 KEEP_ADMIN_EMAIL，其余 auth 用户删除
   - 保留数据库 schema / RLS / 迁移
 """
 from __future__ import annotations
@@ -29,8 +28,6 @@ if str(ROOT) not in sys.path:
 
 from backend.cloud import supabase  # noqa: E402
 from backend.cloud.config import get_cloud_config, missing_config  # noqa: E402
-
-KEEP_ADMIN_EMAIL = "admin@paperlabeler.test"
 
 # 依赖顺序：子表在前
 TABLES_ALL = [
@@ -162,21 +159,6 @@ def r2_delete_keys(cfg, keys: list[str], *, apply: bool) -> int:
     return deleted
 
 
-def list_auth_users(cfg) -> list[dict]:
-    users: list[dict] = []
-    page = 1
-    while True:
-        status, body = supabase._auth_request(cfg, "GET", f"admin/users?page={page}&per_page=200")
-        if status >= 400:
-            raise RuntimeError(f"list users failed: {status} {body}")
-        batch = body.get("users") or []
-        users.extend(batch)
-        if len(batch) < 200:
-            break
-        page += 1
-    return users
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Purge cloud test data before production")
     parser.add_argument("--yes", action="store_true", help="actually delete (default: dry-run)")
@@ -191,7 +173,6 @@ def main() -> int:
 
     mode = "APPLY" if apply else "DRY-RUN"
     print(f"\n=== cloud purge ({mode}) ===")
-    print(f"keep admin: {KEEP_ADMIN_EMAIL}")
 
     # --- R2 ---
     # 保留 app-update/（桌面端更新包与 latest.json），只清业务/测试对象
@@ -229,33 +210,6 @@ def main() -> int:
                 return 1
         else:
             print(f"  {table:28s} {exists}")
-
-    # --- accounts ---
-    print("\n[auth] users:")
-    try:
-        users = list_auth_users(cfg)
-    except Exception as exc:
-        print(f"  list failed: {exc}")
-        users = []
-    to_delete = []
-    for u in users:
-        email = (u.get("email") or "").strip().lower()
-        uid = u.get("id")
-        keep = email == KEEP_ADMIN_EMAIL.lower()
-        mark = "KEEP" if keep else "DELETE"
-        print(f"  {mark:6s} {email or uid}")
-        if not keep and uid:
-            to_delete.append((uid, email or uid))
-    if apply:
-        for uid, label in to_delete:
-            try:
-                supabase.admin_delete_user(cfg, uid)
-                print(f"  deleted user {label}")
-            except Exception as exc:
-                print(f"  delete user {label} FAILED: {exc}")
-                return 1
-    else:
-        print(f"  would delete {len(to_delete)} users")
 
     print(f"\n=== done ({mode}) ===")
     if not apply:
