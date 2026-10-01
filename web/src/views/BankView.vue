@@ -9,6 +9,7 @@ import MultiSelect from '@/components/MultiSelect.vue'
 import ExportDialog, { type SummaryFields, type RandomPoolItem } from '@/components/ExportDialog.vue'
 import { buildCascadeOptions, fetchSectionsGraph, UNSET_SECTION, type CascadeGroup } from '@/lib/sections'
 import { fetchAnswerBoxes, fetchQuestionBoxes, toExportInput, type QuestionBox } from '@/lib/exportData'
+import { fetchPaperQnoMap } from '@/lib/paperQno'
 import type { ExportQuestionInput } from '@/lib/pdfExport'
 import { useAuth } from '@/composables/auth'
 
@@ -25,10 +26,10 @@ interface PaperLite {
   season_token: string | null
 }
 
+/** 题库行。注意：questions 表没有 paper_qno 列，卷内序号要另查 rpc paper_qno_map（见 loadPaperQno） */
 interface QFull {
   id: number
   question_no: string | null
-  paper_qno?: number | null
   status: string
   notes: string | null
   difficulty: number | null
@@ -122,6 +123,29 @@ async function loadUserData(questionIds: number[]) {
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
   }
+}
+
+// ---- 卷内题号（该试卷的第几题）----
+// 库端 RPC 计算（supabase/migrations/0010）；拿不到时回退题库全局 question_no。
+const paperQno = ref<Map<number, number>>(new Map())
+const paperQnoTried = new Set<number>()
+
+function paperQnoOf(r: QFull | null): number | null {
+  if (!r) return null
+  const no = paperQno.value.get(r.id)
+  return no != null && no > 0 ? no : null
+}
+
+async function loadPaperQno(questionIds: number[]) {
+  const missing = questionIds.filter((id) => !paperQnoTried.has(id))
+  if (!missing.length) return
+  // 先登记再请求，避免翻页来回时重复打 RPC
+  for (const id of missing) paperQnoTried.add(id)
+  const fetched = await fetchPaperQnoMap(missing)
+  if (!fetched.size) return
+  const m = new Map(paperQno.value)
+  for (const [id, no] of fetched) m.set(id, no)
+  paperQno.value = m
 }
 
 async function upsertUd(id: number, patch: Partial<UserDatum>) {
@@ -303,9 +327,8 @@ function paperFullLabel(p: PaperLite | null): string {
 function sourceLine(r: QFull | null): string {
   if (!r) return ''
   const paper = paperFullLabel(paperOf(r))
-  // 「该试卷的第几题」= 卷内序号
-  const localNo = r.paper_qno
-  const no = localNo != null && localNo > 0 ? localNo : r.question_no
+  // 「该试卷的第几题」= 卷内序号；RPC 未就绪时回退全局题号
+  const no = paperQnoOf(r) ?? r.question_no
   if (paper && no != null && no !== '') return `${paper} · ${t('bank.qno')} ${no}`
   if (paper) return paper
   return no != null && no !== '' ? `${t('bank.qno')} ${no}` : '—'
@@ -436,6 +459,7 @@ async function loadQuestions(
     allRows.value = (data ?? []) as unknown as QFull[]
     if (includeCount) totalRows.value = count ?? allRows.value.length
     void loadUserData(allRows.value.map((row) => row.id))
+    void loadPaperQno(allRows.value.map((row) => row.id))
   } catch (e) {
     if (token !== loadToken) return
     loadError.value = e instanceof Error ? e.message : String(e)
