@@ -203,7 +203,7 @@ def test_sync_link_rows_replaces_changed_parent(monkeypatch):
     monkeypatch.setattr(sync_mod.supabase, "delete_filtered", lambda cfg, table, filters: deleted.append(filters) or 0)
     monkeypatch.setattr(
         sync_mod.supabase,
-        "insert",
+        "upsert",
         lambda cfg, table, rows, **kwargs: inserted.extend(rows),
     )
 
@@ -218,7 +218,7 @@ def test_sync_link_rows_replaces_changed_parent(monkeypatch):
         cloud_rows=[(1, "A"), (2, "B")],
         row_factory=lambda p: {"question_id": p[0], "section_name": p[1]},
     )
-    assert deleted == [{"question_id": "eq.1"}]
+    assert deleted == [{"question_id": "eq.1", "section_name": "eq.A"}]
     assert inserted == [{"question_id": 1, "section_name": "C"}]
 
 
@@ -230,7 +230,7 @@ def test_sync_link_rows_first_upload_does_not_delete(monkeypatch):
     monkeypatch.setattr(sync_mod.supabase, "delete_filtered", lambda *args: deleted.append(args))
     monkeypatch.setattr(
         sync_mod.supabase,
-        "insert",
+        "upsert",
         lambda cfg, table, rows, **kwargs: inserted.extend(rows),
     )
 
@@ -246,7 +246,7 @@ def test_sync_link_rows_first_upload_does_not_delete(monkeypatch):
     )
 
     assert deleted == []
-    assert inserted == [
+    assert sorted(inserted, key=lambda row: row["question_id"]) == [
         {"question_id": 1, "section_name": "A"},
         {"question_id": 2, "section_name": "B"},
     ]

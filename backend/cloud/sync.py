@@ -466,43 +466,35 @@ def _sync_link_rows(
     row_factory,
     key_index: int = 0,
 ) -> None:
-    """链接表整表 diff：按父键分组做 delete+insert（replace 语义，幂等）。"""
+    """同步链接表差异，避免整组重插触发唯一键冲突。"""
     desired_set = set(desired)
     cloud_set = set(cloud_rows)
-    if desired_set == cloud_set:
+    stale = cloud_set - desired_set
+    to_upsert = desired_set - cloud_set
+    if not stale and not to_upsert:
         summary.set_progress(0)
         return
-    desired_by_key: dict[object, set[tuple]] = {}
-    cloud_by_key: dict[object, set[tuple]] = {}
-    for pair in desired_set:
-        desired_by_key.setdefault(pair[key_index], set()).add(pair)
-    for pair in cloud_set:
-        cloud_by_key.setdefault(pair[key_index], set()).add(pair)
-    changed_keys = {
-        key
-        for key in (set(desired_by_key) | set(cloud_by_key))
-        if desired_by_key.get(key, set()) != cloud_by_key.get(key, set())
-    }
-    if not changed_keys:
-        summary.set_progress(0)
-        return
-    reinsert = [pair for pair in desired if pair[key_index] in changed_keys]
-    delete_keys = changed_keys & set(cloud_by_key)
-    progress_total = len(delete_keys) + len(reinsert)
+    progress_total = len(stale) + len(to_upsert)
     summary.set_progress(progress_total)
     processed = 0
-    for key in delete_keys:
-        supabase.delete_filtered(cfg, table, {parent_col: f"eq.{key}"})
+    for pair in stale:
+        filters = {parent_col: f"eq.{pair[key_index]}"}
+        if table == "question_sections":
+            filters["section_name"] = f"eq.{pair[1]}"
+        supabase.delete_filtered(cfg, table, filters)
         summary.bump(f"{table}_deleted")
         processed += 1
         summary.set_progress(progress_total, processed)
-    supabase.insert(
+    rows = [row_factory(pair) for pair in to_upsert]
+    conflict = "question_id,section_name" if table == "question_sections" else "section_name"
+    supabase.upsert(
         cfg,
         table,
-        [row_factory(p) for p in reinsert],
+        rows,
+        on_conflict=conflict,
         on_progress=lambda current: summary.set_progress(progress_total, processed + current),
     )
-    summary.bump(f"{table}_inserted", len(reinsert))
+    summary.bump(f"{table}_inserted", len(rows))
     summary.set_progress(progress_total, progress_total)
 
 
