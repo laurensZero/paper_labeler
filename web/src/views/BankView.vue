@@ -50,7 +50,6 @@ interface AnswerData {
 }
 
 const QUESTION_PAGE_SIZE = 50
-const USER_DATA_FETCH_BATCH = 1000
 
 // ---- 筛选 ----
 const filters = reactive({
@@ -95,31 +94,28 @@ function setUd(id: number, patch: Partial<UserDatum>) {
   userData.value = m
 }
 
-async function loadUserData() {
+async function loadUserData(questionIds: number[]) {
   const uid = auth.session?.user.id
-  if (!uid) return
+  if (!uid || !questionIds.length) {
+    userData.value = new Map()
+    return
+  }
   try {
-    const dataRows: { question_id: number; is_favorite: boolean; note: string | null }[] = []
-    for (let offset = 0; ; offset += USER_DATA_FETCH_BATCH) {
-      const { data, error } = await getSupabase()
-        .from('question_user_data')
-        .select('question_id,is_favorite,note')
-        .eq('user_id', uid)
-        .range(offset, offset + USER_DATA_FETCH_BATCH - 1)
-      if (error) {
-        // 0002 迁移尚未执行时静默降级（收藏/备注不可用，但不阻塞题库）
-        if (error.code === '42P01' || error.code === 'PGRST205') {
-          console.warn('[question_user_data] 迁移 0002 未执行，个人收藏/备注暂不可用')
-          return
-        }
-        throw error
+    const { data, error } = await getSupabase()
+      .from('question_user_data')
+      .select('question_id,is_favorite,note')
+      .eq('user_id', uid)
+      .in('question_id', questionIds)
+    if (error) {
+      // 0002 迁移尚未执行时静默降级（收藏/备注不可用，但不阻塞题库）
+      if (error.code === '42P01' || error.code === 'PGRST205') {
+        console.warn('[question_user_data] 迁移 0002 未执行，个人收藏/备注暂不可用')
+        return
       }
-      const batch = (data ?? []) as { question_id: number; is_favorite: boolean; note: string | null }[]
-      dataRows.push(...batch)
-      if (batch.length < USER_DATA_FETCH_BATCH) break
+      throw error
     }
     const m = new Map<number, UserDatum>()
-    for (const row of dataRows) {
+    for (const row of (data ?? []) as { question_id: number; is_favorite: boolean; note: string | null }[]) {
       m.set(row.question_id, { is_favorite: row.is_favorite, note: row.note })
     }
     userData.value = m
@@ -384,39 +380,46 @@ async function matchingUserQuestionIds(): Promise<number[] | null> {
   return (data ?? []).map((row) => row.question_id as number)
 }
 
+function buildQuestionQuery(
+  userQuestionIds: number[] | null,
+  options: { count?: 'exact'; head?: boolean } = {},
+) {
+  let select = `id, question_no, status, notes, difficulty, paper_id, section,
+      papers ( id, filename, exam_code, year_token, season_token ),
+      question_sections ( section_name )`
+  if (filters.section && filters.section !== UNSET_SECTION) {
+    select = `id, question_no, status, notes, difficulty, paper_id, section,
+      papers ( id, filename, exam_code, year_token, season_token ),
+      question_sections!inner ( section_name )`
+  }
+  const selectOptions = options.count ? { count: options.count, head: options.head } : undefined
+  let query = getSupabase().from('questions').select(select, selectOptions)
+  if (filters.years.length) query = query.in('papers.year_token', filters.years)
+  if (filters.seasons.length) query = query.in('papers.season_token', filters.seasons)
+  if (filters.papers.length) query = query.in('paper_id', filters.papers.map(Number))
+  if (filters.section && filters.section !== UNSET_SECTION) {
+    query = query.eq('question_sections.section_name', filters.section)
+  } else if (filters.section === UNSET_SECTION) {
+    query = query.is('section', null)
+  }
+  if (filters.difficulties.length) {
+    const levels = filters.difficulties.filter((value) => value !== 'unset')
+    const wantsUnset = filters.difficulties.includes('unset')
+    if (levels.length && wantsUnset) query = query.or(`difficulty.in.(${levels.join(',')}),difficulty.is.null`)
+    else if (levels.length) query = query.in('difficulty', levels.map(Number))
+    else query = query.is('difficulty', null)
+  }
+  if (userQuestionIds) query = query.in('id', userQuestionIds.length ? userQuestionIds : [-1])
+  return query
+}
+
 async function loadQuestions() {
   const token = ++loadToken
   loading.value = true
   loadError.value = ''
   try {
     const userQuestionIds = await matchingUserQuestionIds()
-    let select = `id, question_no, status, notes, difficulty, paper_id, section,
-      papers ( id, filename, exam_code, year_token, season_token ),
-      question_sections ( section_name )`
-    if (filters.section && filters.section !== UNSET_SECTION) {
-      select = `id, question_no, status, notes, difficulty, paper_id, section,
-        papers ( id, filename, exam_code, year_token, season_token ),
-        question_sections!inner ( section_name )`
-    }
-    let query = getSupabase().from('questions').select(select, { count: 'exact' })
-    if (filters.years.length) query = query.in('papers.year_token', filters.years)
-    if (filters.seasons.length) query = query.in('papers.season_token', filters.seasons)
-    if (filters.papers.length) query = query.in('paper_id', filters.papers.map(Number))
-    if (filters.section && filters.section !== UNSET_SECTION) {
-      query = query.eq('question_sections.section_name', filters.section)
-    } else if (filters.section === UNSET_SECTION) {
-      query = query.is('section', null)
-    }
-    if (filters.difficulties.length) {
-      const levels = filters.difficulties.filter((value) => value !== 'unset')
-      const wantsUnset = filters.difficulties.includes('unset')
-      if (levels.length && wantsUnset) query = query.or(`difficulty.in.(${levels.join(',')}),difficulty.is.null`)
-      else if (levels.length) query = query.in('difficulty', levels.map(Number))
-      else query = query.is('difficulty', null)
-    }
-    if (userQuestionIds) {
-      query = query.in('id', userQuestionIds.length ? userQuestionIds : [-1])
-    }
+    const query = buildQuestionQuery(userQuestionIds, { count: 'exact' })
     const from = (currentPage.value - 1) * QUESTION_PAGE_SIZE
     const { data, count, error } = await query
       .order('id', { ascending: false })
@@ -425,6 +428,7 @@ async function loadQuestions() {
     if (token !== loadToken) return
     allRows.value = (data ?? []) as unknown as QFull[]
     totalRows.value = count ?? allRows.value.length
+    void loadUserData(allRows.value.map((row) => row.id))
   } catch (e) {
     if (token !== loadToken) return
     loadError.value = e instanceof Error ? e.message : String(e)
@@ -485,17 +489,38 @@ async function goToPage(page: number, edge: 'first' | 'last' = 'first') {
   }
 }
 
-function jumpToQuestion() {
+async function jumpToQuestion() {
   const v = filters.jump.trim()
   if (!v) return
-  const hit =
-    rows.value.find((r) => String(r.question_no ?? '') === v) ??
-    rows.value.find((r) => String(r.question_no ?? '').includes(v))
-  if (hit) {
-    selectedId.value = hit.id
-    loadError.value = ''
-  } else {
-    loadError.value = t('bank.jumpNotFound', { no: v })
+  loadError.value = ''
+  try {
+    const userQuestionIds = await matchingUserQuestionIds()
+    const base = buildQuestionQuery(userQuestionIds)
+    const exact = await base.eq('question_no', v).order('id', { ascending: false }).limit(1)
+    let hit = exact.data?.[0] as { id: number } | undefined
+    if (!hit) {
+      const partial = await buildQuestionQuery(userQuestionIds)
+        .ilike('question_no', `%${v}%`)
+        .order('id', { ascending: false })
+        .limit(1)
+      hit = partial.data?.[0] as { id: number } | undefined
+    }
+    if (!hit) {
+      loadError.value = t('bank.jumpNotFound', { no: v })
+      return
+    }
+
+    const before = await buildQuestionQuery(userQuestionIds, { count: 'exact', head: true })
+      .gte('id', hit.id)
+    if (before.error) throw before.error
+    currentPage.value = Math.max(1, Math.ceil((before.count ?? 1) / QUESTION_PAGE_SIZE))
+    await loadQuestions()
+    if (allRows.value.some((row) => row.id === hit!.id)) {
+      selectionScrollBehavior = 'auto'
+      selectedId.value = hit.id
+    }
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e)
   }
 }
 
@@ -715,7 +740,7 @@ function applyQueryPrefill() {
 onMounted(async () => {
   applyQueryPrefill()
   document.addEventListener('keydown', onKeydown)
-  await Promise.all([loadFilterOptions(), loadQuestions(), loadUserData()])
+  await Promise.all([loadFilterOptions(), loadQuestions()])
 })
 
 onBeforeUnmount(() => {
