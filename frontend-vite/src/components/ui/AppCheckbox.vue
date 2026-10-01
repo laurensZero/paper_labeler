@@ -44,9 +44,18 @@ defineEmits<{
 
 .app-checkbox input {
   position: absolute;
+  left: 0;
+  top: 0;
   opacity: 0;
-  width: 0;
-  height: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .app-checkbox__box {

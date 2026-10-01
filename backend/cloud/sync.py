@@ -288,12 +288,22 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
 
         # ---------- 4. question_sections（整表 diff，覆盖不更新 updated_at 的改标签） ----------
         summary.set_phase("question_sections")
+        question_ids = {int(q.id) for q in questions}
+        desired_qsections = [
+            (qs.question_id, qs.section_name)
+            for qs in qsections
+            if int(qs.question_id) in question_ids
+        ]
+        skipped_qsections = len(qsections) - len(desired_qsections)
+        if skipped_qsections:
+            summary.bump("question_sections_orphaned", skipped_qsections)
+            logger.warning("跳过 %s 条没有对应题目主记录的题目分类关系", skipped_qsections)
         _sync_link_rows(
             cfg,
             summary,
             table="question_sections",
             parent_col="question_id",
-            desired=[(qs.question_id, qs.section_name) for qs in qsections],
+            desired=desired_qsections,
             cloud_rows=[(r["question_id"], r["section_name"]) for r in cloud_qsections],
             row_factory=lambda pair: {"question_id": pair[0], "section_name": pair[1]},
             key_index=0,
