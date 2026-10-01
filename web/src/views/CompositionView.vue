@@ -107,6 +107,8 @@ const difficultyMsOptions = [
   { value: 'unset', label: t('compose.filters.difficultyUnset') },
 ]
 const bankAll = ref<BankQ[]>([])
+const bankTotal = ref(0)
+const USER_DATA_FETCH_BATCH = 1000
 const bankLoading = ref(false)
 const cascadeOptions = ref<CascadeGroup[]>([])
 const sectionLabelMap = ref<Record<string, string>>({})
@@ -135,46 +137,33 @@ async function loadFavIds() {
   const uid = auth.session?.user.id
   if (!uid) return
   try {
-    const { data, error } = await getSupabase()
-      .from('question_user_data')
-      .select('question_id')
-      .eq('user_id', uid)
-      .eq('is_favorite', true)
-      .limit(2000)
-    if (error) {
-      if (error.code === '42P01' || error.code === 'PGRST205') {
-        console.warn('[question_user_data] 迁移 0002 未执行，个人收藏暂不可用')
-        return
+    const ids: number[] = []
+    for (let offset = 0; ; offset += USER_DATA_FETCH_BATCH) {
+      const { data, error } = await getSupabase()
+        .from('question_user_data')
+        .select('question_id')
+        .eq('user_id', uid)
+        .eq('is_favorite', true)
+        .range(offset, offset + USER_DATA_FETCH_BATCH - 1)
+      if (error) {
+        if (error.code === '42P01' || error.code === 'PGRST205') {
+          console.warn('[question_user_data] 迁移 0002 未执行，个人收藏暂不可用')
+          return
+        }
+        throw error
       }
-      throw error
+      const batch = (data ?? []).map((r) => r.question_id as number)
+      ids.push(...batch)
+      if (batch.length < USER_DATA_FETCH_BATCH) break
     }
-    favIds.value = new Set((data ?? []).map((r) => r.question_id as number))
+    favIds.value = new Set(ids)
   } catch {
     favIds.value = new Set()
   }
 }
 
-// 题库面板：模块/收藏/分页都在客户端（行数 ≤ 2000）
-const bankFiltered = computed(() => {
-  let list = bankAll.value
-  const v = bank.section
-  if (v === UNSET_SECTION) list = list.filter((q) => !q.question_sections?.length && !q.section)
-  else if (v) list = list.filter((q) => q.question_sections?.some((s) => s.section_name === v) || q.section === v)
-  if (bank.favOnly) list = list.filter((q) => favIds.value.has(q.id))
-  if (bank.difficulties.length) {
-    const wanted = new Set(bank.difficulties)
-    list = list.filter((q) => {
-      if (q.difficulty == null) return wanted.has('unset')
-      return wanted.has(String(q.difficulty))
-    })
-  }
-  return list
-})
-const bankTotal = computed(() => bankFiltered.value.length)
-const bankRows = computed(() => {
-  const from = (bank.page - 1) * bank.pageSize
-  return bankFiltered.value.slice(from, from + bank.pageSize)
-})
+// 题库面板：筛选与分页由 Supabase 处理，前端只保留当前页。
+const bankRows = computed(() => bankAll.value)
 
 const dragSourceId = ref<number | null>(null)
 const dragOverId = ref<number | null>(null)
@@ -610,19 +599,41 @@ async function searchBank(resetPage = true) {
   if (resetPage) bank.page = 1
   bankLoading.value = true
   try {
+    const relation = bank.section && bank.section !== UNSET_SECTION ? 'question_sections!inner ( section_name )' : 'question_sections ( section_name )'
+    const papersRelation = bank.years.length || bank.seasons.length ? 'papers!inner ( exam_code )' : 'papers ( exam_code )'
     let query = getSupabase()
       .from('questions')
       .select(
         `id, question_no, section, difficulty,
-         papers ( exam_code ),
-         question_sections ( section_name )`,
+         ${papersRelation},
+         ${relation}`,
         { count: 'exact' },
       )
     if (bank.years.length) query = query.in('papers.year_token', bank.years)
     if (bank.seasons.length) query = query.in('papers.season_token', bank.seasons)
-    const { data, error } = await query.order('id', { ascending: false }).limit(2000)
+    if (bank.section && bank.section !== UNSET_SECTION) {
+      query = query.eq('question_sections.section_name', bank.section)
+    } else if (bank.section === UNSET_SECTION) {
+      query = query.is('section', null).is('question_sections', null)
+    }
+    if (bank.difficulties.length) {
+      const levels = bank.difficulties.filter((value) => value !== 'unset')
+      const wantsUnset = bank.difficulties.includes('unset')
+      if (levels.length && wantsUnset) query = query.or(`difficulty.in.(${levels.join(',')}),difficulty.is.null`)
+      else if (levels.length) query = query.in('difficulty', levels.map(Number))
+      else query = query.is('difficulty', null)
+    }
+    if (bank.favOnly) {
+      const ids = [...favIds.value]
+      query = query.in('id', ids.length ? ids : [-1])
+    }
+    const from = (bank.page - 1) * bank.pageSize
+    const { data, count, error } = await query
+      .order('id', { ascending: false })
+      .range(from, from + bank.pageSize - 1)
     if (error) throw error
     bankAll.value = (data ?? []) as unknown as BankQ[]
+    bankTotal.value = count ?? bankAll.value.length
   } catch (e) {
     pageError.value = e instanceof Error ? e.message : String(e)
     // 失败保留旧列表，避免面板闪空
@@ -633,7 +644,13 @@ async function searchBank(resetPage = true) {
 
 // 筛选变化时页码回 1（试卷/年份/季度需重新拉取；收藏为纯客户端过滤）
 watch(
-  () => [bank.years.join(','), bank.seasons.join(',')],
+  () => [
+    bank.section,
+    bank.years.join(','),
+    bank.seasons.join(','),
+    bank.difficulties.join(','),
+    bank.favOnly,
+  ],
   () => {
     bank.page = 1
     void searchBank()

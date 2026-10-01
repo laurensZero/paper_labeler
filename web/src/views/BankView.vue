@@ -49,7 +49,8 @@ interface AnswerData {
   answer_boxes: { id: number; image_key: string; page: number }[]
 }
 
-const MAX_ROWS = 2000
+const QUESTION_PAGE_SIZE = 50
+const USER_DATA_FETCH_BATCH = 1000
 
 // ---- 筛选 ----
 const filters = reactive({
@@ -63,12 +64,16 @@ const filters = reactive({
   jump: '',
 })
 const allRows = ref<QFull[]>([])
+const currentPage = ref(1)
+const totalRows = ref(0)
 const loading = ref(false)
 const loadError = ref('')
 const selectedId = ref<number | null>(null)
 const heroRef = ref<HTMLElement | null>(null)
 const questionBoxCache = new Map<number, QuestionBox[]>()
 const questionBoxVersion = ref(0)
+let suppressSelectionReset = false
+let selectionScrollBehavior: ScrollBehavior = 'smooth'
 
 const cascadeOptions = ref<CascadeGroup[]>([])
 const paperOptions = ref<PaperLite[]>([])
@@ -94,21 +99,27 @@ async function loadUserData() {
   const uid = auth.session?.user.id
   if (!uid) return
   try {
-    const { data, error } = await getSupabase()
-      .from('question_user_data')
-      .select('question_id,is_favorite,note')
-      .eq('user_id', uid)
-      .limit(2000)
-    if (error) {
-      // 0002 迁移尚未执行时静默降级（收藏/备注不可用，但不阻塞题库）
-      if (error.code === '42P01' || error.code === 'PGRST205') {
-        console.warn('[question_user_data] 迁移 0002 未执行，个人收藏/备注暂不可用')
-        return
+    const dataRows: { question_id: number; is_favorite: boolean; note: string | null }[] = []
+    for (let offset = 0; ; offset += USER_DATA_FETCH_BATCH) {
+      const { data, error } = await getSupabase()
+        .from('question_user_data')
+        .select('question_id,is_favorite,note')
+        .eq('user_id', uid)
+        .range(offset, offset + USER_DATA_FETCH_BATCH - 1)
+      if (error) {
+        // 0002 迁移尚未执行时静默降级（收藏/备注不可用，但不阻塞题库）
+        if (error.code === '42P01' || error.code === 'PGRST205') {
+          console.warn('[question_user_data] 迁移 0002 未执行，个人收藏/备注暂不可用')
+          return
+        }
+        throw error
       }
-      throw error
+      const batch = (data ?? []) as { question_id: number; is_favorite: boolean; note: string | null }[]
+      dataRows.push(...batch)
+      if (batch.length < USER_DATA_FETCH_BATCH) break
     }
     const m = new Map<number, UserDatum>()
-    for (const row of (data ?? []) as { question_id: number; is_favorite: boolean; note: string | null }[]) {
+    for (const row of dataRows) {
       m.set(row.question_id, { is_favorite: row.is_favorite, note: row.note })
     }
     userData.value = m
@@ -258,24 +269,12 @@ const difficultyMsOptions = computed(() => ([
   { value: 'unset', label: t('bank.difficultyUnset') },
 ]))
 
-// 模块/收藏/备注筛选走客户端（行数 ≤ MAX_ROWS；支持「未分类」）
+// 题目列表只保留当前页；筛选和总数由服务端查询决定。
 const rows = computed<QFull[]>(() => {
-  let list = allRows.value
-  const v = filters.section
-  if (v === UNSET_SECTION) list = list.filter((r) => sectionsOf(r).length === 0)
-  else if (v) list = list.filter((r) => sectionsOf(r).includes(v))
-  if (filters.favOnly) list = list.filter((r) => isFav(r.id))
-  if (filters.difficulties.length) {
-    const wanted = new Set(filters.difficulties)
-    list = list.filter((r) => {
-      if (r.difficulty == null) return wanted.has('unset')
-      return wanted.has(String(r.difficulty))
-    })
-  }
-  const kw = filters.notes.trim().toLowerCase()
-  if (kw) list = list.filter((r) => noteOf(r.id).toLowerCase().includes(kw))
-  return list
+  return allRows.value
 })
+
+const totalPages = computed(() => Math.max(1, Math.ceil(totalRows.value / QUESTION_PAGE_SIZE)))
 
 // ---- 答案 ----
 const ansOpen = ref(false)
@@ -314,41 +313,6 @@ function sourceLine(r: QFull | null): string {
   if (paper && no != null && no !== '') return `${paper} · ${t('bank.qno')} ${no}`
   if (paper) return paper
   return no != null && no !== '' ? `${t('bank.qno')} ${no}` : '—'
-}
-
-async function addPaperQuestionNumbers(items: QFull[]): Promise<void> {
-  if (!items.length) return
-  const ids = items.map((item) => item.id)
-  const { data, error } = await getSupabase()
-    .from('question_boxes')
-    .select('question_id, page, bbox')
-    .in('question_id', ids)
-  if (error) throw error
-
-  const firstBox = new Map<number, { page: number; y: number }>()
-  for (const box of (data ?? []) as { question_id: number; page: number; bbox: unknown }[]) {
-    const bbox = Array.isArray(box.bbox) ? box.bbox : []
-    const y = typeof bbox[1] === 'number' ? bbox[1] : 0
-    const current = firstBox.get(box.question_id)
-    if (!current || [box.page, y] < [current.page, current.y]) {
-      firstBox.set(box.question_id, { page: box.page, y })
-    }
-  }
-
-  const byPaper = new Map<number, QFull[]>()
-  for (const item of items) {
-    const group = byPaper.get(item.paper_id) ?? []
-    group.push(item)
-    byPaper.set(item.paper_id, group)
-  }
-  for (const group of byPaper.values()) {
-    group.sort((a, b) => {
-      const left = firstBox.get(a.id) ?? { page: Number.MAX_SAFE_INTEGER, y: 0 }
-      const right = firstBox.get(b.id) ?? { page: Number.MAX_SAFE_INTEGER, y: 0 }
-      return left.page - right.page || left.y - right.y || a.id - b.id
-    })
-    group.forEach((item, index) => { item.paper_qno = index + 1 })
-  }
 }
 
 function sectionsOf(r: QFull): string[] {
@@ -401,33 +365,71 @@ async function loadFilterOptions() {
 
 let loadToken = 0
 
+async function matchingUserQuestionIds(): Promise<number[] | null> {
+  const uid = auth.session?.user.id
+  const noteKeyword = filters.notes.trim()
+  if (!uid || (!filters.favOnly && !noteKeyword)) return null
+
+  let query = getSupabase()
+    .from('question_user_data')
+    .select('question_id')
+    .eq('user_id', uid)
+  if (filters.favOnly) query = query.eq('is_favorite', true)
+  if (noteKeyword) query = query.ilike('note', `%${noteKeyword}%`)
+  const { data, error } = await query
+  if (error) {
+    if (error.code === '42P01' || error.code === 'PGRST205') return []
+    throw error
+  }
+  return (data ?? []).map((row) => row.question_id as number)
+}
+
 async function loadQuestions() {
   const token = ++loadToken
   loading.value = true
   loadError.value = ''
   try {
-    let query = getSupabase()
-      .from('questions')
-      .select(
-        `id, question_no, status, notes, difficulty, paper_id, section,
-         papers ( id, filename, exam_code, year_token, season_token ),
-         question_sections ( section_name )`,
-      )
+    const userQuestionIds = await matchingUserQuestionIds()
+    let select = `id, question_no, status, notes, difficulty, paper_id, section,
+      papers ( id, filename, exam_code, year_token, season_token ),
+      question_sections ( section_name )`
+    if (filters.section && filters.section !== UNSET_SECTION) {
+      select = `id, question_no, status, notes, difficulty, paper_id, section,
+        papers ( id, filename, exam_code, year_token, season_token ),
+        question_sections!inner ( section_name )`
+    }
+    let query = getSupabase().from('questions').select(select, { count: 'exact' })
     if (filters.years.length) query = query.in('papers.year_token', filters.years)
     if (filters.seasons.length) query = query.in('papers.season_token', filters.seasons)
     if (filters.papers.length) query = query.in('paper_id', filters.papers.map(Number))
-
-    const { data, error } = await query.order('id', { ascending: false }).limit(MAX_ROWS)
-    if (token !== loadToken) return
+    if (filters.section && filters.section !== UNSET_SECTION) {
+      query = query.eq('question_sections.section_name', filters.section)
+    } else if (filters.section === UNSET_SECTION) {
+      query = query.is('section', null)
+    }
+    if (filters.difficulties.length) {
+      const levels = filters.difficulties.filter((value) => value !== 'unset')
+      const wantsUnset = filters.difficulties.includes('unset')
+      if (levels.length && wantsUnset) query = query.or(`difficulty.in.(${levels.join(',')}),difficulty.is.null`)
+      else if (levels.length) query = query.in('difficulty', levels.map(Number))
+      else query = query.is('difficulty', null)
+    }
+    if (userQuestionIds) {
+      query = query.in('id', userQuestionIds.length ? userQuestionIds : [-1])
+    }
+    const from = (currentPage.value - 1) * QUESTION_PAGE_SIZE
+    const { data, count, error } = await query
+      .order('id', { ascending: false })
+      .range(from, from + QUESTION_PAGE_SIZE - 1)
     if (error) throw error
-    const items = (data ?? []) as unknown as QFull[]
-    await addPaperQuestionNumbers(items)
     if (token !== loadToken) return
-    allRows.value = items
+    allRows.value = (data ?? []) as unknown as QFull[]
+    totalRows.value = count ?? allRows.value.length
   } catch (e) {
     if (token !== loadToken) return
     loadError.value = e instanceof Error ? e.message : String(e)
     allRows.value = []
+    totalRows.value = 0
   } finally {
     if (token === loadToken) loading.value = false
   }
@@ -435,7 +437,7 @@ async function loadQuestions() {
 
 // 过滤结果变化时保持选中项有效
 watch(rows, (list) => {
-  if (!list.some((r) => r.id === selectedId.value)) {
+  if (!suppressSelectionReset && !list.some((r) => r.id === selectedId.value)) {
     selectedId.value = list[0]?.id ?? null
   }
   // 多选：剔除已不在结果集里的 id，保证「已选 N」计数真实
@@ -451,11 +453,36 @@ function selectById(id: number) {
   selectedId.value = id
 }
 
-function moveSelection(delta: -1 | 1) {
+async function moveSelection(delta: -1 | 1) {
   if (!rows.value.length) return
   const idx = selectedIndex.value
+  if (delta === 1 && idx === rows.value.length - 1 && currentPage.value < totalPages.value) {
+    await goToPage(currentPage.value + 1, 'first')
+    return
+  }
+  if (delta === -1 && idx === 0 && currentPage.value > 1) {
+    await goToPage(currentPage.value - 1, 'last')
+    return
+  }
   const next = idx < 0 ? 0 : Math.min(rows.value.length - 1, Math.max(0, idx + delta))
   selectedId.value = rows.value[next].id
+}
+
+async function goToPage(page: number, edge: 'first' | 'last' = 'first') {
+  const targetPage = Math.max(1, Math.min(totalPages.value, page))
+  if (targetPage === currentPage.value && allRows.value.length) return
+  suppressSelectionReset = true
+  currentPage.value = targetPage
+  try {
+    await loadQuestions()
+    const target = edge === 'last' ? allRows.value.at(-1) : allRows.value[0]
+    if (target) {
+      selectionScrollBehavior = 'auto'
+      selectedId.value = target.id
+    }
+  } finally {
+    suppressSelectionReset = false
+  }
 }
 
 function jumpToQuestion() {
@@ -472,17 +499,19 @@ function jumpToQuestion() {
   }
 }
 
-function scrollToActive(id: number) {
+function scrollToActive(id: number, behavior: ScrollBehavior = 'smooth') {
   requestAnimationFrame(() => {
     const el = document.querySelector(`[data-fs-id="${id}"]`)
-    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+    el?.scrollIntoView({ behavior, block: 'nearest', inline: 'center' })
   })
 }
 
 // 选中变化：底部条跟随 + 大题区回到顶部
 watch(selectedId, (id) => {
   if (id == null) return
-  scrollToActive(id)
+  const behavior = selectionScrollBehavior
+  selectionScrollBehavior = 'smooth'
+  scrollToActive(id, behavior)
   heroRef.value?.scrollTo({ top: 0 })
   void loadQuestionBoxes(id)
 })
@@ -540,8 +569,19 @@ watch(selectedId, (qid) => {
 })
 
 watch(
-  () => [filters.papers.join(','), filters.years.join(','), filters.seasons.join(',')],
-  () => void loadQuestions(),
+  () => [
+    filters.section,
+    filters.papers.join(','),
+    filters.years.join(','),
+    filters.seasons.join(','),
+    filters.difficulties.join(','),
+    filters.favOnly,
+    filters.notes.trim(),
+  ],
+  () => {
+    currentPage.value = 1
+    void loadQuestions()
+  },
 )
 
 // ---- 导出（含随机抽题内嵌页签） ----
@@ -921,7 +961,9 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <div class="bank-strip">
-        <span class="bank-strip-count">{{ loading ? t('bank.loading') : t('bank.count', { n: rows.length }) }}</span>
+        <span class="bank-strip-count">
+          {{ loading ? t('bank.loading') : `${totalRows} 题 · ${currentPage}/${totalPages}` }}
+        </span>
         <div class="bank-strip-scroll">
           <button
             v-for="r in rows"
@@ -942,6 +984,22 @@ onBeforeUnmount(() => {
             <span class="fs-item-no">{{ r.question_no || '?' }}</span>
             <span v-if="isFav(r.id)" class="fs-item-star">★</span>
           </button>
+        </div>
+        <div v-if="totalPages > 1" class="bank-strip-page">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            :disabled="loading || currentPage <= 1"
+            aria-label="上一页"
+            @click="void goToPage(currentPage - 1, 'last')"
+          >‹</button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            :disabled="loading || currentPage >= totalPages"
+            aria-label="下一页"
+            @click="void goToPage(currentPage + 1, 'first')"
+          >›</button>
         </div>
       </div>
     </div>
