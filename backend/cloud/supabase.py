@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,6 +17,7 @@ from backend.cloud.config import CloudConfig
 
 _TIMEOUT_S = 120
 _BATCH = 400
+_NETWORK_RETRIES = 3
 
 
 class SupabaseError(RuntimeError):
@@ -44,11 +46,16 @@ def _request(
 ) -> tuple[int, bytes]:
     url = f"{cfg.supabase_url}/rest/v1/{path}"
     req = urllib.request.Request(url, data=payload, method=method, headers=_headers(cfg, extra_headers))
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
-            return resp.status, resp.read()
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read()
+    for attempt in range(_NETWORK_RETRIES):
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read()
+        except (urllib.error.URLError, OSError, TimeoutError):
+            if attempt + 1 >= _NETWORK_RETRIES:
+                raise
+            time.sleep(0.5 * (2**attempt))
 
 
 def _raise(cfg: CloudConfig, method: str, path: str, status: int, body: bytes) -> None:

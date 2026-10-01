@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import hmac
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -18,6 +19,7 @@ from backend.cloud.config import CloudConfig
 _REGION = "auto"
 _SERVICE = "s3"
 _TIMEOUT_S = 120
+_NETWORK_RETRIES = 3
 
 
 class R2Error(RuntimeError):
@@ -152,13 +154,17 @@ def put_object(
             "Authorization": authorization,
         },
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            resp.read()
-    except urllib.error.HTTPError as exc:
-        raise R2Error(exc.code, exc.read().decode("utf-8", "replace")) from None
-    except OSError as exc:
-        raise R2Error(0, str(exc)) from None
+    for attempt in range(_NETWORK_RETRIES):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                resp.read()
+            break
+        except urllib.error.HTTPError as exc:
+            raise R2Error(exc.code, exc.read().decode("utf-8", "replace")) from None
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            if attempt + 1 >= _NETWORK_RETRIES:
+                raise R2Error(0, str(exc)) from None
+            time.sleep(0.5 * (2**attempt))
     return public_url(cfg, key)
 
 

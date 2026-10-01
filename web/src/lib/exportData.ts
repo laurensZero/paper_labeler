@@ -2,6 +2,36 @@
 import { getSupabase, imageUrl } from '@/lib/supabase'
 import type { ExportQuestionInput } from '@/lib/pdfExport'
 
+export interface QuestionBox {
+  id: number
+  question_id: number
+  image_key: string
+  page: number
+  bbox?: number[] | string | null
+}
+
+/** 按题目批量取题图裁剪框；列表页和导出共用，避免重复请求。 */
+export async function fetchQuestionBoxes(questionIds: number[]): Promise<Map<number, QuestionBox[]>> {
+  const map = new Map<number, QuestionBox[]>()
+  if (!questionIds.length) return map
+  try {
+    const { data, error } = await getSupabase()
+      .from('question_boxes')
+      .select('id,question_id,image_key,page,bbox')
+      .in('question_id', questionIds)
+      .order('page', { ascending: true })
+    if (error) throw error
+    for (const row of (data ?? []) as QuestionBox[]) {
+      const boxes = map.get(row.question_id) ?? []
+      boxes.push(row)
+      map.set(row.question_id, boxes)
+    }
+  } catch (e) {
+    console.warn('[export] 题图加载失败', e)
+  }
+  return map
+}
+
 /** 批量取一批题的答案裁剪图 URL（按页序） */
 export async function fetchAnswerBoxes(questionIds: number[]): Promise<Map<number, string[]>> {
   const map = new Map<number, string[]>()

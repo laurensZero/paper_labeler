@@ -8,7 +8,7 @@ import PaperCascadeMultiSelect from '@/components/PaperCascadeMultiSelect.vue'
 import MultiSelect from '@/components/MultiSelect.vue'
 import ExportDialog, { type SummaryFields, type RandomPoolItem } from '@/components/ExportDialog.vue'
 import { buildCascadeOptions, fetchSectionsGraph, UNSET_SECTION, type CascadeGroup } from '@/lib/sections'
-import { fetchAnswerBoxes, toExportInput } from '@/lib/exportData'
+import { fetchAnswerBoxes, fetchQuestionBoxes, toExportInput, type QuestionBox } from '@/lib/exportData'
 import type { ExportQuestionInput } from '@/lib/pdfExport'
 import { useAuth } from '@/composables/auth'
 
@@ -36,7 +36,6 @@ interface QFull {
   section: string | null
   papers: PaperLite | PaperLite[] | null
   question_sections: { section_name: string }[]
-  question_boxes: { id: number; image_key: string; page: number; bbox?: number[] | string | null }[]
 }
 
 /** 每账号独立的收藏/备注（question_user_data，RLS 限定本人） */
@@ -68,6 +67,8 @@ const loading = ref(false)
 const loadError = ref('')
 const selectedId = ref<number | null>(null)
 const heroRef = ref<HTMLElement | null>(null)
+const questionBoxCache = new Map<number, QuestionBox[]>()
+const questionBoxVersion = ref(0)
 
 const cascadeOptions = ref<CascadeGroup[]>([])
 const paperOptions = ref<PaperLite[]>([])
@@ -315,46 +316,39 @@ function sourceLine(r: QFull | null): string {
   return no != null && no !== '' ? `${t('bank.qno')} ${no}` : '—'
 }
 
-/** 为每题计算卷内序号（按首框 page / bbox y0） */
-function assignPaperQno(rows: QFull[]): QFull[] {
-  const byPaper = new Map<number, QFull[]>()
-  for (const r of rows) {
-    const list = byPaper.get(r.paper_id) ?? []
-    list.push(r)
-    byPaper.set(r.paper_id, list)
-  }
-  const sortKey = (r: QFull): [number, number] => {
-    let page = 1e9
-    let y0 = 0
-    for (const b of r.question_boxes || []) {
-      let y = 0
-      const bb = b.bbox
-      if (Array.isArray(bb) && bb.length >= 2) y = Number(bb[1]) || 0
-      else if (typeof bb === 'string') {
-        try {
-          const parsed = JSON.parse(bb)
-          if (Array.isArray(parsed) && parsed.length >= 2) y = Number(parsed[1]) || 0
-        } catch {}
-      }
-      const cand: [number, number] = [Number(b.page) || 0, y]
-      if (cand[0] < page || (cand[0] === page && cand[1] < y0)) {
-        page = cand[0]
-        y0 = cand[1]
-      }
+async function addPaperQuestionNumbers(items: QFull[]): Promise<void> {
+  if (!items.length) return
+  const ids = items.map((item) => item.id)
+  const { data, error } = await getSupabase()
+    .from('question_boxes')
+    .select('question_id, page, bbox')
+    .in('question_id', ids)
+  if (error) throw error
+
+  const firstBox = new Map<number, { page: number; y: number }>()
+  for (const box of (data ?? []) as { question_id: number; page: number; bbox: unknown }[]) {
+    const bbox = Array.isArray(box.bbox) ? box.bbox : []
+    const y = typeof bbox[1] === 'number' ? bbox[1] : 0
+    const current = firstBox.get(box.question_id)
+    if (!current || [box.page, y] < [current.page, current.y]) {
+      firstBox.set(box.question_id, { page: box.page, y })
     }
-    return [page, y0]
   }
-  for (const list of byPaper.values()) {
-    list.sort((a, b) => {
-      const [ap, ay] = sortKey(a)
-      const [bp, by] = sortKey(b)
-      return ap - bp || ay - by || a.id - b.id
-    })
-    list.forEach((r, i) => {
-      r.paper_qno = i + 1
-    })
+
+  const byPaper = new Map<number, QFull[]>()
+  for (const item of items) {
+    const group = byPaper.get(item.paper_id) ?? []
+    group.push(item)
+    byPaper.set(item.paper_id, group)
   }
-  return rows
+  for (const group of byPaper.values()) {
+    group.sort((a, b) => {
+      const left = firstBox.get(a.id) ?? { page: Number.MAX_SAFE_INTEGER, y: 0 }
+      const right = firstBox.get(b.id) ?? { page: Number.MAX_SAFE_INTEGER, y: 0 }
+      return left.page - right.page || left.y - right.y || a.id - b.id
+    })
+    group.forEach((item, index) => { item.paper_qno = index + 1 })
+  }
 }
 
 function sectionsOf(r: QFull): string[] {
@@ -362,9 +356,20 @@ function sectionsOf(r: QFull): string[] {
   return r.section ? [r.section] : []
 }
 
-function sortedBoxes(r: QFull | null) {
-  if (!r) return []
-  return [...(r.question_boxes ?? [])].sort((a, b) => a.page - b.page)
+function sortedBoxes(boxes: QuestionBox[]) {
+  return [...boxes].sort((a, b) => a.page - b.page)
+}
+
+const selectedBoxes = computed(() => {
+  questionBoxVersion.value
+  return questionBoxCache.get(selectedId.value ?? -1) ?? []
+})
+
+async function loadQuestionBoxes(questionId: number): Promise<void> {
+  if (questionBoxCache.has(questionId)) return
+  const map = await fetchQuestionBoxes([questionId])
+  questionBoxCache.set(questionId, map.get(questionId) ?? [])
+  questionBoxVersion.value++
 }
 
 function onImgDone(e: Event) {
@@ -406,8 +411,7 @@ async function loadQuestions() {
       .select(
         `id, question_no, status, notes, difficulty, paper_id, section,
          papers ( id, filename, exam_code, year_token, season_token ),
-         question_sections ( section_name ),
-         question_boxes ( id, image_key, page, bbox )`,
+         question_sections ( section_name )`,
       )
     if (filters.years.length) query = query.in('papers.year_token', filters.years)
     if (filters.seasons.length) query = query.in('papers.season_token', filters.seasons)
@@ -416,7 +420,10 @@ async function loadQuestions() {
     const { data, error } = await query.order('id', { ascending: false }).limit(MAX_ROWS)
     if (token !== loadToken) return
     if (error) throw error
-    allRows.value = assignPaperQno((data ?? []) as unknown as QFull[])
+    const items = (data ?? []) as unknown as QFull[]
+    await addPaperQuestionNumbers(items)
+    if (token !== loadToken) return
+    allRows.value = items
   } catch (e) {
     if (token !== loadToken) return
     loadError.value = e instanceof Error ? e.message : String(e)
@@ -477,6 +484,7 @@ watch(selectedId, (id) => {
   if (id == null) return
   scrollToActive(id)
   heroRef.value?.scrollTo({ top: 0 })
+  void loadQuestionBoxes(id)
 })
 
 function onKeydown(e: KeyboardEvent) {
@@ -557,6 +565,12 @@ const randomPool = computed<RandomPoolItem[]>(() =>
 )
 
 async function makeExportInputs(list: QFull[]): Promise<ExportQuestionInput[]> {
+  const missingIds = list.map((r) => r.id).filter((id) => !questionBoxCache.has(id))
+  if (missingIds.length) {
+    const fetched = await fetchQuestionBoxes(missingIds)
+    for (const id of missingIds) questionBoxCache.set(id, fetched.get(id) ?? [])
+    questionBoxVersion.value++
+  }
   const ansMap = await fetchAnswerBoxes(list.map((r) => r.id))
   return list.map((r) =>
     toExportInput(
@@ -566,7 +580,7 @@ async function makeExportInputs(list: QFull[]): Promise<ExportQuestionInput[]> {
         sections: sectionsOf(r),
         paperLabel: paperLabel(paperOf(r)),
         notes: r.notes,
-        boxUrls: sortedBoxes(r).map((b) => imageUrl(b.image_key)),
+        boxUrls: (questionBoxCache.get(r.id) ?? []).map((b) => imageUrl(b.image_key)),
       },
       ansMap.get(r.id) ?? [],
       0,
@@ -753,9 +767,9 @@ onBeforeUnmount(() => {
 
         <template v-else-if="selected">
           <div class="bank-question protected" :key="selected.id">
-            <div v-if="sortedBoxes(selected).length" class="bank-question-imgs">
+            <div v-if="sortedBoxes(selectedBoxes).length" class="bank-question-imgs">
               <img
-                v-for="b in sortedBoxes(selected)"
+                v-for="b in sortedBoxes(selectedBoxes)"
                 :key="b.id"
                 class="skel"
                 :src="imageUrl(b.image_key)"
@@ -838,10 +852,6 @@ onBeforeUnmount(() => {
         <div class="bank-info-row">
           <span class="bank-info-k">{{ t('bank.source') }}</span>
           <span style="text-align: right">{{ sourceLine(selected) }}</span>
-        </div>
-        <div class="bank-info-row">
-          <span class="bank-info-k">{{ t('bank.sourcePaper') }}</span>
-          <span style="text-align: right">{{ paperFullLabel(paperOf(selected)) }}</span>
         </div>
         <div class="bank-info-row bank-info-row--top">
           <span class="bank-info-k">{{ t('bank.section') }}</span>

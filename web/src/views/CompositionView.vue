@@ -85,6 +85,7 @@ const showListModal = ref(false)
 const newName = ref('')
 const compositions = ref<CompListItem[]>([])
 const selectedItemId = ref<number | null>(null)
+const persistedSortOrder = new Map<number, number>()
 const previewMode = ref<'grouped' | 'free'>('free')
 
 const bank = reactive({
@@ -530,6 +531,8 @@ async function loadAll(id: string) {
       .order('sort_order')
     if (ie) throw ie
     items.value = ((its ?? []) as unknown as Item[]).map((it) => ({ ...it, questions: normalizeQ(it.questions) }))
+    persistedSortOrder.clear()
+    for (const item of items.value) persistedSortOrder.set(item.id, item.sort_order)
   } catch (e) {
     pageError.value = e instanceof Error ? e.message : String(e)
   }
@@ -747,11 +750,19 @@ const persistOrder = debounce(() => {
   const snapshot = items.value.map((it) => ({ id: it.id, sort_order: it.sort_order }))
   void Promise.all(
     snapshot
-      .filter((it) => it.id > 0) // 跳过乐观临时 id
+      .filter((it) => it.id > 0 && persistedSortOrder.get(it.id) !== it.sort_order)
       .map((it) =>
-        sb.from('composition_items').update({ sort_order: it.sort_order }).eq('id', it.id).then(({ error }) => {
-          if (error) pageError.value = error.message
-        }),
+        sb
+          .from('composition_items')
+          .update({ sort_order: it.sort_order })
+          .eq('id', it.id)
+          .then(({ error }) => {
+            if (error) {
+              pageError.value = error.message
+              return
+            }
+            persistedSortOrder.set(it.id, it.sort_order)
+          }),
       ),
   )
 }, 180)

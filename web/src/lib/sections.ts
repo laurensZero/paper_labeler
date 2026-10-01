@@ -25,20 +25,33 @@ export interface SectionsGraph {
 
 export const UNSET_SECTION = '__UNSET__'
 
+let sectionsGraphPromise: Promise<SectionsGraph> | null = null
+
 export async function fetchSectionsGraph(): Promise<SectionsGraph> {
+  if (sectionsGraphPromise) return sectionsGraphPromise
+
   const sb = getSupabase()
-  const [defs, groups, members] = await Promise.all([
-    sb.from('section_defs').select('name').order('name'),
-    sb.from('section_groups').select('id,name').order('id'),
-    sb.from('section_group_members').select('group_id,section_name'),
-  ])
-  if (defs.error) throw new Error(defs.error.message)
-  if (groups.error) throw new Error(groups.error.message)
-  if (members.error) throw new Error(members.error.message)
-  return {
-    sectionNames: (defs.data ?? []).map((d) => d.name as string),
-    groups: (groups.data ?? []) as { id: number; name: string }[],
-    members: (members.data ?? []) as { group_id: number; section_name: string }[],
+  sectionsGraphPromise = (async () => {
+    const [defs, groups, members] = await Promise.all([
+      sb.from('section_defs').select('name').order('name'),
+      sb.from('section_groups').select('id,name').order('id'),
+      sb.from('section_group_members').select('group_id,section_name'),
+    ])
+    if (defs.error) throw new Error(defs.error.message)
+    if (groups.error) throw new Error(groups.error.message)
+    if (members.error) throw new Error(members.error.message)
+    return {
+      sectionNames: (defs.data ?? []).map((d) => d.name as string),
+      groups: (groups.data ?? []) as { id: number; name: string }[],
+      members: (members.data ?? []) as { group_id: number; section_name: string }[],
+    }
+  })()
+
+  try {
+    return await sectionsGraphPromise
+  } catch (error) {
+    sectionsGraphPromise = null
+    throw error
   }
 }
 
