@@ -94,6 +94,35 @@ def test_start_sync_accepts_token_but_may_400_when_disabled(with_token, monkeypa
         assert "开启" in res.json().get("detail", "") or "PAPER_CLOUD" in res.json().get("detail", "")
 
 
+def test_start_sync_dry_run_flag_reaches_background(with_token, monkeypatch):
+    """/cloud/sync?dry_run=true 必须把试算标志传到后台线程。"""
+    import backend.routers.cloud as router
+
+    monkeypatch.setattr(router, "cloud_enabled", lambda: True)
+    monkeypatch.setattr(router, "missing_config", lambda cfg: [])
+    monkeypatch.setattr(router, "get_cloud_config", lambda: object())
+    seen: list = []
+
+    class _FakeThread:
+        def __init__(self, target=None, args=(), daemon=None, name=None):
+            seen.append(args)
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(router.threading, "Thread", _FakeThread)
+    # 清掉可能残留的运行中状态，避免 409
+    router._state["running"] = False
+
+    res = client.post("/cloud/sync?dry_run=true", headers={"X-Paper-Token": "secret"})
+
+    assert res.status_code == 200
+    assert res.json()["dry_run"] is True
+    assert seen and seen[0][1] is True  # (summary, dry_run)
+    assert seen[0][0].dry_run is True
+    router._state["running"] = False
+
+
 def test_admin_write_endpoints_rejected_without_token(no_token):
     res = client.post("/cloud/grants", json={"scope": "paper", "scope_value": "1", "user_id": "00000000-0000-0000-0000-000000000000"})
     assert res.status_code in (401, 403), f"POST /cloud/grants -> {res.status_code}"

@@ -34,6 +34,7 @@ class SyncSummary:
     started_at: str = ""
     finished_at: str = ""
     duration_s: float = 0.0
+    dry_run: bool = False
     counts: dict = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     resurrected: list[int] = field(default_factory=list)  # 本地仍存在但云端已 tombstone 的 id（疑似 id 复用）
@@ -58,6 +59,7 @@ class SyncSummary:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "duration_s": self.duration_s,
+            "dry_run": self.dry_run,
             "counts": self.counts,
             "errors": self.errors[:50],
             "error_count": len(self.errors),
@@ -107,9 +109,27 @@ def _clamp01(v: float) -> float:
 
 
 def crop_fingerprint(box) -> str:
-    """图片内容指纹：源页图 stat + bbox。页图或框任一变更即变化。
+    """图片内容指纹：源页图 stat（文件名/大小/mtime）+ bbox。页图或框任一变更即变化。
 
     不直接哈希像素：全库同步时按页 stat 比对，毫秒级完成。
+    **不含绝对路径**：题库目录搬移/重命名、或换工作目录启动，都不再导致全量重传。
+    """
+    p = Path(str(getattr(box, "image_path", "") or ""))
+    try:
+        st = p.stat()
+        meta = f"{p.name}|{st.st_size}|{st.st_mtime_ns}"
+    except OSError:
+        meta = "missing"
+    bbox = ",".join(f"{_clamp01(x):.6f}" for x in list(getattr(box, "bbox", []) or [])[:4])
+    return hashlib.sha256(f"{meta}|{bbox}".encode("utf-8")).hexdigest()
+
+
+def crop_fingerprint_legacy(box) -> str:
+    """旧版指纹（含页图绝对路径）。
+
+    只用于把云端已有的 content_hash 平滑升级到新版：本地能算出同样的旧指纹，
+    就说明页图与 bbox 自上传以来没变过，R2 上的对象无需重传，改个 hash 即可。
+    新版指纹稳定后本函数可删。
     """
     p = Path(str(getattr(box, "image_path", "") or ""))
     try:
@@ -169,7 +189,11 @@ def _is_dirty(local_updated: datetime | None, cloud_source_ts: str | None) -> bo
     return local > cloud
 
 
-def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
+def run_sync(cfg: CloudConfig, summary: SyncSummary, dry_run: bool = False) -> None:
+    """推一轮同步。``dry_run=True`` 只试算：读云端基线 + 比指纹，不写库也不传 R2。
+
+    试算用于上线前确认"这次会传哪些图"，尤其是改了脏检查/指纹公式之后。
+    """
     from backend.database import (
         Answer,
         AnswerBox,
@@ -185,19 +209,31 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
 
     t0 = time.monotonic()
     summary.started_at = _iso(datetime.now(timezone.utc)) or ""
+    summary.dry_run = dry_run
     now_iso = summary.started_at
 
+    def _write(action) -> None:
+        """dry-run 时只报告不落库：计数照旧，实际写操作全部跳过。"""
+        if not dry_run:
+            action()
+
     # ---------- 1. 拉云端现状（脏检查基线） ----------
+    # 全部 order="id"：select 会分页拉全（PostgREST 单次上限 1000 行），
+    # 排序必须稳定，否则 offset 翻页漏行 = 已同步的行被反复当新行重推。
     summary.set_phase("fetch_cloud")
-    cloud_papers = supabase.select(cfg, "papers", "id,source_updated_at,deleted_at")
-    cloud_questions = supabase.select(cfg, "questions", "id,source_updated_at,deleted_at")
-    cloud_answers = supabase.select(cfg, "answers", "id,source_updated_at,deleted_at")
-    cloud_sdefs = supabase.select(cfg, "section_defs", "id,source_updated_at,deleted_at")
-    cloud_sgroups = supabase.select(cfg, "section_groups", "id,source_updated_at,deleted_at")
-    cloud_qsections = supabase.select(cfg, "question_sections", "question_id,section_name")
-    cloud_gmembers = supabase.select(cfg, "section_group_members", "group_id,section_name")
-    cloud_qboxes = supabase.select(cfg, "question_boxes", "id,question_id,image_key,content_hash")
-    cloud_aboxes = supabase.select(cfg, "answer_boxes", "id,answer_id,image_key,content_hash")
+    cloud_papers = supabase.select(cfg, "papers", "id,source_updated_at,deleted_at", order="id")
+    cloud_questions = supabase.select(cfg, "questions", "id,source_updated_at,deleted_at", order="id")
+    cloud_answers = supabase.select(cfg, "answers", "id,source_updated_at,deleted_at", order="id")
+    cloud_sdefs = supabase.select(cfg, "section_defs", "id,source_updated_at,deleted_at", order="id")
+    cloud_sgroups = supabase.select(cfg, "section_groups", "id,source_updated_at,deleted_at", order="id")
+    cloud_qsections = supabase.select(cfg, "question_sections", "question_id,section_name", order="id")
+    cloud_gmembers = supabase.select(cfg, "section_group_members", "group_id,section_name", order="id")
+    cloud_qboxes = supabase.select(
+        cfg, "question_boxes", "id,question_id,image_key,content_hash", order="id"
+    )
+    cloud_aboxes = supabase.select(
+        cfg, "answer_boxes", "id,answer_id,image_key,content_hash", order="id"
+    )
 
     with SessionLocal() as db:
         papers = db.query(Paper).all()
@@ -229,17 +265,21 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             for p in papers
         ]
         summary.set_progress(len(paper_rows))
-        supabase.upsert(
-            cfg,
-            "papers",
-            paper_rows,
-            on_progress=lambda current: summary.set_progress(len(paper_rows), current),
+        _write(
+            lambda: supabase.upsert(
+                cfg,
+                "papers",
+                paper_rows,
+                on_progress=lambda current: summary.set_progress(len(paper_rows), current),
+            )
         )
         summary.set_progress(len(paper_rows), len(paper_rows))
         summary.bump("papers_upserted", len(paper_rows))
         summary.bump(
             "papers_tombstoned",
-            _tombstone(cfg, "papers", cloud_papers, {p.id for p in papers}, now_iso),
+            _tombstone(
+                cfg, "papers", cloud_papers, {p.id for p in papers}, now_iso, dry_run=dry_run
+            ),
         )
 
         # ---------- 3. questions（updated_at 脏检查） ----------
@@ -273,17 +313,21 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             for q in dirty_questions
         ]
         summary.set_progress(len(question_rows))
-        supabase.upsert(
-            cfg,
-            "questions",
-            question_rows,
-            on_progress=lambda current: summary.set_progress(len(question_rows), current),
+        _write(
+            lambda: supabase.upsert(
+                cfg,
+                "questions",
+                question_rows,
+                on_progress=lambda current: summary.set_progress(len(question_rows), current),
+            )
         )
         summary.set_progress(len(question_rows), len(question_rows))
         summary.bump("questions_upserted", len(question_rows))
         summary.bump(
             "questions_tombstoned",
-            _tombstone(cfg, "questions", cloud_questions, {q.id for q in questions}, now_iso),
+            _tombstone(
+                cfg, "questions", cloud_questions, {q.id for q in questions}, now_iso, dry_run=dry_run
+            ),
         )
 
         # ---------- 4. question_sections（整表 diff，覆盖不更新 updated_at 的改标签） ----------
@@ -307,6 +351,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             cloud_rows=[(r["question_id"], r["section_name"]) for r in cloud_qsections],
             row_factory=lambda pair: {"question_id": pair[0], "section_name": pair[1]},
             key_index=0,
+            dry_run=dry_run,
         )
 
         # ---------- 5. answers ----------
@@ -332,17 +377,21 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             for a in dirty_answers
         ]
         summary.set_progress(len(answer_rows))
-        supabase.upsert(
-            cfg,
-            "answers",
-            answer_rows,
-            on_progress=lambda current: summary.set_progress(len(answer_rows), current),
+        _write(
+            lambda: supabase.upsert(
+                cfg,
+                "answers",
+                answer_rows,
+                on_progress=lambda current: summary.set_progress(len(answer_rows), current),
+            )
         )
         summary.set_progress(len(answer_rows), len(answer_rows))
         summary.bump("answers_upserted", len(answer_rows))
         summary.bump(
             "answers_tombstoned",
-            _tombstone(cfg, "answers", cloud_answers, {a.id for a in answers}, now_iso),
+            _tombstone(
+                cfg, "answers", cloud_answers, {a.id for a in answers}, now_iso, dry_run=dry_run
+            ),
         )
 
         # ---------- 6. 分类字典 ----------
@@ -358,11 +407,13 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             }
             for s in sdefs
         ]
-        supabase.upsert(cfg, "section_defs", sdef_rows)
+        _write(lambda: supabase.upsert(cfg, "section_defs", sdef_rows))
         summary.bump("section_defs_upserted", len(sdef_rows))
         summary.bump(
             "section_defs_tombstoned",
-            _tombstone(cfg, "section_defs", cloud_sdefs, {s.id for s in sdefs}, now_iso),
+            _tombstone(
+                cfg, "section_defs", cloud_sdefs, {s.id for s in sdefs}, now_iso, dry_run=dry_run
+            ),
         )
 
         sgroup_rows = [
@@ -375,11 +426,13 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             }
             for g in sgroups
         ]
-        supabase.upsert(cfg, "section_groups", sgroup_rows)
+        _write(lambda: supabase.upsert(cfg, "section_groups", sgroup_rows))
         summary.bump("section_groups_upserted", len(sgroup_rows))
         summary.bump(
             "section_groups_tombstoned",
-            _tombstone(cfg, "section_groups", cloud_sgroups, {g.id for g in sgroups}, now_iso),
+            _tombstone(
+                cfg, "section_groups", cloud_sgroups, {g.id for g in sgroups}, now_iso, dry_run=dry_run
+            ),
         )
 
         _sync_link_rows(
@@ -391,6 +444,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             cloud_rows=[(r["section_name"], r["group_id"]) for r in cloud_gmembers],
             row_factory=lambda pair: {"section_name": pair[0], "group_id": pair[1]},
             key_index=0,
+            dry_run=dry_run,
         )
 
         # ---------- 7. 题图：裁剪 → webp → R2 → 元数据 upsert ----------
@@ -404,6 +458,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             # 按试卷分文件夹：R2 无真实目录，前缀只是组织方式；试卷归属稳定不会因改标签变动
             key_of=lambda b: f"papers/{b.paper_id}/q{b.question_id}_{b.id}.webp",
             count_prefix="qbox",
+            dry_run=dry_run,
         )
 
         summary.set_phase("answer_boxes")
@@ -415,24 +470,27 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             local_boxes=aboxes,
             key_of=lambda b: f"papers/{b.ms_paper_id}/a{b.answer_id}_{b.id}.webp",
             count_prefix="abox",
+            dry_run=dry_run,
         )
 
         # ---------- 8. sync_log 审计 ----------
         summary.set_phase("sync_log")
         try:
-            supabase.insert(
-                cfg,
-                "sync_log",
-                [
-                    {
-                        "entity": "sync_run",
-                        "entity_id": "*",
-                        "action": "push",
-                        "payload_hash": hashlib.sha256(
-                            json.dumps(summary.counts, sort_keys=True).encode()
-                        ).hexdigest()[:32],
-                    }
-                ],
+            _write(
+                lambda: supabase.insert(
+                    cfg,
+                    "sync_log",
+                    [
+                        {
+                            "entity": "sync_run",
+                            "entity_id": "*",
+                            "action": "push",
+                            "payload_hash": hashlib.sha256(
+                                json.dumps(summary.counts, sort_keys=True).encode()
+                            ).hexdigest()[:32],
+                        }
+                    ],
+                )
             )
         except supabase.SupabaseError as exc:
             # 审计失败不影响数据一致性
@@ -444,11 +502,20 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
     summary.duration_s = round(time.monotonic() - t0, 2)
 
 
-def _tombstone(cfg: CloudConfig, table: str, cloud_rows: list[dict], local_ids: set, now_iso: str) -> int:
-    """云端存在但本地已删除的行 → deleted_at 软删。返回处理条数。"""
+def _tombstone(
+    cfg: CloudConfig,
+    table: str,
+    cloud_rows: list[dict],
+    local_ids: set,
+    now_iso: str,
+    dry_run: bool = False,
+) -> int:
+    """云端存在但本地已删除的行 → deleted_at 软删。返回处理条数（dry-run 只算不写）。"""
     stale = [r["id"] for r in cloud_rows if r["id"] not in local_ids and not r.get("deleted_at")]
     if not stale:
         return 0
+    if dry_run:
+        return len(stale)
     total = 0
     for chunk in _chunked(stale):
         total += supabase.patch(cfg, table, _in_filter("id", chunk), {"deleted_at": now_iso})
@@ -465,6 +532,7 @@ def _sync_link_rows(
     cloud_rows: list[tuple],
     row_factory,
     key_index: int = 0,
+    dry_run: bool = False,
 ) -> None:
     """同步链接表差异，避免整组重插触发唯一键冲突。"""
     desired_set = set(desired)
@@ -481,19 +549,21 @@ def _sync_link_rows(
         filters = {parent_col: f"eq.{pair[key_index]}"}
         if table == "question_sections":
             filters["section_name"] = f"eq.{pair[1]}"
-        supabase.delete_filtered(cfg, table, filters)
+        if not dry_run:
+            supabase.delete_filtered(cfg, table, filters)
         summary.bump(f"{table}_deleted")
         processed += 1
         summary.set_progress(progress_total, processed)
     rows = [row_factory(pair) for pair in to_upsert]
     conflict = "question_id,section_name" if table == "question_sections" else "section_name"
-    supabase.upsert(
-        cfg,
-        table,
-        rows,
-        on_conflict=conflict,
-        on_progress=lambda current: summary.set_progress(progress_total, processed + current),
-    )
+    if not dry_run:
+        supabase.upsert(
+            cfg,
+            table,
+            rows,
+            on_conflict=conflict,
+            on_progress=lambda current: summary.set_progress(progress_total, processed + current),
+        )
     summary.bump(f"{table}_inserted", len(rows))
     summary.set_progress(progress_total, progress_total)
 
@@ -519,22 +589,49 @@ def _sync_boxes(
     local_boxes: list,
     key_of,
     count_prefix: str,
+    dry_run: bool = False,
 ) -> None:
     """题图同步：指纹一致跳过；否则并行裁剪上传（失败保留旧 hash 下次重试）。
 
-    指纹含 image_key，因此 key 约定变更会自动触发全量重传。
+    是否需要上传由 content_hash（页图 stat + bbox 指纹）与 image_key 同时比对决定，
+    因此 key 约定变更同样会触发重传。
+    指纹公式改版（旧版含绝对路径）时走 hash_migrated：页图没变就只升级云端 hash，
+    不重传 R2 —— 否则一次改版就要把全库图再传一遍。
+    跳过/重传按原因计数进 summary，便于一眼看出是哪一类。
     """
-    pending: list[tuple] = []  # (box, key, fingerprint, cloud_row|None)
+    decisions: list[tuple] = []  # (box, key, fingerprint, cloud_row|None, needs_upload)
     local_ids: set[int] = set()
+    skipped = 0
     for b in local_boxes:
-        local_ids.add(int(b.id))
+        local_id = int(b.id)
+        local_ids.add(local_id)
         key = key_of(b)
         fp = crop_fingerprint(b)
-        cl = cloud_rows.get(int(b.id))
-        if cl is not None and cl.get("content_hash") == fp and cl.get("image_key") == key:
-            continue  # 图片与元数据均未变化
-        pending.append((b, key, fp, cl))
+        cl = cloud_rows.get(local_id)
+        if cl is None:
+            reason, needs_upload = "cloud_missing", True
+        elif cl.get("content_hash") == fp:
+            if cl.get("image_key") == key:
+                skipped += 1
+                continue  # 图片与元数据均未变化
+            reason, needs_upload = "key_changed", True  # 图没变，但 R2 key 变了
+        elif cl.get("image_key") == key and cl.get("content_hash") == crop_fingerprint_legacy(b):
+            reason, needs_upload = "hash_migrated", False  # 只是指纹公式变了
+        else:
+            reason, needs_upload = "hash_changed", True
+        summary.bump(f"{count_prefix}_pending_{reason}")
+        decisions.append((b, key, fp, cl, needs_upload))
+    if skipped:
+        summary.bump(f"{count_prefix}_skipped", skipped)
 
+    pending = [d for d in decisions if d[4]]
+    if dry_run:
+        # 试算：只报告"会传/会删多少"，绝不碰 R2 与云端
+        stale_ids = [cid for cid in cloud_rows if cid not in local_ids]
+        summary.bump(f"{count_prefix}_would_upload", len(pending))
+        summary.bump(f"{count_prefix}_would_delete", len(stale_ids))
+        summary.set_progress(len(pending))
+        return
     uploaded_ok: dict[int, bool] = {}
     upload_errors: list[str] = []
     n_uploaded = 0
@@ -542,7 +639,7 @@ def _sync_boxes(
     if pending:
         workers = max(1, min(_UPLOAD_WORKERS, len(pending)))
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="r2up") as pool:
-            futures = {pool.submit(_upload_box, cfg, b, key): (b, key) for b, key, _, _ in pending}
+            futures = {pool.submit(_upload_box, cfg, b, key): (b, key) for b, key, _, _, _ in pending}
             for fut in as_completed(futures):
                 b, key = futures[fut]
                 try:
@@ -557,10 +654,18 @@ def _sync_boxes(
                 summary.set_progress(len(pending), summary.progress_current + 1)
 
     meta_rows: list[dict] = []
-    for b, key, fp, cl in pending:
+    for b, key, fp, cl, needs_upload in decisions:
         uploaded = uploaded_ok.get(int(b.id), False)
         parent_key = "question_id" if table == "question_boxes" else "answer_id"
         paper_key = "paper_id" if table == "question_boxes" else "ms_paper_id"
+        if uploaded or not needs_upload:
+            image_key, content_hash = key, fp
+        elif cl is None:
+            # 首次上传失败：不写指纹，下一轮继续当作新图重试
+            image_key, content_hash = key, None
+        else:
+            # 重传失败：保留云端旧 key/hash，下一轮继续重试
+            image_key, content_hash = (cl.get("image_key") or key), cl.get("content_hash")
         meta_rows.append(
             {
                 "id": b.id,
@@ -568,8 +673,8 @@ def _sync_boxes(
                 paper_key: getattr(b, paper_key),
                 "page": b.page,
                 "bbox": b.bbox,
-                "image_key": key if (uploaded or cl is None) else (cl.get("image_key") or key),
-                "content_hash": fp if uploaded else (cl.get("content_hash") if cl else None),
+                "image_key": image_key,
+                "content_hash": content_hash,
             }
         )
 

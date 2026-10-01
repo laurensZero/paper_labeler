@@ -1,6 +1,8 @@
 """直接跑一轮云同步（不经过 HTTP），输出 JSON 摘要到 stdout。
 
-用法：venv\\Scripts\\python.exe scripts/cloud_sync_once.py
+用法：
+  venv\\Scripts\\python.exe scripts/cloud_sync_once.py              # 真同步
+  venv\\Scripts\\python.exe scripts/cloud_sync_once.py --dry-run    # 只试算，不写库不传图
 """
 from __future__ import annotations
 
@@ -17,12 +19,13 @@ from backend.cloud.sync import SyncSummary, run_sync  # noqa: E402
 
 
 def main() -> int:
+    dry_run = "--dry-run" in sys.argv[1:]
     cfg = get_cloud_config()
     if not cloud_enabled() or missing_config(cfg):
         print(json.dumps({"ok": False, "errors": ["配置未就绪"]}, ensure_ascii=False))
         return 1
-    summary = SyncSummary()
-    run_sync(cfg, summary)
+    summary = SyncSummary(dry_run=dry_run)
+    run_sync(cfg, summary, dry_run=dry_run)
     print(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
     return 0 if summary.ok else 2
 

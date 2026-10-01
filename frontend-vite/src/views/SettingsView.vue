@@ -360,11 +360,11 @@ async function pollCloudStatus() {
   }
 }
 
-async function startCloudSync() {
+async function startCloudSync(dryRun = false) {
   cloudStartError.value = ''
   cloudStarting.value = true
   try {
-    await cloudApi.startSync()
+    await cloudApi.startSync(dryRun)
     cloudRunning.value = true
     stopCloudPoll()
     cloudPollTimer = window.setInterval(pollCloudStatus, 1500)
@@ -724,9 +724,17 @@ onUnmounted(() => {
         <button
           class="btn btn-primary"
           :disabled="!cloudReady || cloudRunning || cloudStarting"
-          @click="startCloudSync"
+          @click="startCloudSync(false)"
         >
           {{ cloudRunning || cloudStarting ? t('settings.cloud.syncing') : t('settings.cloud.sync') }}
+        </button>
+        <button
+          class="btn"
+          :disabled="!cloudReady || cloudRunning || cloudStarting"
+          :title="t('settings.cloud.dryRunHint')"
+          @click="startCloudSync(true)"
+        >
+          {{ t('settings.cloud.dryRun') }}
         </button>
         <span v-if="cloudRunning && cloudPhase" style="font-size: 13px; color: var(--text-secondary)">
           {{ cloudPhaseLabel(cloudPhase) }}

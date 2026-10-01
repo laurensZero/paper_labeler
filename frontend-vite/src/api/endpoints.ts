@@ -754,9 +754,9 @@ export const cloudApi = {
     })
   },
 
-  /** 启动一次后台同步（需本地管理 token） */
-  startSync(): Promise<{ started: boolean }> {
-    return api('/cloud/sync', {
+  /** 启动一次后台同步（需本地管理 token）；dryRun=true 只试算，不写库不传图 */
+  startSync(dryRun = false): Promise<{ started: boolean; dry_run: boolean }> {
+    return api(`/cloud/sync?dry_run=${dryRun ? 'true' : 'false'}`, {
       method: 'POST',
       headers: cloudAuthHeaders(),
     })

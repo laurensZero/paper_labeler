@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import urllib.error
 import urllib.parse
@@ -16,9 +17,15 @@ from collections.abc import Callable
 
 from backend.cloud.config import CloudConfig
 
+logger = logging.getLogger(__name__)
+
 _TIMEOUT_S = 120
 _BATCH = 400
 _NETWORK_RETRIES = 3
+
+# PostgREST 单次响应硬上限（Supabase db-max-rows，默认 1000）。
+# 超限不报错，只是静默少返回行 —— 凡是"要全量"的读取都必须自己分页。
+_PAGE = 1000
 
 
 class SupabaseError(RuntimeError):
@@ -63,12 +70,23 @@ def _raise(cfg: CloudConfig, method: str, path: str, status: int, body: bytes) -
     raise SupabaseError(status, method, path, body.decode("utf-8", "replace"))
 
 
-def _query(columns: str, filters: dict[str, str] | None, limit: int | None) -> str:
+def _query(
+    columns: str,
+    filters: dict[str, str] | None,
+    limit: int | None,
+    order: str | None = None,
+    offset: int | None = None,
+) -> str:
     parts = [f"select={urllib.parse.quote(columns)}"]
     for col, expr in (filters or {}).items():
         parts.append(f"{urllib.parse.quote(col)}={urllib.parse.quote(expr, safe='.(),*')}")
+    if order:
+        # 列名逗号/括号可能出现在 order 表达式里（如 id.desc.nullslast）
+        parts.append(f"order={urllib.parse.quote(order, safe='.(),')}")
     if limit is not None:
         parts.append(f"limit={int(limit)}")
+    if offset:
+        parts.append(f"offset={int(offset)}")
     return "&".join(parts)
 
 
@@ -78,14 +96,40 @@ def select(
     columns: str = "*",
     filters: dict[str, str] | None = None,
     limit: int | None = None,
+    order: str | None = None,
 ) -> list[dict]:
-    path = f"{table}?{_query(columns, filters, limit)}"
-    status, body = _request(cfg, "GET", path)
-    if status >= 400:
-        _raise(cfg, "GET", path, status, body)
-    if not body.strip():
-        return []
-    return json.loads(body)
+    """读取行；``limit=None`` 表示"要全部"，会按 ``order`` 分页拉到底。
+
+    PostgREST 单次最多返回 ``_PAGE`` 行且**不报错**，所以"云端基线"这类
+    全量读取不能只发一次 GET：基线残缺会把已同步的行反复判定为新行重推
+    （表现为传完一遍又全量重传）。
+
+    ``order`` 要传稳定且唯一的列（如 ``"id"``）：offset 翻页没有稳定排序
+    时可能漏行或重复。
+    """
+    if limit is not None:
+        path = f"{table}?{_query(columns, filters, limit, order)}"
+        status, body = _request(cfg, "GET", path)
+        if status >= 400:
+            _raise(cfg, "GET", path, status, body)
+        if not body.strip():
+            return []
+        return json.loads(body)
+
+    rows: list[dict] = []
+    while True:
+        path = f"{table}?{_query(columns, filters, _PAGE, order, len(rows))}"
+        status, body = _request(cfg, "GET", path)
+        if status >= 400:
+            _raise(cfg, "GET", path, status, body)
+        chunk = json.loads(body) if body.strip() else []
+        rows.extend(chunk)
+        if len(chunk) < _PAGE:
+            return rows
+        if not order:
+            logger.warning(
+                "%s 全量读取未指定 order，offset 翻页可能漏行/重复（请传 order=\"id\"）", table
+            )
 
 
 def insert(

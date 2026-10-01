@@ -60,10 +60,10 @@ def _require_token(request: Request) -> None:
 # last:    最近一次结束的 dict 快照
 
 
-def _run_in_background(summary: SyncSummary) -> None:
+def _run_in_background(summary: SyncSummary, dry_run: bool = False) -> None:
     cfg = get_cloud_config()
     try:
-        run_sync(cfg, summary)
+        run_sync(cfg, summary, dry_run=dry_run)
     except Exception as exc:  # 网络/云端错误统一收敛到状态里
         logger.exception("cloud sync failed")
         summary.ok = False
@@ -153,7 +153,8 @@ def update_config(payload: dict, request: Request):
 
 
 @router.post("/sync")
-def start_sync(request: Request):
+def start_sync(request: Request, dry_run: bool = False):
+    """启动一轮云同步；``dry_run=true`` 只试算（读基线 + 比指纹，不写库不传图）。"""
     _require_token(request)
     cfg = get_cloud_config()
     if not cloud_enabled():
@@ -162,7 +163,7 @@ def start_sync(request: Request):
     if missing:
         raise HTTPException(status_code=400, detail=f"缺少配置: {', '.join(missing)}")
 
-    summary = SyncSummary(phase="queued")
+    summary = SyncSummary(phase="queued", dry_run=dry_run)
     with _lock:
         if _state["running"]:
             raise HTTPException(status_code=409, detail="同步正在进行中")
@@ -170,10 +171,13 @@ def start_sync(request: Request):
         _state["current"] = summary
 
     thread = threading.Thread(
-        target=_run_in_background, args=(summary,), daemon=True, name="cloud-sync"
+        target=_run_in_background,
+        args=(summary, dry_run),
+        daemon=True,
+        name="cloud-sync",
     )
     thread.start()
-    return {"started": True}
+    return {"started": True, "dry_run": dry_run}
 
 
 @router.get("/sync/status")
@@ -226,6 +230,7 @@ def list_suggestions():
                 "profiles(email),"
                 "questions(question_no,paper_id,papers(exam_code))"
             ),
+            order="id",
         )
     except sb.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
@@ -305,13 +310,15 @@ def list_profiles():
                 "id,email,role,can_see_drafts,created_at,is_active,"
                 "max_compositions,max_exports_per_week,max_exports_per_month,max_export_items"
             ),
+            order="id",
         )
-        comp_rows = sb.select(cfg, "compositions", columns="owner_id")
+        comp_rows = sb.select(cfg, "compositions", columns="id,owner_id", order="id")
         job_rows = sb.select(
             cfg,
             "export_jobs",
             columns="requested_by,status,created_at",
             filters={"created_at": f"gte.{jobs_since.isoformat()}"},
+            order="id",
         )
     except sb.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
@@ -470,6 +477,7 @@ def list_grants(user_id: str):
             "question_grants",
             columns="id,user_id,scope,scope_value,created_at",
             filters={"user_id": f"eq.{user_id}"},
+            order="id",
         )
     except sb.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
@@ -595,6 +603,7 @@ def composition_detail(composition_id: str):
                 "questions(question_no,section,paper_id,papers(exam_code,filename))"
             ),
             filters={"composition_id": f"eq.{composition_id}"},
+            order="id",
         )
     except sb.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
@@ -656,6 +665,7 @@ def export_composition_pdf(
             "composition_items",
             columns="sort_order,item_type,blank_pages,question_id",
             filters={"composition_id": f"eq.{composition_id}"},
+            order="id",
         )
     except sb.SupabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
