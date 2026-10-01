@@ -312,6 +312,14 @@ function cloudCountLabel(key: string): string {
   return label === k ? key : label
 }
 
+const cloudProgressLabel = computed(() => {
+  const summary = cloudActiveSummary.value
+  const total = Number(summary?.progress_total ?? 0)
+  if (!summary || total <= 0) return ''
+  const current = Math.min(total, Math.max(0, Number(summary.progress_current ?? 0)))
+  return `${cloudPhaseLabel(summary.phase)} ${current}/${total}`
+})
+
 /** 同步完成时间展示：2026-09-28 14:03 */
 function fmtSyncTime(summary: CloudSyncSummary | null): string {
   const ts = summary?.finished_at || summary?.started_at || ''
@@ -722,6 +730,9 @@ onUnmounted(() => {
         </button>
         <span v-if="cloudRunning && cloudPhase" style="font-size: 13px; color: var(--text-secondary)">
           {{ cloudPhaseLabel(cloudPhase) }}
+        </span>
+        <span v-if="cloudRunning && cloudProgressLabel" style="font-size: 13px; color: var(--text-secondary)">
+          {{ cloudProgressLabel }}
         </span>
       </div>
 

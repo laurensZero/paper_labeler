@@ -471,6 +471,7 @@
       "ready": "已就绪 · {url} · R2: {bucket}",
       "sync": "同步到云端",
       "syncing": "同步中…",
+      "progress": "{current}/{total}",
       "startFailed": "启动失败：{error}",
       "never": "尚未同步过",
       "lastOk": "上次同步成功 · {time} · 耗时 {seconds}s",

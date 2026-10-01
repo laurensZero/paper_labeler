@@ -21,6 +21,8 @@ export interface CloudSyncSummary {
   errors: string[]
   error_count: number
   resurrected: number[]
+  progress_current?: number
+  progress_total?: number
 }
 
 export interface CloudSyncStatus {

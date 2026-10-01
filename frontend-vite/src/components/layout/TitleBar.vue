@@ -30,6 +30,8 @@ const syncUi = ref<'idle' | 'syncing' | 'ok' | 'err'>('idle')
 const syncMsg = ref('')
 const syncPopover = ref(false)
 const syncPhase = ref('')
+const syncProgressCurrent = ref(0)
+const syncProgressTotal = ref(0)
 const syncDuration = ref<number | null>(null)
 let syncPollTimer: number | null = null
 let syncResetTimer: number | null = null
@@ -45,7 +47,10 @@ const syncPhaseLabel = computed(() => {
 const syncPopText = computed(() => {
   if (syncUi.value === 'syncing') {
     const ph = syncPhaseLabel.value
-    return ph ? `${t('titlebar.quickSyncRunning')} · ${ph}` : t('titlebar.quickSyncRunning')
+    const progress = syncProgressTotal.value > 0
+      ? ` ${syncProgressCurrent.value}/${syncProgressTotal.value}`
+      : ''
+    return ph ? `${t('titlebar.quickSyncRunning')} · ${ph}${progress}` : t('titlebar.quickSyncRunning')
   }
   if (syncUi.value === 'ok') {
     return syncDuration.value != null
@@ -83,6 +88,8 @@ function scheduleSyncHide(delayMs: number) {
       syncUi.value = 'idle'
       syncMsg.value = ''
       syncPhase.value = ''
+      syncProgressCurrent.value = 0
+      syncProgressTotal.value = 0
       syncDuration.value = null
     }
   }, delayMs)
@@ -95,6 +102,8 @@ function closeSyncPop() {
   syncUi.value = 'idle'
   syncMsg.value = ''
   syncPhase.value = ''
+  syncProgressCurrent.value = 0
+  syncProgressTotal.value = 0
   syncDuration.value = null
 }
 
@@ -118,11 +127,15 @@ async function quickSync() {
       const s = await cloudApi.syncStatus()
       if (s.running) {
         syncPhase.value = s.current?.phase || ''
+        syncProgressCurrent.value = Number(s.current?.progress_current ?? 0)
+        syncProgressTotal.value = Number(s.current?.progress_total ?? 0)
         return
       }
       stopSyncPoll()
       const last = s.last ?? s.disk_state
       syncDuration.value = last?.duration_s ?? null
+      syncProgressCurrent.value = Number(last?.progress_current ?? 0)
+      syncProgressTotal.value = Number(last?.progress_total ?? 0)
       if (last?.ok) {
         syncUi.value = 'ok'
         scheduleSyncHide(4_000)

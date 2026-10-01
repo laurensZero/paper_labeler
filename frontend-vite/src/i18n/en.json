@@ -471,6 +471,7 @@
       "ready": "Ready · {url} · R2: {bucket}",
       "sync": "Sync to Cloud",
       "syncing": "Syncing…",
+      "progress": "{current}/{total}",
       "startFailed": "Failed to start: {error}",
       "never": "Never synced",
       "lastOk": "Last sync succeeded · {time} · {seconds}s",

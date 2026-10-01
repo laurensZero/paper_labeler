@@ -218,6 +218,16 @@ def test_sync_link_rows_replaces_changed_parent(monkeypatch):
     assert inserted == [{"question_id": 1, "section_name": "C"}]
 
 
+def test_sync_summary_serializes_progress():
+    summary = SyncSummary(phase="question_boxes")
+    summary.set_progress(12, 7)
+
+    payload = summary.to_dict()
+
+    assert payload["progress_current"] == 7
+    assert payload["progress_total"] == 12
+
+
 # ---------- token / state ----------
 
 

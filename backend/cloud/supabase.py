@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 
 from backend.cloud.config import CloudConfig
 
@@ -99,7 +100,13 @@ def insert(cfg: CloudConfig, table: str, rows: list[dict]) -> None:
             _raise(cfg, "POST", table, status, body)
 
 
-def upsert(cfg: CloudConfig, table: str, rows: list[dict], on_conflict: str = "id") -> None:
+def upsert(
+    cfg: CloudConfig,
+    table: str,
+    rows: list[dict],
+    on_conflict: str = "id",
+    on_progress: Callable[[int], None] | None = None,
+) -> None:
     """按 on_conflict 列做 merge-duplicates upsert（幂等推送的核心）。"""
     if not rows:
         return
@@ -111,6 +118,8 @@ def upsert(cfg: CloudConfig, table: str, rows: list[dict], on_conflict: str = "i
         status, body = _request(cfg, "POST", path, payload, headers)
         if status >= 400:
             _raise(cfg, "POST", path, status, body)
+        if on_progress is not None:
+            on_progress(min(i + len(chunk), len(rows)))
 
 
 def patch(cfg: CloudConfig, table: str, filters: dict[str, str], body: dict) -> int:

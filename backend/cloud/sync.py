@@ -24,7 +24,7 @@ from backend.cloud.config import CloudConfig
 logger = logging.getLogger(__name__)
 
 # R2 单次 PUT 约 2s（延迟主导），并行上传；仅影响传图，元数据仍单线程
-_UPLOAD_WORKERS = 6
+_UPLOAD_WORKERS = 10
 
 
 @dataclass
@@ -37,9 +37,15 @@ class SyncSummary:
     counts: dict = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     resurrected: list[int] = field(default_factory=list)  # 本地仍存在但云端已 tombstone 的 id（疑似 id 复用）
+    progress_current: int = 0
+    progress_total: int = 0
 
     def bump(self, key: str, n: int = 1) -> None:
         self.counts[key] = self.counts.get(key, 0) + n
+
+    def set_progress(self, total: int, current: int = 0) -> None:
+        self.progress_current = max(0, min(int(current), int(total)))
+        self.progress_total = max(0, int(total))
 
     def to_dict(self) -> dict:
         return {
@@ -52,6 +58,8 @@ class SyncSummary:
             "errors": self.errors[:50],
             "error_count": len(self.errors),
             "resurrected": self.resurrected[:50],
+            "progress_current": self.progress_current,
+            "progress_total": self.progress_total,
         }
 
 
@@ -216,7 +224,14 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             }
             for p in papers
         ]
-        supabase.upsert(cfg, "papers", paper_rows)
+        summary.set_progress(len(paper_rows))
+        supabase.upsert(
+            cfg,
+            "papers",
+            paper_rows,
+            on_progress=lambda current: summary.set_progress(len(paper_rows), current),
+        )
+        summary.set_progress(len(paper_rows), len(paper_rows))
         summary.bump("papers_upserted", len(paper_rows))
         summary.bump(
             "papers_tombstoned",
@@ -253,7 +268,14 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             }
             for q in dirty_questions
         ]
-        supabase.upsert(cfg, "questions", question_rows)
+        summary.set_progress(len(question_rows))
+        supabase.upsert(
+            cfg,
+            "questions",
+            question_rows,
+            on_progress=lambda current: summary.set_progress(len(question_rows), current),
+        )
+        summary.set_progress(len(question_rows), len(question_rows))
         summary.bump("questions_upserted", len(question_rows))
         summary.bump(
             "questions_tombstoned",
@@ -295,7 +317,14 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             }
             for a in dirty_answers
         ]
-        supabase.upsert(cfg, "answers", answer_rows)
+        summary.set_progress(len(answer_rows))
+        supabase.upsert(
+            cfg,
+            "answers",
+            answer_rows,
+            on_progress=lambda current: summary.set_progress(len(answer_rows), current),
+        )
+        summary.set_progress(len(answer_rows), len(answer_rows))
         summary.bump("answers_upserted", len(answer_rows))
         summary.bump(
             "answers_tombstoned",
@@ -479,6 +508,7 @@ def _sync_boxes(
     uploaded_ok: dict[int, bool] = {}
     upload_errors: list[str] = []
     n_uploaded = 0
+    summary.set_progress(len(pending))
     if pending:
         workers = max(1, min(_UPLOAD_WORKERS, len(pending)))
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="r2up") as pool:
@@ -494,6 +524,7 @@ def _sync_boxes(
                     n_uploaded += 1
                 elif err:
                     upload_errors.append(f"{table}[{b.id}] {err}")
+                summary.set_progress(len(pending), summary.progress_current + 1)
 
     meta_rows: list[dict] = []
     for b, key, fp, cl in pending:
