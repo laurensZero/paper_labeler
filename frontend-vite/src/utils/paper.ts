@@ -297,11 +297,13 @@ export interface OcrDraftBoxLike {
 export interface OcrDraftLike {
   label?: string | null
   boxes?: OcrDraftBoxLike[] | null
+  difficulty?: number | null
 }
 
 export interface NormalizedOcrDraft {
   label: string
   boxes: OcrDraftBoxLike[]
+  difficulty: number | null
 }
 
 /**
@@ -319,7 +321,10 @@ export function normalizeOcrDrafts(input: unknown): NormalizedOcrDraft[] {
     if (!isUsableOcrLabel(raw.label)) continue
     const boxes = Array.isArray(raw.boxes) ? raw.boxes.filter((b) => b && Array.isArray(b.bbox) && b.bbox.length === 4) : []
     if (!boxes.length) continue
-    out.push({ label: String(raw.label).trim(), boxes })
+    const difficulty = typeof raw.difficulty === 'number' && Number.isFinite(raw.difficulty) && raw.difficulty >= 1 && raw.difficulty <= 5
+      ? Math.round(raw.difficulty)
+      : null
+    out.push({ label: String(raw.label).trim(), boxes, difficulty })
   }
   return out
 }

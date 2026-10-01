@@ -47,6 +47,10 @@ class SyncSummary:
         self.progress_current = max(0, min(int(current), int(total)))
         self.progress_total = max(0, int(total))
 
+    def set_phase(self, phase: str) -> None:
+        self.phase = phase
+        self.set_progress(0)
+
     def to_dict(self) -> dict:
         return {
             "ok": self.ok,
@@ -184,7 +188,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
     now_iso = summary.started_at
 
     # ---------- 1. 拉云端现状（脏检查基线） ----------
-    summary.phase = "fetch_cloud"
+    summary.set_phase("fetch_cloud")
     cloud_papers = supabase.select(cfg, "papers", "id,source_updated_at,deleted_at")
     cloud_questions = supabase.select(cfg, "questions", "id,source_updated_at,deleted_at")
     cloud_answers = supabase.select(cfg, "answers", "id,source_updated_at,deleted_at")
@@ -207,7 +211,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
         aboxes = db.query(AnswerBox).all()
 
         # ---------- 2. papers（量小，全量 upsert） ----------
-        summary.phase = "papers"
+        summary.set_phase("papers")
         paper_rows = [
             {
                 "id": p.id,
@@ -239,7 +243,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
         )
 
         # ---------- 3. questions（updated_at 脏检查） ----------
-        summary.phase = "questions"
+        summary.set_phase("questions")
         cloud_q = {r["id"]: r for r in cloud_questions}
         dirty_questions = []
         for q in questions:
@@ -283,7 +287,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
         )
 
         # ---------- 4. question_sections（整表 diff，覆盖不更新 updated_at 的改标签） ----------
-        summary.phase = "question_sections"
+        summary.set_phase("question_sections")
         _sync_link_rows(
             cfg,
             summary,
@@ -296,7 +300,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
         )
 
         # ---------- 5. answers ----------
-        summary.phase = "answers"
+        summary.set_phase("answers")
         cloud_a = {r["id"]: r for r in cloud_answers}
         dirty_answers = []
         for a in answers:
@@ -332,7 +336,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
         )
 
         # ---------- 6. 分类字典 ----------
-        summary.phase = "sections"
+        summary.set_phase("sections")
         sdef_rows = [
             {
                 "id": s.id,
@@ -380,7 +384,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
         )
 
         # ---------- 7. 题图：裁剪 → webp → R2 → 元数据 upsert ----------
-        summary.phase = "question_boxes"
+        summary.set_phase("question_boxes")
         _sync_boxes(
             cfg,
             summary,
@@ -392,7 +396,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             count_prefix="qbox",
         )
 
-        summary.phase = "answer_boxes"
+        summary.set_phase("answer_boxes")
         _sync_boxes(
             cfg,
             summary,
@@ -404,7 +408,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
         )
 
         # ---------- 8. sync_log 审计 ----------
-        summary.phase = "sync_log"
+        summary.set_phase("sync_log")
         try:
             supabase.insert(
                 cfg,
@@ -425,7 +429,7 @@ def run_sync(cfg: CloudConfig, summary: SyncSummary) -> None:
             summary.errors.append(f"sync_log: {exc}")
 
     summary.ok = not summary.errors
-    summary.phase = "done" if summary.ok else "done_with_errors"
+    summary.set_phase("done" if summary.ok else "done_with_errors")
     summary.finished_at = _iso(datetime.now(timezone.utc)) or ""
     summary.duration_s = round(time.monotonic() - t0, 2)
 
@@ -456,16 +460,40 @@ def _sync_link_rows(
     desired_set = set(desired)
     cloud_set = set(cloud_rows)
     if desired_set == cloud_set:
+        summary.set_progress(0)
         return
-    changed_keys = {pair[key_index] for pair in (desired_set ^ cloud_set)}
+    desired_by_key: dict[object, set[tuple]] = {}
+    cloud_by_key: dict[object, set[tuple]] = {}
+    for pair in desired_set:
+        desired_by_key.setdefault(pair[key_index], set()).add(pair)
+    for pair in cloud_set:
+        cloud_by_key.setdefault(pair[key_index], set()).add(pair)
+    changed_keys = {
+        key
+        for key in (set(desired_by_key) | set(cloud_by_key))
+        if desired_by_key.get(key, set()) != cloud_by_key.get(key, set())
+    }
     if not changed_keys:
+        summary.set_progress(0)
         return
-    for key in changed_keys:
+    reinsert = [pair for pair in desired if pair[key_index] in changed_keys]
+    delete_keys = changed_keys & set(cloud_by_key)
+    progress_total = len(delete_keys) + len(reinsert)
+    summary.set_progress(progress_total)
+    processed = 0
+    for key in delete_keys:
         supabase.delete_filtered(cfg, table, {parent_col: f"eq.{key}"})
         summary.bump(f"{table}_deleted")
-    reinsert = [pair for pair in desired if pair[key_index] in changed_keys]
-    supabase.insert(cfg, table, [row_factory(p) for p in reinsert])
+        processed += 1
+        summary.set_progress(progress_total, processed)
+    supabase.insert(
+        cfg,
+        table,
+        [row_factory(p) for p in reinsert],
+        on_progress=lambda current: summary.set_progress(progress_total, processed + current),
+    )
     summary.bump(f"{table}_inserted", len(reinsert))
+    summary.set_progress(progress_total, progress_total)
 
 
 def _upload_box(cfg: CloudConfig, box, key: str) -> tuple[bool, str | None]:

@@ -39,6 +39,12 @@ describe('normalizeOcrDrafts', () => {
     expect(out).toHaveLength(1)
     expect(out[0].label).toBe('2')
     expect(out[0].boxes).toHaveLength(1)
+    expect(out[0].difficulty).toBeNull()
+  })
+
+  it('keeps a valid difficulty on labeled drafts', () => {
+    expect(normalizeOcrDrafts([{ label: '1', difficulty: 3.6, boxes: [box] }])[0].difficulty).toBe(4)
+    expect(normalizeOcrDrafts([{ label: '1', difficulty: 6, boxes: [box] }])[0].difficulty).toBeNull()
   })
 
   it('handles non-array input', () => {

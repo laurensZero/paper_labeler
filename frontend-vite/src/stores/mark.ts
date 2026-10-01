@@ -42,6 +42,7 @@ export interface NewBox {
 export interface OcrDraftQuestion {
   label: string
   sections: string[]
+  difficulty: number | null
   source?: string
 }
 
@@ -540,7 +541,7 @@ export const useMarkStore = defineStore('mark', () => {
       pendingOcrDraftSelectedIdxByPaperId.delete(paperId)
       return
     }
-    const drafts: { label: string; sections: string[]; boxes: MarkBoxPayload[] }[] = []
+    const drafts: { label: string; sections: string[]; difficulty: number | null; boxes: MarkBoxPayload[] }[] = []
     for (let i = 0; i < ocrDraftQuestions.value.length; i++) {
       const q = ocrDraftQuestions.value[i]
       if (!q) continue
@@ -550,7 +551,7 @@ export const useMarkStore = defineStore('mark', () => {
         .filter((b) => b && b.source === 'ocr' && Number(b.draftIdx) === i)
         .filter((b) => Number.isFinite(b.page) && Array.isArray(b.bbox) && b.bbox.length === 4)
         .map((b) => ({ page: b.page, bbox: b.bbox }))
-      drafts.push({ label, sections, boxes })
+      drafts.push({ label, sections, difficulty: q.difficulty ?? null, boxes })
     }
     pendingOcrDraftByPaperId.set(paperId, drafts)
     pendingOcrDraftSelectedIdxByPaperId.set(
@@ -562,7 +563,7 @@ export const useMarkStore = defineStore('mark', () => {
   function addOcrDraftQuestion() {
     const papersStore = usePapersStore()
     const newIdx = ocrDraftQuestions.value.length
-    ocrDraftQuestions.value.push({ label: String(newIdx + 1), sections: [], source: 'manual' })
+    ocrDraftQuestions.value.push({ label: String(newIdx + 1), sections: [], difficulty: null, source: 'manual' })
     sendMark({ type: 'OCR_SUGGEST', draftCount: ocrDraftQuestions.value.length, dirty: true })
     selectedOcrDraftIdx.value = newIdx
     if (papersStore.currentPaperId != null) {
@@ -960,6 +961,7 @@ export const useMarkStore = defineStore('mark', () => {
             sections: sectionsToSave,
             status: 'confirmed',
             notes: null,
+            difficulty: q.difficulty,
             boxes: boxesPayload,
           }),
         })
@@ -1023,7 +1025,7 @@ export const useMarkStore = defineStore('mark', () => {
       const warn = data?.ocr_warning
 
       if (drafts.length) {
-        ocrDraftQuestions.value = drafts.map((q) => ({ label: q.label, sections: [] }))
+        ocrDraftQuestions.value = drafts.map((q) => ({ label: q.label, sections: [], difficulty: q.difficulty }))
 
         const flat: NewBox[] = []
         drafts.forEach((q, draftIdx) => {
@@ -1217,6 +1219,15 @@ export const useMarkStore = defineStore('mark', () => {
     sendMark({ type: 'SET_SECTIONS' })
   }
 
+  function setOcrDraftDifficulty(idx: number, difficulty: number | null | undefined) {
+    const q = ocrDraftQuestions.value[idx]
+    if (!q) return
+    q.difficulty = (typeof difficulty === 'number' && Number.isFinite(difficulty) && difficulty >= 1 && difficulty <= 5)
+      ? Math.round(difficulty)
+      : null
+    sendMark({ type: 'SET_SECTIONS' })
+  }
+
   // --- selection / edit gestures (events for the view) ---
   function selectBox(box: NewBox | null) {
     if (!sendMark({ type: 'SELECT', hasSelection: !!box })) return
@@ -1310,6 +1321,7 @@ export const useMarkStore = defineStore('mark', () => {
     setNotes,
     setDifficulty,
     setOcrDraftSections,
+    setOcrDraftDifficulty,
     dispatchMark,
     // drawing helpers
     canvasPointToNorm,

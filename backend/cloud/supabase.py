@@ -88,7 +88,12 @@ def select(
     return json.loads(body)
 
 
-def insert(cfg: CloudConfig, table: str, rows: list[dict]) -> None:
+def insert(
+    cfg: CloudConfig,
+    table: str,
+    rows: list[dict],
+    on_progress: Callable[[int], None] | None = None,
+) -> None:
     """POST 插入；主键冲突直接报错（调用方保证只插新行）。"""
     if not rows:
         return
@@ -98,6 +103,8 @@ def insert(cfg: CloudConfig, table: str, rows: list[dict]) -> None:
         status, body = _request(cfg, "POST", table, payload, {"Prefer": "return=minimal"})
         if status >= 400:
             _raise(cfg, "POST", table, status, body)
+        if on_progress is not None:
+            on_progress(min(i + len(chunk), len(rows)))
 
 
 def upsert(

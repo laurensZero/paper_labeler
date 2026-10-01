@@ -644,6 +644,14 @@ onBeforeUnmount(() => {
                     @update:model-value="(val: string[]) => markStore.setOcrDraftSections(idx, val)"
                     @create="(name: string, groupId: string | number | null) => onCreateSectionForOcr(q, name, groupId)"
                   />
+                  <div class="ocr-draft-difficulty">
+                    <span class="form-label">{{ t('common.difficulty') }}</span>
+                    <StarRating
+                      :model-value="q.difficulty"
+                      :size="16"
+                      @update:model-value="(val: number | null) => markStore.setOcrDraftDifficulty(idx, val)"
+                    />
+                  </div>
                 </div>
               </div>
             </template>

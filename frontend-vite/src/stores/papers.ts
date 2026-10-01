@@ -226,6 +226,7 @@ export const usePapersStore = defineStore('papers', () => {
         markStore.ocrDraftQuestions = drafts.map((q) => ({
           label: q.label,
           sections: [],
+          difficulty: q.difficulty,
         }))
 
         markStore.selectedOcrDraftIdx = clampInt(

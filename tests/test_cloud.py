@@ -201,7 +201,11 @@ def test_sync_link_rows_replaces_changed_parent(monkeypatch):
     deleted = []
     inserted = []
     monkeypatch.setattr(sync_mod.supabase, "delete_filtered", lambda cfg, table, filters: deleted.append(filters) or 0)
-    monkeypatch.setattr(sync_mod.supabase, "insert", lambda cfg, table, rows: inserted.extend(rows))
+    monkeypatch.setattr(
+        sync_mod.supabase,
+        "insert",
+        lambda cfg, table, rows, **kwargs: inserted.extend(rows),
+    )
 
     summary = SyncSummary()
     # 问题 1 的标签从 A 改为 C；问题 2 不变
@@ -216,6 +220,36 @@ def test_sync_link_rows_replaces_changed_parent(monkeypatch):
     )
     assert deleted == [{"question_id": "eq.1"}]
     assert inserted == [{"question_id": 1, "section_name": "C"}]
+
+
+def test_sync_link_rows_first_upload_does_not_delete(monkeypatch):
+    from backend.cloud import sync as sync_mod
+
+    deleted = []
+    inserted = []
+    monkeypatch.setattr(sync_mod.supabase, "delete_filtered", lambda *args: deleted.append(args))
+    monkeypatch.setattr(
+        sync_mod.supabase,
+        "insert",
+        lambda cfg, table, rows, **kwargs: inserted.extend(rows),
+    )
+
+    summary = SyncSummary()
+    _sync_link_rows(
+        None,
+        summary,
+        table="question_sections",
+        parent_col="question_id",
+        desired=[(1, "A"), (2, "B")],
+        cloud_rows=[],
+        row_factory=lambda p: {"question_id": p[0], "section_name": p[1]},
+    )
+
+    assert deleted == []
+    assert inserted == [
+        {"question_id": 1, "section_name": "A"},
+        {"question_id": 2, "section_name": "B"},
+    ]
 
 
 def test_sync_summary_serializes_progress():
