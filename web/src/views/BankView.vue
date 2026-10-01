@@ -452,11 +452,6 @@ watch(rows, (list) => {
     selectedId.value = list[0]?.id ?? null
   }
   // 多选：剔除已不在结果集里的 id，保证「已选 N」计数真实
-  if (selectedIds.value.size) {
-    const alive = new Set(list.map((r) => r.id))
-    const kept = new Set([...selectedIds.value].filter((id) => alive.has(id)))
-    if (kept.size !== selectedIds.value.size) selectedIds.value = kept
-  }
 })
 
 // ---- 选题 / 导航 ----
@@ -619,6 +614,7 @@ watch(
     filters.notes.trim(),
   ],
   () => {
+    if (selectedIds.value.size) selectedIds.value = new Set()
     currentPage.value = 1
     void loadQuestions()
   },
@@ -668,6 +664,16 @@ async function makeExportInputs(list: QFull[]): Promise<ExportQuestionInput[]> {
   )
 }
 
+async function loadQuestionRowsByIds(ids: number[]): Promise<QFull[]> {
+  if (!ids.length) return []
+  const { data, error } = await buildQuestionQuery(null)
+    .in('id', ids)
+    .order('id', { ascending: false })
+  if (error) throw error
+  const byId = new Map(((data ?? []) as unknown as QFull[]).map((row) => [row.id, row]))
+  return ids.map((id) => byId.get(id)).filter((row): row is QFull => !!row)
+}
+
 function buildFilterLines(f: SummaryFields, countOverride?: number): string[] {
   const lines: string[] = []
   if (f.section && filters.section) {
@@ -705,14 +711,21 @@ function buildRandomLines(ids: number[], f: SummaryFields): string[] {
 function openFilterExport() {
   // 多选勾选了题目 → 只导出选中（对齐管理端 export.ts:792-793）
   const useSelection = multiSelect.value && selectedIds.value.size > 0
+  const selectedIdList = [...selectedIds.value]
   const baseList = useSelection
     ? rows.value.filter((r) => selectedIds.value.has(r.id))
     : rows.value
-  exportItemCount.value = useSelection ? baseList.length : undefined
-  exportProviderFn.value = () => makeExportInputs(baseList)
-  exportRandomProviderFn.value = (ids: number[]) => {
+  exportItemCount.value = useSelection ? selectedIdList.length : undefined
+  exportProviderFn.value = async () => {
+    const list = useSelection ? await loadQuestionRowsByIds(selectedIdList) : baseList
+    return makeExportInputs(list)
+  }
+  exportRandomProviderFn.value = async (ids: number[]) => {
     const idSet = new Set(ids)
-    return makeExportInputs(rows.value.filter((r) => idSet.has(r.id)))
+    const list = useSelection
+      ? await loadQuestionRowsByIds(selectedIdList.filter((id) => idSet.has(id)))
+      : rows.value.filter((r) => idSet.has(r.id))
+    return makeExportInputs(list)
   }
   exportBuildLinesFn.value = (f: SummaryFields) => buildFilterLines(f, baseList.length)
   exportBuildRandomLinesFn.value = buildRandomLines
