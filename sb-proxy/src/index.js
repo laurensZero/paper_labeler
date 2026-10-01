@@ -9,7 +9,7 @@ const ALLOW_PREFIXES = ['/auth/', '/rest/', '/storage/', '/functions/', '/realti
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, x-supabase-api-version, prefer, range, if-match, if-none-match',
+  'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, x-supabase-api-version, accept-profile, content-profile, prefer, range, if-match, if-none-match',
   'Access-Control-Expose-Headers': 'content-range, content-location, location, preference-applied, sb-gateway-version',
   'Access-Control-Max-Age': '86400',
 }
