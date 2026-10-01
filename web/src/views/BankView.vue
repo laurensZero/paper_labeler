@@ -413,21 +413,28 @@ function buildQuestionQuery(
   return query
 }
 
-async function loadQuestions() {
+async function loadQuestions(
+  userQuestionIdsOverride?: number[] | null,
+  includeCount = true,
+  questionIdsOverride?: number[],
+) {
   const token = ++loadToken
   loading.value = true
   loadError.value = ''
   try {
-    const userQuestionIds = await matchingUserQuestionIds()
-    const query = buildQuestionQuery(userQuestionIds, { count: 'exact' })
-    const from = (currentPage.value - 1) * QUESTION_PAGE_SIZE
+    const userQuestionIds = userQuestionIdsOverride === undefined
+      ? await matchingUserQuestionIds()
+      : userQuestionIdsOverride
+    const query = buildQuestionQuery(userQuestionIds, includeCount ? { count: 'exact' } : {})
+    if (questionIdsOverride) query.in('id', questionIdsOverride.length ? questionIdsOverride : [-1])
+    const from = questionIdsOverride ? 0 : (currentPage.value - 1) * QUESTION_PAGE_SIZE
     const { data, count, error } = await query
       .order('id', { ascending: false })
       .range(from, from + QUESTION_PAGE_SIZE - 1)
     if (error) throw error
     if (token !== loadToken) return
     allRows.value = (data ?? []) as unknown as QFull[]
-    totalRows.value = count ?? allRows.value.length
+    if (includeCount) totalRows.value = count ?? allRows.value.length
     void loadUserData(allRows.value.map((row) => row.id))
   } catch (e) {
     if (token !== loadToken) return
@@ -494,30 +501,38 @@ async function jumpToQuestion() {
   if (!v) return
   loadError.value = ''
   try {
-    const userQuestionIds = await matchingUserQuestionIds()
-    const base = buildQuestionQuery(userQuestionIds)
-    const exact = await base.eq('question_no', v).order('id', { ascending: false }).limit(1)
-    let hit = exact.data?.[0] as { id: number } | undefined
-    if (!hit) {
-      const partial = await buildQuestionQuery(userQuestionIds)
-        .ilike('question_no', `%${v}%`)
-        .order('id', { ascending: false })
-        .limit(1)
-      hit = partial.data?.[0] as { id: number } | undefined
-    }
+    const difficultyLevels = filters.difficulties
+      .filter((value) => value !== 'unset')
+      .map(Number)
+    const { data, error } = await getSupabase().rpc('find_question_page', {
+      p_question_no: v,
+      p_years: filters.years.length ? filters.years : null,
+      p_seasons: filters.seasons.length ? filters.seasons : null,
+      p_paper_ids: filters.papers.length ? filters.papers.map(Number) : null,
+      p_section: filters.section || null,
+      p_difficulties: difficultyLevels.length ? difficultyLevels : null,
+      p_include_unset_difficulty: filters.difficulties.includes('unset'),
+      p_favorite_only: filters.favOnly,
+      p_note_keyword: filters.notes.trim() || null,
+      p_page_size: QUESTION_PAGE_SIZE,
+    })
+    if (error) throw error
+    const hit = (data?.[0] ?? null) as {
+      question_id: number
+      page_no: number
+      total_count: number
+      page_question_ids: number[]
+    } | null
     if (!hit) {
       loadError.value = t('bank.jumpNotFound', { no: v })
       return
     }
-
-    const before = await buildQuestionQuery(userQuestionIds, { count: 'exact', head: true })
-      .gte('id', hit.id)
-    if (before.error) throw before.error
-    currentPage.value = Math.max(1, Math.ceil((before.count ?? 1) / QUESTION_PAGE_SIZE))
-    await loadQuestions()
-    if (allRows.value.some((row) => row.id === hit!.id)) {
+    currentPage.value = Math.max(1, Number(hit.page_no) || 1)
+    totalRows.value = Number(hit.total_count) || 0
+    await loadQuestions(null, false, (hit.page_question_ids ?? []).map(Number))
+    if (allRows.value.some((row) => row.id === hit.question_id)) {
       selectionScrollBehavior = 'auto'
-      selectedId.value = hit.id
+      selectedId.value = hit.question_id
     }
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
