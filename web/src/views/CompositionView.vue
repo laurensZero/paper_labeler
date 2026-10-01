@@ -176,16 +176,25 @@ const loadingIds = ref<Set<number>>(new Set())
 const compId = computed(() => (route.params.id as string | undefined) ?? null)
 const isOwner = computed(() => !!comp.value && comp.value.owner_id === auth.session?.user.id)
 const isAdmin = computed(() => auth.profile?.role === 'admin')
-/** 可编辑：本人 / admin / 共享可编辑 */
+/** 可编辑：本人 / 该卷已设为「公开可编辑」。admin 不额外放行——他人私有的卷只有本人能动（见 0011 迁移） */
 const canEdit = computed(() => {
   if (!comp.value) return false
-  if (isOwner.value || isAdmin.value) return true
+  if (isOwner.value) return true
   return normalizeVis(comp.value.visibility) === 'edit'
 })
-/** 可改共享范围：仅本人（admin 可代管） */
-const canShare = computed(() => isOwner.value || isAdmin.value)
+/** 可改共享范围：仅本人（改共享范围也是改他人组卷） */
+const canShare = computed(() => isOwner.value)
 /** 可查看（只要能打开就成立） */
 const canView = computed(() => !!comp.value)
+
+/** 可删：本人；admin 仅限已公开的卷。与 0011 的 p_compositions_delete 保持一致 */
+function canDeleteComp(c: { is_mine: boolean; visibility: string }): boolean {
+  if (c.is_mine) return true
+  return isAdmin.value && normalizeVis(c.visibility) !== 'private'
+}
+const canDelete = computed(() =>
+  canDeleteComp({ is_mine: isOwner.value, visibility: comp.value?.visibility ?? 'private' }),
+)
 
 /** 旧值 shared 视作 view */
 function normalizeVis(v: string): Comp['visibility'] {
@@ -1077,7 +1086,7 @@ onMounted(() => {
             <span class="btn-text">{{ t('compose.settings.title') }}</span>
           </button>
           <button class="btn btn-soft" :disabled="!canView" :title="t('compose.toolbar.copy')" @click="duplicateComposition(comp.id)">{{ t('compose.toolbar.copy') }}</button>
-          <button class="btn btn-danger" :disabled="!isOwner" :title="t('compose.toolbar.delete')" @click="deleteComposition(comp.id)">{{ t('compose.toolbar.delete') }}</button>
+          <button class="btn btn-danger" :disabled="!canDelete" :title="t('compose.toolbar.delete')" @click="deleteComposition(comp.id)">{{ t('compose.toolbar.delete') }}</button>
           <button
             class="btn btn-primary"
             :disabled="!items.filter((i) => i.item_type === 'question').length"
@@ -1478,7 +1487,7 @@ onMounted(() => {
                   <button
                     class="btn btn-danger btn-sm"
                     :title="t('compose.toolbar.delete')"
-                    :disabled="!c.is_mine && !isAdmin"
+                    :disabled="!canDeleteComp(c)"
                     @click.stop="deleteComposition(c.id)"
                   >{{ t('compose.toolbar.delete') }}</button>
                 </div>
