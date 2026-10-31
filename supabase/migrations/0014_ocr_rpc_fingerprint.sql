@@ -10,7 +10,11 @@
 -- 执行方式：Supabase Dashboard → SQL Editor 整段执行
 -- ============================================================
 
-create or replace function public.pending_ocr_questions(max_rows int default 1000)
+-- 0013 版本返回类型不含 fingerprint，需先 DROP 再建（42P13）
+drop function if exists public.pending_ocr_questions(int);
+drop function if exists public.question_fingerprints();
+
+create function public.pending_ocr_questions(max_rows int default 1000)
 returns table (question_id bigint, question_no text, fingerprint text, boxes jsonb)
 language sql
 stable
