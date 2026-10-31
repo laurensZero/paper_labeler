@@ -185,8 +185,9 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
         if not content and missing_md:
             # 有真失败：不回写，留待增量 RPC 重试
             continue
-        # 框指纹（与 0013 RPC pending_ocr_questions 同规则）：page:box_id:hash
-        fp = ",".join(
+        # 框指纹：优先用调用方透传的（RPC 返回，零计算），否则按元数据拼接
+        fps = {r.get("fingerprint") for r in rows_ if r.get("fingerprint")}
+        fp = fps.pop() if len(fps) == 1 else ",".join(
             f"{r['page']}:{r['box_id']}:{r.get('content_hash') or r['r2_key']}"
             for r in sorted(rows_, key=lambda x: (x.get("page", 0), x.get("box_id", 0)))
         )
