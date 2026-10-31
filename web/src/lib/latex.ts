@@ -142,6 +142,23 @@ function katexRender(tex: string, display: boolean): string {
 export function renderLatexHtml(src: string | null | undefined): string {
   const text = normalizeLatexDelimiters(src ?? '')
   if (!text.trim()) return ''
+  // 回写侧把 OTSL 转成单行 <table>…</table>（自有转换器生成、单元格已转义）；
+  // 先抽出表格块单独重建渲染，其余走原段落管线
+  const out: string[] = []
+  const tableRe = /<table[\s\S]*?<\/table>/gi
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = tableRe.exec(text))) {
+    if (m.index > last) out.push(renderParagraphs(text.slice(last, m.index)))
+    out.push(renderStoredTable(m[0]))
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push(renderParagraphs(text.slice(last)))
+  return out.join('')
+}
+
+function renderParagraphs(text: string): string {
+  if (!text.trim()) return ''
   const { parts } = splitSegments(text)
   let html = '<p>'
   let blankPending = false
@@ -170,6 +187,45 @@ export function renderLatexHtml(src: string | null | undefined): string {
   }
   html += '</p>'
   return html.replace(/<p><\/p>/g, '')
+}
+
+/** 存储的 HTML 表格 → 白名单重建（rowspan/colspan 整数，单元格走公式渲染） */
+function renderStoredTable(tableHtml: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(tableHtml, 'text/html')
+    const src = doc.querySelector('table')
+    if (!src) return escapeHtml(tableHtml)
+    const table = document.createElement('table')
+    table.className = 'ocr-table'
+    for (const tr of Array.from(src.querySelectorAll('tr'))) {
+      const trOut = document.createElement('tr')
+      for (const cell of Array.from(tr.children)) {
+        if (cell.tagName !== 'TD' && cell.tagName !== 'TH') continue
+        const td = document.createElement(cell.tagName === 'TH' ? 'th' : 'td')
+        for (const attr of ['rowspan', 'colspan'] as const) {
+          const v = cell.getAttribute(attr)
+          if (v && /^\d+$/.test(v) && Number(v) > 1) td.setAttribute(attr, v)
+        }
+        td.innerHTML = renderInline(cell.textContent ?? '')
+        trOut.appendChild(td)
+      }
+      table.appendChild(trOut)
+    }
+    return table.outerHTML
+  } catch {
+    return escapeHtml(tableHtml)
+  }
+}
+
+/** 单元格级渲染：文本转义、\( \) 走 katex */
+function renderInline(text: string): string {
+  const { parts } = splitSegments(text)
+  let html = ''
+  for (const p of parts) {
+    if (p.kind === 'math') html += katexRender(p.tex, p.display)
+    else html += escapeHtml(p.value).replace(/\n/g, '<br>')
+  }
+  return html || '&nbsp;'
 }
 
 /** 一键复制（http 环境降级 execCommand） */

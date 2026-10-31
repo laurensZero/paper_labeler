@@ -996,6 +996,19 @@ input[type="checkbox"]:focus-visible {
   font-size: 12px;
   white-space: pre-wrap;
 }
+/* OCR 识别出的表格（回写侧由 OTSL 转换） */
+.bank-ocr-body .ocr-table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 0.95em;
+}
+.bank-ocr-body .ocr-table td,
+.bank-ocr-body .ocr-table th {
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  text-align: center;
+  vertical-align: middle;
+}
 
 /* 信息卡：白底圆角卡（16px 四边框 + 上下 8px 呼吸位） */
 .bank-info {

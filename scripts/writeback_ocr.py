@@ -22,6 +22,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
+from otsl_converter import convert_otsl_to_html  # noqa: E402  # vendor 自 Xiaomi-OCR-0（Apache-2.0）
+
 
 def load_service_key() -> str:
     env = REPO / ".env"
@@ -109,17 +111,18 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
     #   1) 整行的点线/下划线/省略号 = 答题线，清除
     #   2) 段落末尾的 [数字] = 分值标注，统一去除（云端无分值真值，不补；
     #      只删段尾纯 [数字]，避免误伤 [0, 2π] 等数学记号）
-    #   3) 表格 OTSL 原样保留；图不处理（前端打"含图"徽标）
+    #   3) 表格 OTSL → HTML 表格（官方 postprocess/otsl.py 转换器，带 rowspan/colspan）
+    #   4) 图不处理（前端打"含图"徽标）
     dots_line = re.compile(r"^\s*[\.\u2026\u22ef_·]{6,}\s*$", re.M)
     trailing_marks = re.compile(r"\s*\[\d{1,2}\]\s*$")
     blank_runs = re.compile(r"\n{3,}")
 
     def clean(text: str) -> str:
         text = dots_line.sub("", text)
+        paras = [p.rstrip() for p in text.split("\n\n")]
+        paras = [convert_otsl_to_html(p) if re.search(r"<\s*fcel\s*>", p, re.I) else p for p in paras]
         if not keep_marks:
-            paras = [trailing_marks.sub("", p.rstrip()) for p in text.split("\n\n")]
-        else:
-            paras = [p.rstrip() for p in text.split("\n\n")]
+            paras = [trailing_marks.sub("", p.rstrip()) for p in paras]
         return blank_runs.sub("\n\n", "\n\n".join(paras)).strip()
 
     merged = []
@@ -143,7 +146,12 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
         if not content:
             print(f"  -- 题 {qid} 清理后为空（纯图形/答题线），跳过")
             continue
-        merged.append({"question_id": qid, "content": content,
+        # 框指纹（与 0013 RPC pending_ocr_questions 同规则）：page:box_id:hash
+        fp = ",".join(
+            f"{r['page']}:{r['box_id']}:{r.get('content_hash') or r['r2_key']}"
+            for r in sorted(rows, key=lambda x: (x.get("page", 0), x.get("box_id", 0)))
+        )
+        merged.append({"question_id": qid, "content": content, "boxes_fingerprint": fp,
                        "model": "xiaomi-ocr-0", "status": "draft"})
     return merged
 
