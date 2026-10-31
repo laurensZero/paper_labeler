@@ -22,8 +22,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-from otsl_converter import convert_otsl_to_html  # noqa: E402  # vendor 自 Xiaomi-OCR-0（Apache-2.0）
-
 
 def load_service_key() -> str:
     env = REPO / ".env"
@@ -32,6 +30,33 @@ def load_service_key() -> str:
         if m:
             return m.group(1)
     raise SystemExit("未找到 SUPABASE_SERVICE_ROLE_KEY（repo 根 .env）")
+
+
+# ---- OTSL → Markdown 表格 ----
+# OTSL（官方提示词输出）：单元格 <fcel>，换行 <nl>。仅处理简单表；
+# 含跨行跨列标记（<lcel>/<ucel>/<xcel>）的空间结构表已在 clean() 按图片丢弃。
+
+_OTSL_ROW_SPLIT = re.compile(r"<\s*nl\s*>", re.I)
+_OTSL_CELL_SPLIT = re.compile(r"<\s*fcel\s*>", re.I)
+
+
+def otsl_to_markdown(text: str) -> str:
+    if not re.search(r"<\s*fcel\s*>", text, re.I):
+        return text
+    rows = []
+    for raw in _OTSL_ROW_SPLIT.split(text):
+        cells = [c.strip() for c in _OTSL_CELL_SPLIT.split(raw) if c.strip()]
+        if cells:
+            rows.append([c.replace("|", "\\|") for c in cells])
+    if not rows:
+        return text
+    width = max(len(r) for r in rows)
+    for r in rows:
+        r += [""] * (width - len(r))
+    out = ["| " + " | ".join(rows[0]) + " |", "|" + "---|" * width]
+    for r in rows[1:]:
+        out.append("| " + " | ".join(r) + " |")
+    return "\n".join(out)
 
 
 # ---- 分隔符归一化（与 web/src/lib/latex.ts normalizeLatexDelimiters 同规则）----
@@ -43,21 +68,11 @@ def normalize_latex_delimiters(src: str) -> str:
     while i < n:
         rest = src[i:]
         if rest.startswith("\\[") or rest.startswith("\\("):
+            # 显式定界符永远视为数学（不做"误包正文"剔除——启发式已证明会误伤
+            # \begin{pmatrix}/\theta 等真公式；罕见的美化收益不值得回归风险）
             tok = rest[:2]
             want = "display" if tok == "\\[" else "inline"
             if mode == "out":
-                if want == "inline":
-                    # 显式 \( \) 内容含 >=2 个英文长单词 → 误包正文（如 \(32600 for Browns and\)）：
-                    # 去掉定界符按正文保留。剔除 \命令 后再数词，避免把 \theta/\frac 当英文
-                    close = src.find("\\)", i + 2)
-                    nl = src.find("\n", i + 2)
-                    if close != -1 and (nl == -1 or close < nl):
-                        candidate = src[i + 2 : close]
-                        words = re.findall(r"[A-Za-z]{3,}", re.sub(r"\\[A-Za-z]+", "", candidate))
-                        if len(words) >= 2:
-                            out.append(candidate)
-                            i = close + 2
-                            continue
                 mode = want
                 out.append(tok)
             else:
@@ -96,8 +111,8 @@ def normalize_latex_delimiters(src: str) -> str:
             close = src.find("$", i + 1)
             nl = src.find("\n", i + 1)
             candidate = src[i + 1 : close] if close != -1 else ""
-            # 配对内容含 >=2 个英文长单词（如 "for Browns and"）→ 货币/正文的 $ 误配对，按字面量保留
-            if close != -1 and (nl == -1 or close < nl) and len(re.findall(r"[A-Za-z]{3,}", candidate)) < 2:
+            # 配对内容剔除命令及参数后仍含 >=2 个英文长单词 → 货币/正文 $ 误配对，按字面量保留
+            if close != -1 and (nl == -1 or close < nl) and len(re.findall(r"[A-Za-z]{3,}", re.sub(r"\\[A-Za-z]+(\{[^{}]*\})?", "", candidate))) < 2:
                 mode = "inline"
                 out.append("\\(")
             else:
@@ -125,7 +140,7 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
     #   1) 整行的点线/下划线/省略号 = 答题线，清除
     #   2) 段落末尾的 [数字] = 分值标注，统一去除（云端无分值真值，不补；
     #      只删段尾纯 [数字]，避免误伤 [0, 2π] 等数学记号）
-    #   3) 表格 OTSL → HTML 表格（官方 postprocess/otsl.py 转换器，带 rowspan/colspan）
+    #   3) 简单表格 OTSL → Markdown 表格（前端 markdown-it 渲染）；空间结构表按图片丢弃
     #   4) 图不处理（前端打"含图"徽标）
     dots_line = re.compile(r"^\s*[\.\u2026\u22ef_·]{6,}\s*$", re.M)
     trailing_marks = re.compile(r"\s*\[\d{1,2}\]\s*$")
@@ -141,7 +156,7 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
                     # 跨行/跨列标记 = 空间结构表（茎叶图等），Markdown/HTML 都失真：
                     # 按图片处理，不留文字表（前端"含图"徽标提示看原图）
                     continue
-                p = convert_otsl_to_html(p)
+                p = otsl_to_markdown(p)
             out.append(p)
         paras = out
         if not keep_marks:
