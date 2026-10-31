@@ -37,8 +37,23 @@ function splitSegments(src: string): Segments {
   }
   while (i < n) {
     const rest = src.slice(i)
-    if (rest.startsWith('\\[') || rest.startsWith('\\(') || rest.startsWith('$$')) {
-      const tok = rest.startsWith('$$') ? '$$' : rest.slice(0, 2)
+    const tagMatch = /^\\\[|^\\\(|^\$\$/.exec(rest)
+    if (tagMatch) {
+      const tok = tagMatch[0]
+      if (tok === '\\(' && mode === 'out') {
+        // 显式 \( \) 内容含 >=2 个英文长单词 → 误包正文，去掉定界符按正文保留
+        const close = src.indexOf('\\)', i + 2)
+        const nl = src.indexOf('\n', i + 2)
+        if (close !== -1 && (nl === -1 || close < nl)) {
+          const candidate = src.slice(i + 2, close)
+          const englishWords = candidate.match(/[A-Za-z]{3,}/g)?.length ?? 0
+          if (englishWords >= 2) {
+            buf += candidate
+            i = close + 2
+            continue
+          }
+        }
+      }
       if (mode === 'out') {
         flushText()
         mode = tok === '\\(' ? 'inline' : 'display'
@@ -69,10 +84,12 @@ function splitSegments(src: string): Segments {
     }
     if (src[i] === '$') {
       if (mode === 'out') {
-        // 行内 $ 仅在同行可配对时视为数学开界符；否则是货币等字面量
+        // 行内 $ 仅在同行可配对、且内容不像英文句子（货币误配对防护）时视为数学
         const close = src.indexOf('$', i + 1)
         const nl = src.indexOf('\n', i + 1)
-        if (close !== -1 && (nl === -1 || close < nl)) {
+        const candidate = close !== -1 ? src.slice(i + 1, close) : ''
+        const englishWords = candidate.match(/[A-Za-z]{3,}/g)?.length ?? 0
+        if (close !== -1 && (nl === -1 || close < nl) && englishWords < 2) {
           flushText()
           mode = 'inline'
           tex = ''

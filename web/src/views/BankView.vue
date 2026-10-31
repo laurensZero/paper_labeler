@@ -674,8 +674,10 @@ const selectedOcr = computed(() => {
 })
 const selectedOcrHtml = computed(() => (selectedOcr.value ? renderLatexHtml(selectedOcr.value.content) : ''))
 // 约定：识别文本无法还原图形，含图题在面板打徽标提醒对照原图
+// （茎叶图等带跨行跨列标记的表在回写侧按图片处理，此处关键词一并提示）
 const selectedOcrHasFigure = computed(() =>
-  !!selectedOcr.value && /\b(diagram|graph|figure)\b/i.test(selectedOcr.value.content))
+  !!selectedOcr.value &&
+  /\b(diagram|graph|figure|stem[- ]and[- ]leaf)\b/i.test(selectedOcr.value.content))
 
 function toggleOcr() {
   ocrOpen.value = !ocrOpen.value

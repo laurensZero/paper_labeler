@@ -46,6 +46,17 @@ def normalize_latex_delimiters(src: str) -> str:
             tok = rest[:2]
             want = "display" if tok == "\\[" else "inline"
             if mode == "out":
+                if want == "inline":
+                    # 显式 \( \) 内容含 >=2 个英文长单词 → 误包正文（如 \(32600 for Browns and\)）：
+                    # 去掉定界符按正文保留
+                    close = src.find("\\)", i + 2)
+                    nl = src.find("\n", i + 2)
+                    if close != -1 and (nl == -1 or close < nl):
+                        candidate = src[i + 2 : close]
+                        if len(re.findall(r"[A-Za-z]{3,}", candidate)) >= 2:
+                            out.append(candidate)
+                            i = close + 2
+                            continue
                 mode = want
                 out.append(tok)
             else:
@@ -83,11 +94,13 @@ def normalize_latex_delimiters(src: str) -> str:
                 continue
             close = src.find("$", i + 1)
             nl = src.find("\n", i + 1)
-            if close != -1 and (nl == -1 or close < nl):
+            candidate = src[i + 1 : close] if close != -1 else ""
+            # 配对内容含 >=2 个英文长单词（如 "for Browns and"）→ 货币/正文的 $ 误配对，按字面量保留
+            if close != -1 and (nl == -1 or close < nl) and len(re.findall(r"[A-Za-z]{3,}", candidate)) < 2:
                 mode = "inline"
                 out.append("\\(")
             else:
-                out.append("$")  # 无同行配对的游离 $（货币等）：按字面量保留
+                out.append("$")  # 无同行配对或疑似货币：按字面量保留
             i += 1
             continue
         out.append(src[i])
@@ -120,7 +133,16 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
     def clean(text: str) -> str:
         text = dots_line.sub("", text)
         paras = [p.rstrip() for p in text.split("\n\n")]
-        paras = [convert_otsl_to_html(p) if re.search(r"<\s*fcel\s*>", p, re.I) else p for p in paras]
+        out = []
+        for p in paras:
+            if re.search(r"<\s*fcel\s*>", p, re.I):
+                if re.search(r"<\s*(?:lcel|ucel|xcel)\s*>", p, re.I):
+                    # 跨行/跨列标记 = 空间结构表（茎叶图等），Markdown/HTML 都失真：
+                    # 按图片处理，不留文字表（前端"含图"徽标提示看原图）
+                    continue
+                p = convert_otsl_to_html(p)
+            out.append(p)
+        paras = out
         if not keep_marks:
             paras = [trailing_marks.sub("", p.rstrip()) for p in paras]
         return blank_runs.sub("\n\n", "\n\n".join(paras)).strip()
