@@ -148,33 +148,39 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
         return blank_runs.sub("\n\n", "\n\n".join(paras)).strip()
 
     merged = []
-    for qid, rows in sorted(by_q.items()):
-        rows.sort(key=lambda r: (r.get("page", 0), r.get("box_id", 0)))
+    for qid, rows_ in sorted(by_q.items()):
+        rows_.sort(key=lambda r: (r.get("page", 0), r.get("box_id", 0)))
         texts = []
-        for r in rows:
+        missing_md = False
+        for r in rows_:
             stem = Path(r["file"]).stem
             f = out_dir / f"{stem}.md"
             if not f.exists():
-                print(f"  !! 缺输出文件 {f.name}（题 {qid}，跳过该框）")
+                # 真 OCR 失败：该题不写指纹，增量 RPC 下一轮自动重试
+                missing_md = True
+                print(f"  !! 缺输出文件 {f.name}（题 {qid}，指纹省略待重试）")
                 continue
             t = f.read_text(encoding="utf-8").strip()
-            if t:
+            if t:  # 空 md = 图形框（按图片处理），不计入文本
                 texts.append(t)
-        if not texts:
-            continue
         content = clean("\n\n".join(texts))
         if normalize:
             content = normalize_latex_delimiters(content)
-        if not content:
-            print(f"  -- 题 {qid} 清理后为空（纯图形/答题线），跳过")
+        if not content and missing_md:
+            # 有真失败：不回写，留待增量 RPC 重试
             continue
         # 框指纹（与 0013 RPC pending_ocr_questions 同规则）：page:box_id:hash
         fp = ",".join(
             f"{r['page']}:{r['box_id']}:{r.get('content_hash') or r['r2_key']}"
-            for r in sorted(rows, key=lambda x: (x.get("page", 0), x.get("box_id", 0)))
+            for r in sorted(rows_, key=lambda x: (x.get("page", 0), x.get("box_id", 0)))
         )
-        merged.append({"question_id": qid, "content": content, "boxes_fingerprint": fp,
-                       "model": "xiaomi-ocr-0", "status": "draft"})
+        if not content:
+            # 整题纯图形：写空内容 + 指纹，让 RPC 视为已处理，不再重列
+            print(f"  -- 题 {qid} 纯图形题，记空内容")
+        row = {"question_id": qid, "content": content, "model": "xiaomi-ocr-0", "status": "draft"}
+        if not missing_md:
+            row["boxes_fingerprint"] = fp
+        merged.append(row)
     return merged
 
 
