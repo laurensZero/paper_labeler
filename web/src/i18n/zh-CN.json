@@ -247,6 +247,7 @@
     "ocrShow": "识别文本",
     "ocrHide": "收起识别",
     "ocrCopy": "一键复制",
+        "ocrHasFigure": "含图",
     "ocrCopied": "已复制 ✓",
     "ocrEmpty": "该题暂无识别文本",
     "ocrUnavailable": "OCR 数据表未就绪（迁移 0012 未执行）",

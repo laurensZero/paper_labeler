@@ -951,8 +951,8 @@ input[type="checkbox"]:focus-visible {
   border-radius: var(--radius-lg);
   background: var(--surface);
   font-family: Cambria, Caladea, Georgia, "Times New Roman", serif;
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 16px;
+  line-height: 1.8;
   color: var(--text-primary);
 }
 /* 公式字母类走 Cambria（CIE 试卷原字体；Caladea 为其开源等效度量字体）；

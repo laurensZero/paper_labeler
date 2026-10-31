@@ -673,6 +673,9 @@ const selectedOcr = computed(() => {
   return s ? ocrMap.value.get(s.id) ?? null : null
 })
 const selectedOcrHtml = computed(() => (selectedOcr.value ? renderLatexHtml(selectedOcr.value.content) : ''))
+// 约定：识别文本无法还原图形，含图题在面板打徽标提醒对照原图
+const selectedOcrHasFigure = computed(() =>
+  !!selectedOcr.value && /\b(diagram|graph|figure)\b/i.test(selectedOcr.value.content))
 
 function toggleOcr() {
   ocrOpen.value = !ocrOpen.value
@@ -988,6 +991,7 @@ onBeforeUnmount(() => {
             <div v-if="ocrOpen" class="bank-answer bank-ocr">
               <div class="bank-answer-head bank-ocr-head">
                 <span>{{ t('bank.ocrTitle') }}</span>
+                <span v-if="selectedOcrHasFigure" class="tag tag-warn">{{ t('bank.ocrHasFigure') }}</span>
                 <button v-if="selectedOcr" class="bank-action bank-action--primary" @click="copyOcr">
                   <svg v-if="!ocrCopied" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                   {{ ocrCopied ? t('bank.ocrCopied') : t('bank.ocrCopy') }}

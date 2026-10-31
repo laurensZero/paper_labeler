@@ -247,6 +247,7 @@
     "ocrShow": "OCR text",
     "ocrHide": "Hide OCR",
     "ocrCopy": "Copy",
+        "ocrHasFigure": "figure",
     "ocrCopied": "Copied ✓",
     "ocrEmpty": "No OCR text for this question",
     "ocrUnavailable": "OCR storage not ready (migration 0012 not applied)",

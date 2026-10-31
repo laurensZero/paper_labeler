@@ -97,13 +97,31 @@ def normalize_latex_delimiters(src: str) -> str:
     return "".join(out)
 
 
-def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool):
+def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep_marks: bool = False):
     by_q: dict[int, list[dict]] = {}
     for row in manifest:
         qid = row.get("question_id")
         if qid is None:
             continue
         by_q.setdefault(int(qid), []).append(row)
+
+    # 约定（2026-10-31 与用户确认）：
+    #   1) 整行的点线/下划线/省略号 = 答题线，清除
+    #   2) 段落末尾的 [数字] = 分值标注，统一去除（云端无分值真值，不补；
+    #      只删段尾纯 [数字]，避免误伤 [0, 2π] 等数学记号）
+    #   3) 表格 OTSL 原样保留；图不处理（前端打"含图"徽标）
+    dots_line = re.compile(r"^\s*[\.\u2026\u22ef_·]{6,}\s*$", re.M)
+    trailing_marks = re.compile(r"\s*\[\d{1,2}\]\s*$")
+    blank_runs = re.compile(r"\n{3,}")
+
+    def clean(text: str) -> str:
+        text = dots_line.sub("", text)
+        if not keep_marks:
+            paras = [trailing_marks.sub("", p.rstrip()) for p in text.split("\n\n")]
+        else:
+            paras = [p.rstrip() for p in text.split("\n\n")]
+        return blank_runs.sub("\n\n", "\n\n".join(paras)).strip()
+
     merged = []
     for qid, rows in sorted(by_q.items()):
         rows.sort(key=lambda r: (r.get("page", 0), r.get("box_id", 0)))
@@ -119,9 +137,12 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool):
                 texts.append(t)
         if not texts:
             continue
-        content = "\n\n".join(texts)
+        content = clean("\n\n".join(texts))
         if normalize:
             content = normalize_latex_delimiters(content)
+        if not content:
+            print(f"  -- 题 {qid} 清理后为空（纯图形/答题线），跳过")
+            continue
         merged.append({"question_id": qid, "content": content,
                        "model": "xiaomi-ocr-0", "status": "draft"})
     return merged
@@ -170,10 +191,11 @@ def main():
     ap.add_argument("--batch", type=int, default=200)
     ap.add_argument("--status", choices=["draft", "confirmed"], default="draft")
     ap.add_argument("--base", default=None, help="覆盖 API 基址（默认 .env 的 SUPABASE_URL；直连不通可用 CF 反代）")
+    ap.add_argument("--keep-marks", action="store_true", help="保留段尾 [数字] 分值标注（默认去除）")
     args = ap.parse_args()
 
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
-    rows = merge_by_question(manifest, Path(args.out_dir), not args.no_normalize)
+    rows = merge_by_question(manifest, Path(args.out_dir), not args.no_normalize, args.keep_marks)
     for r in rows:
         r["status"] = args.status
     total_chars = sum(len(r["content"]) for r in rows)
