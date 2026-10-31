@@ -950,9 +950,23 @@ input[type="checkbox"]:focus-visible {
   padding: 12px 14px;
   border-radius: var(--radius-lg);
   background: var(--surface);
+  font-family: "Times New Roman", Times, Georgia, serif;
   font-size: 14px;
   line-height: 1.75;
   color: var(--text-primary);
+}
+/* 公式字母类走 Times（Times New Roman 无数学专用字形，退到 Times 系）；
+   根号/求和/定界符等仍用 KaTeX 自带字体保证符号完整 */
+.bank-ocr-body .katex,
+.bank-ocr-body .katex .mathnormal,
+.bank-ocr-body .katex .mathdefault,
+.bank-ocr-body .katex .mathrm,
+.bank-ocr-body .katex .text,
+.bank-ocr-body .katex .textrm,
+.bank-ocr-body .katex .textit,
+.bank-ocr-body .katex .mathbf,
+.bank-ocr-body .katex .boldtext {
+  font-family: "Times New Roman", Times, Georgia, serif;
 }
 .bank-ocr-body p {
   margin: 0 0 8px;
