@@ -48,12 +48,13 @@ def normalize_latex_delimiters(src: str) -> str:
             if mode == "out":
                 if want == "inline":
                     # 显式 \( \) 内容含 >=2 个英文长单词 → 误包正文（如 \(32600 for Browns and\)）：
-                    # 去掉定界符按正文保留
+                    # 去掉定界符按正文保留。剔除 \命令 后再数词，避免把 \theta/\frac 当英文
                     close = src.find("\\)", i + 2)
                     nl = src.find("\n", i + 2)
                     if close != -1 and (nl == -1 or close < nl):
                         candidate = src[i + 2 : close]
-                        if len(re.findall(r"[A-Za-z]{3,}", candidate)) >= 2:
+                        words = re.findall(r"[A-Za-z]{3,}", re.sub(r"\\[A-Za-z]+", "", candidate))
+                        if len(words) >= 2:
                             out.append(candidate)
                             i = close + 2
                             continue

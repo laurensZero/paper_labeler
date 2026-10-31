@@ -42,11 +42,12 @@ function splitSegments(src: string): Segments {
       const tok = tagMatch[0]
       if (tok === '\\(' && mode === 'out') {
         // 显式 \( \) 内容含 >=2 个英文长单词 → 误包正文，去掉定界符按正文保留
+        // （先剔除 \命令 再数词，避免把 \theta/\frac/\sqrt 当英文）
         const close = src.indexOf('\\)', i + 2)
         const nl = src.indexOf('\n', i + 2)
         if (close !== -1 && (nl === -1 || close < nl)) {
           const candidate = src.slice(i + 2, close)
-          const englishWords = candidate.match(/[A-Za-z]{3,}/g)?.length ?? 0
+          const englishWords = candidate.replace(/\\[A-Za-z]+/g, '').match(/[A-Za-z]{3,}/g)?.length ?? 0
           if (englishWords >= 2) {
             buf += candidate
             i = close + 2
