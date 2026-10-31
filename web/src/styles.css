@@ -932,6 +932,52 @@ input[type="checkbox"]:focus-visible {
   background: var(--surface);
 }
 
+/* LaTeX 识别文本（question_ocr） */
+.bank-ocr-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bank-ocr-head .bank-action {
+  width: auto;
+  flex: none;
+  margin-left: auto;
+  padding: 6px 10px;
+}
+.bank-ocr-body {
+  max-height: 46vh;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--text-primary);
+}
+.bank-ocr-body p {
+  margin: 0 0 8px;
+}
+.bank-ocr-body p:last-child {
+  margin-bottom: 0;
+}
+.bank-ocr-body .katex-display {
+  margin: 10px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+.bank-ocr-body .ocr-tex-fallback {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 /* 信息卡：白底圆角卡（16px 四边框 + 上下 8px 呼吸位） */
 .bank-info {
   width: 280px;

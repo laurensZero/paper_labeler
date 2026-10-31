@@ -9,6 +9,7 @@ import MultiSelect from '@/components/MultiSelect.vue'
 import ExportDialog, { type SummaryFields, type RandomPoolItem } from '@/components/ExportDialog.vue'
 import { buildCascadeOptions, fetchSectionsGraph, UNSET_SECTION, type CascadeGroup } from '@/lib/sections'
 import { fetchAnswerBoxes, fetchQuestionBoxes, toExportInput, type QuestionBox } from '@/lib/exportData'
+import { copyPlainText, renderLatexHtml } from '@/lib/latex'
 import { fetchPaperQnoMap } from '@/lib/paperQno'
 import type { ExportQuestionInput } from '@/lib/pdfExport'
 import { useAuth } from '@/composables/auth'
@@ -627,6 +628,70 @@ watch(selectedId, (qid) => {
   if (ansOpen.value && qid != null) void loadAnswers(qid)
 })
 
+// ---- LaTeX 识别文本（question_ocr，0012 迁移；未执行时静默降级） ----
+interface OcrRow {
+  content: string
+  model: string
+  updated_at: string | null
+}
+const ocrOpen = ref(false)
+const ocrLoading = ref(false)
+const ocrUnavailable = ref(false)
+const ocrMap = ref<Map<number, OcrRow>>(new Map())
+const ocrCopied = ref(false)
+let ocrCopiedTimer = 0
+
+async function loadOcr(qid: number) {
+  if (ocrMap.value.has(qid)) return
+  ocrLoading.value = true
+  try {
+    const { data, error } = await getSupabase()
+      .from('question_ocr')
+      .select('content,model,updated_at')
+      .eq('question_id', qid)
+      .maybeSingle()
+    if (error) {
+      if (error.code === '42P01' || error.code === 'PGRST205') {
+        // 0012 迁移尚未执行：OCR 面板降级为不可用，不阻塞题库
+        ocrUnavailable.value = true
+        console.warn('[question_ocr] 迁移 0012 未执行，LaTeX 识别文本暂不可用')
+        return
+      }
+      throw error
+    }
+    ocrUnavailable.value = false
+    if (data) ocrMap.value.set(qid, data as OcrRow)
+  } catch {
+    // 单题加载失败不阻塞题库浏览
+  } finally {
+    ocrLoading.value = false
+  }
+}
+
+const selectedOcr = computed(() => {
+  const s = selected.value
+  return s ? ocrMap.value.get(s.id) ?? null : null
+})
+const selectedOcrHtml = computed(() => (selectedOcr.value ? renderLatexHtml(selectedOcr.value.content) : ''))
+
+function toggleOcr() {
+  ocrOpen.value = !ocrOpen.value
+  if (ocrOpen.value && selectedId.value != null) void loadOcr(selectedId.value)
+}
+
+async function copyOcr() {
+  if (!selectedOcr.value) return
+  const ok = await copyPlainText(selectedOcr.value.content)
+  if (!ok) return
+  ocrCopied.value = true
+  window.clearTimeout(ocrCopiedTimer)
+  ocrCopiedTimer = window.setTimeout(() => (ocrCopied.value = false), 1600)
+}
+
+watch(selectedId, (qid) => {
+  if (ocrOpen.value && qid != null) void loadOcr(qid)
+})
+
 watch(
   () => [
     filters.section,
@@ -918,6 +983,22 @@ onBeforeUnmount(() => {
               </div>
               <div v-else class="bank-empty" style="padding: 20px">{{ t('bank.answersEmpty') }}</div>
             </div>
+
+            <!-- LaTeX 识别文本（question_ocr） -->
+            <div v-if="ocrOpen" class="bank-answer bank-ocr">
+              <div class="bank-answer-head bank-ocr-head">
+                <span>{{ t('bank.ocrTitle') }}</span>
+                <button v-if="selectedOcr" class="bank-action bank-action--primary" @click="copyOcr">
+                  <svg v-if="!ocrCopied" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  {{ ocrCopied ? t('bank.ocrCopied') : t('bank.ocrCopy') }}
+                </button>
+              </div>
+              <div v-if="ocrLoading" class="bank-empty" style="padding: 20px">{{ t('bank.answersLoading') }}</div>
+              <div v-else-if="ocrUnavailable" class="bank-empty" style="padding: 20px">{{ t('bank.ocrUnavailable') }}</div>
+              <!-- eslint-disable-next-line vue/no-v-html -- 内容经 escapeHtml/katex 白名单渲染 -->
+              <div v-else-if="selectedOcr" class="bank-ocr-body" v-html="selectedOcrHtml"></div>
+              <div v-else class="bank-empty" style="padding: 20px">{{ t('bank.ocrEmpty') }}</div>
+            </div>
           </div>
         </template>
 
@@ -952,6 +1033,14 @@ onBeforeUnmount(() => {
             <svg v-if="!ansOpen" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
             {{ ansOpen ? t('bank.hideAnswers') : t('bank.showAnswers') }}
+          </button>
+        </div>
+        <div class="bank-info-row">
+          <span class="bank-info-k">{{ t('bank.ocrTitle') }}</span>
+          <button class="bank-action bank-action--primary" :class="{ on: ocrOpen }" @click="toggleOcr">
+            <svg v-if="!ocrOpen" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/></svg>
+            {{ ocrOpen ? t('bank.ocrHide') : t('bank.ocrShow') }}
           </button>
         </div>
         <div class="bank-info-row">
