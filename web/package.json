@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "npm --prefix ../shared/latex-render install --no-audit --no-fund && vue-tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
