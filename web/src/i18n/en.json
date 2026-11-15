@@ -76,7 +76,17 @@
       "answer": "Rendering answers",
       "blank": "Blank pages",
       "write": "Writing PDF"
-    }
+    },
+    "layoutImage": "Image cards",
+    "layoutLatex": "LaTeX paper",
+    "latexCover": "Cover settings (leave blank to hide)",
+    "lcTitle": "Title, e.g. MATHEMATICS",
+    "lcSubtitle": "Subtitle, e.g. Paper 1 Pure Mathematics 1 (P1)",
+    "lcCode": "Code, e.g. 9709/11",
+    "lcDate": "Date, e.g. May/June 2019",
+    "lcDuration": "Duration, e.g. 1 hour 45 minutes",
+    "lcNameField": "Candidate name field",
+    "latexWatermark": "Footer watermark (replaces © UCLES, blank to hide)"
   },
   "randomExport": {
     "title": "Random Export",
@@ -247,7 +257,7 @@
     "ocrShow": "OCR text",
     "ocrHide": "Hide OCR",
     "ocrCopy": "Copy",
-        "ocrHasFigure": "figure",
+    "ocrHasFigure": "figure",
     "ocrCopied": "Copied ✓",
     "ocrEmpty": "No OCR text for this question",
     "ocrUnavailable": "OCR storage not ready (migration 0012 not applied)",

@@ -82,13 +82,19 @@ python scripts/split_figures.py --montage-only   # 仅从 results.json 重出蒙
 
 ## 迁移
 
-- 0012 `question_ocr`：OCR 文本
+- 0012 `question_ocr`：OCR 文本（合并）
 - 0013/0014 框指纹 + `pending_ocr_questions` RPC
 - 0015 `question_figures`：图形子区域元数据
+- 0016 `question_box_ocr`：框级文本（含图形框空内容标记）；
+  存量回填 `scripts/backfill_box_ocr.py --write`，增量随 writeback_ocr.py 自动写入
 
-## web 端消费规则（LaTeX 组卷，待接入）
+## web 端消费规则（LaTeX 组卷）
 
-- 文本框：`renderLatexHtml`（markdown-it + KaTeX，web/src/lib/latex.ts）
-- `figure` 区：canvas 按 bbox 从框图裁切插入
-- `table` 区：题目 OCR 含 Markdown 表格时跳过（避免双重渲染），否则渲染
+- 文本框：`renderLatexHtml`（markdown-it + KaTeX，渲染层共享包 @paper/latex-render）
+- 版式：打印 CSS 路线（web/src/lib/latexPaper.ts），A4 一题一页，封面可自定义，
+  STIX Two（Times 兼容）覆盖 KaTeX_Main/Math 字体族，图形居中
+- 题面流：0016 数据齐全时按框重建（框文本 ↔ 框图形精确穿插），
+  框内图形 bbox 在框顶 35% 内 → 框文本前；数据不全回退合并文本模式
+- `figure` 区：canvas 按 bbox 从框图裁切插入（drawImage 九参）
+- `table` 区：题目 OCR 已有 Markdown 表格时跳过（避免双重渲染），否则渲染
 - OCR 空 / 纯图形题 / 低置信：回退现有图片模式

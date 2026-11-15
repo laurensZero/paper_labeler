@@ -76,7 +76,17 @@
       "answer": "渲染答案",
       "blank": "插入空白页",
       "write": "写入 PDF"
-    }
+    },
+    "layoutImage": "图片题卡版",
+    "layoutLatex": "LaTeX 试卷版",
+    "latexCover": "封面设置（留空不显示）",
+    "lcTitle": "标题，如 MATHEMATICS",
+    "lcSubtitle": "副标题，如 Paper 1 Pure Mathematics 1 (P1)",
+    "lcCode": "卷号，如 9709/11",
+    "lcDate": "日期，如 May/June 2019",
+    "lcDuration": "时长，如 1 hour 45 minutes",
+    "lcNameField": "姓名栏",
+    "latexWatermark": "页脚水印（替代 © UCLES，留空不显示）"
   },
   "randomExport": {
     "title": "随机导出",
@@ -247,7 +257,7 @@
     "ocrShow": "识别文本",
     "ocrHide": "收起识别",
     "ocrCopy": "一键复制",
-        "ocrHasFigure": "含图",
+    "ocrHasFigure": "含图",
     "ocrCopied": "已复制 ✓",
     "ocrEmpty": "该题暂无识别文本",
     "ocrUnavailable": "OCR 数据表未就绪（迁移 0012 未执行）",

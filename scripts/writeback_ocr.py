@@ -128,6 +128,36 @@ def normalize_latex_delimiters(src: str) -> str:
     return "".join(out)
 
 
+# ---- 清洗（模块级，供 writeback 与 scripts/backfill_box_ocr.py 共用） ----
+dots_line = re.compile(r"^\s*[\.\u2026\u22ef_·]{6,}\s*$", re.M)
+trailing_marks = re.compile(r"\s*\[\d{1,2}\]\s*$")
+blank_runs = re.compile(r"\n{3,}")
+
+
+def clean_text(text: str, keep_marks: bool = False) -> str:
+    """清洗约定（2026-10-31 与用户确认）：
+      1) 整行的点线/下划线/省略号 = 答题线，清除
+      2) 段落末尾的 [数字] = 分值标注，统一去除（云端无分值真值，不补；
+         只删段尾纯 [数字]，避免误伤 [0, 2π] 等数学记号）
+      3) 简单表格 OTSL → Markdown 表格（前端 markdown-it 渲染）；空间结构表按图片丢弃
+      4) 图不处理（前端打"含图"徽标）"""
+    text = dots_line.sub("", text)
+    paras = [p.rstrip() for p in text.split("\n\n")]
+    out = []
+    for p in paras:
+        if re.search(r"<\s*fcel\s*>", p, re.I):
+            if re.search(r"<\s*(?:lcel|ucel|xcel)\s*>", p, re.I):
+                # 跨行/跨列标记 = 空间结构表（茎叶图等），Markdown/HTML 都失真：
+                # 按图片处理，不留文字表（前端"含图"徽标提示看原图）
+                continue
+            p = otsl_to_markdown(p)
+        out.append(p)
+    paras = out
+    if not keep_marks:
+        paras = [trailing_marks.sub("", p.rstrip()) for p in paras]
+    return blank_runs.sub("\n\n", "\n\n".join(paras)).strip()
+
+
 def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep_marks: bool = False):
     by_q: dict[int, list[dict]] = {}
     for row in manifest:
@@ -136,34 +166,8 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
             continue
         by_q.setdefault(int(qid), []).append(row)
 
-    # 约定（2026-10-31 与用户确认）：
-    #   1) 整行的点线/下划线/省略号 = 答题线，清除
-    #   2) 段落末尾的 [数字] = 分值标注，统一去除（云端无分值真值，不补；
-    #      只删段尾纯 [数字]，避免误伤 [0, 2π] 等数学记号）
-    #   3) 简单表格 OTSL → Markdown 表格（前端 markdown-it 渲染）；空间结构表按图片丢弃
-    #   4) 图不处理（前端打"含图"徽标）
-    dots_line = re.compile(r"^\s*[\.\u2026\u22ef_·]{6,}\s*$", re.M)
-    trailing_marks = re.compile(r"\s*\[\d{1,2}\]\s*$")
-    blank_runs = re.compile(r"\n{3,}")
-
-    def clean(text: str) -> str:
-        text = dots_line.sub("", text)
-        paras = [p.rstrip() for p in text.split("\n\n")]
-        out = []
-        for p in paras:
-            if re.search(r"<\s*fcel\s*>", p, re.I):
-                if re.search(r"<\s*(?:lcel|ucel|xcel)\s*>", p, re.I):
-                    # 跨行/跨列标记 = 空间结构表（茎叶图等），Markdown/HTML 都失真：
-                    # 按图片处理，不留文字表（前端"含图"徽标提示看原图）
-                    continue
-                p = otsl_to_markdown(p)
-            out.append(p)
-        paras = out
-        if not keep_marks:
-            paras = [trailing_marks.sub("", p.rstrip()) for p in paras]
-        return blank_runs.sub("\n\n", "\n\n".join(paras)).strip()
-
     merged = []
+    box_rows: list[dict] = []  # 框级文本（0016 question_box_ocr），供 web 端按框重建题面流
     for qid, rows_ in sorted(by_q.items()):
         rows_.sort(key=lambda r: (r.get("page", 0), r.get("box_id", 0)))
         texts = []
@@ -177,9 +181,19 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
                 print(f"  !! 缺输出文件 {f.name}（题 {qid}，指纹省略待重试）")
                 continue
             t = f.read_text(encoding="utf-8").strip()
+            box_content = clean_text(t, keep_marks)
+            if normalize:
+                box_content = normalize_latex_delimiters(box_content)
+            if r.get("box_id") is not None:
+                box_rows.append({
+                    "box_id": r["box_id"],
+                    "question_id": qid,
+                    "page": r.get("page", 0),
+                    "content": box_content,
+                })
             if t:  # 空 md = 图形框（按图片处理），不计入文本
                 texts.append(t)
-        content = clean("\n\n".join(texts))
+        content = clean_text("\n\n".join(texts))
         if normalize:
             content = normalize_latex_delimiters(content)
         if not content and missing_md:
@@ -198,11 +212,12 @@ def merge_by_question(manifest: list[dict], out_dir: Path, normalize: bool, keep
         if not missing_md:
             row["boxes_fingerprint"] = fp
         merged.append(row)
-    return merged
+    return merged, box_rows
 
 
-def upsert(rows: list[dict], base: str, key: str, batch: int):
-    url = f"{base}/rest/v1/question_ocr?on_conflict=question_id"
+def upsert(rows: list[dict], base: str, key: str, batch: int,
+           table: str = "question_ocr", on_conflict: str = "question_id"):
+    url = f"{base}/rest/v1/{table}?on_conflict={on_conflict}"
     hdrs = {
         "apikey": key,
         "Authorization": f"Bearer {key}",
@@ -248,7 +263,7 @@ def main():
     args = ap.parse_args()
 
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
-    rows = merge_by_question(manifest, Path(args.out_dir), not args.no_normalize, args.keep_marks)
+    rows, box_rows = merge_by_question(manifest, Path(args.out_dir), not args.no_normalize, args.keep_marks)
     for r in rows:
         r["status"] = args.status
     total_chars = sum(len(r["content"]) for r in rows)
@@ -270,6 +285,15 @@ def main():
     key = load_service_key()
     n = upsert(rows, base.rstrip("/"), key, args.batch)
     print(f"回写完成：{n} 题 -> question_ocr")
+    # 框级文本（0016）：web 端 LaTeX 组卷按框重建题面流、图形精确插框间。
+    # 0016 未执行时 PostgREST 报错，跳过并提示（下次执行迁移后增量自动补）。
+    if box_rows:
+        try:
+            nb = upsert(box_rows, base.rstrip("/"), key, args.batch,
+                        table="question_box_ocr", on_conflict="box_id")
+            print(f"框级回写完成：{nb} 框 -> question_box_ocr")
+        except SystemExit as e:
+            print(f"!! 框级回写跳过（0016 迁移未执行？）：{e}")
 
 
 if __name__ == "__main__":

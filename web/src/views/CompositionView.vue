@@ -1507,6 +1507,8 @@ onMounted(() => {
       :preset="exportPreset"
       :show-summary="false"
       :composition-id="compId"
+      show-latex
+      :latex-cover-preset="{ title: comp?.title ?? '', code: comp?.header_text ?? '' }"
     />
   </div>
 </template>

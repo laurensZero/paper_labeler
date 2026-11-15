@@ -5,6 +5,7 @@ import { getSupabase } from '@/lib/supabase'
 import { useAuth } from '@/composables/auth'
 import { checkExportItemCount, checkExportQuota, quotaErrorKey, recordExport } from '@/lib/quota'
 import type { ExportCommonOptions, ExportQuestionInput } from '@/lib/pdfExport'
+import type { LatexCover } from '@/lib/latexPaper'
 
 export interface RandomPoolItem {
   id: number
@@ -41,6 +42,10 @@ const props = defineProps<{
   itemCount?: number
   /** 组卷导出时传组卷 id（限额计数与审计）；题库导出不传 */
   compositionId?: string | null
+  /** 是否显示「LaTeX 试卷版」版式开关（组卷页开启；题库页仅图片题卡版） */
+  showLatex?: boolean
+  /** LaTeX 封面预填（组卷标题等） */
+  latexCoverPreset?: Partial<LatexCover>
 }>()
 
 const emit = defineEmits<{ 'update:visible': [v: boolean] }>()
@@ -53,6 +58,27 @@ const summaryOn = ref(false)
 const summaryFields = reactive<SummaryFields>({ section: true, paper: true, year: true, season: true, count: true })
 const showPageNumbers = ref(true)
 const filename = ref('')
+
+// ---- LaTeX 试卷版（打印 CSS 路线；组卷页开启） ----
+const DEFAULT_INSTRUCTIONS = [
+  'Answer all the questions.',
+  'Write in dark blue or black pen.',
+  'You may use an HB pencil for any diagrams or graphs.',
+  'Do not use staples, paper clips, glue or correction fluid.',
+  'Give non-exact answers correct to 3 significant figures, or 1 decimal place for angles in degrees, unless a different level of accuracy is specified in the question.',
+  'You are reminded of the need for clear presentation in your answers.',
+].join('\n')
+const layout = ref<'image' | 'latex'>('image')
+const latexCover = reactive<LatexCover>({
+  title: '',
+  subtitle: '',
+  code: '',
+  date: '',
+  duration: '',
+  showNameField: true,
+  instructions: DEFAULT_INSTRUCTIONS,
+})
+const latexWatermark = ref('')
 
 const running = ref(false)
 const finishedPages = ref<number | null>(null)
@@ -124,6 +150,17 @@ watch(
     placement.value = props.preset?.answersPlacement ?? 'end'
     showPageNumbers.value = props.preset?.showPageNumbers ?? true
     if (props.preset?.header) Object.assign(header, props.preset.header)
+    Object.assign(latexCover, {
+      title: props.latexCoverPreset?.title ?? '',
+      subtitle: props.latexCoverPreset?.subtitle ?? '',
+      code: props.latexCoverPreset?.code ?? '',
+      date: props.latexCoverPreset?.date ?? '',
+      duration: props.latexCoverPreset?.duration ?? '',
+      showNameField: props.latexCoverPreset?.showNameField ?? true,
+      instructions: props.latexCoverPreset?.instructions ?? DEFAULT_INSTRUCTIONS,
+    })
+    latexWatermark.value = ''
+    layout.value = 'image'
     summaryOn.value = showSummaryBlock.value && !!props.preset?.includeFilterSummary
     poolSnapshot.value = props.randomPool ?? []
     for (const k of Object.keys(rndCounts)) delete rndCounts[k]
@@ -205,6 +242,50 @@ async function start() {
     if (quotaHit) {
       errorMsg.value =
         quotaHit === 'export_week' ? t('quota.exportWeekReached') : t('quota.exportMonthReached')
+      return
+    }
+    // ---- LaTeX 试卷版：打印 CSS 路线（矢量文本，浏览器打印/另存 PDF） ----
+    if (layout.value === 'latex') {
+      const items = await props.provider()
+      const questionCount = items.filter((i) => !i.isBlankPage).length
+      const cap = checkExportItemCount(questionCount)
+      if (cap) {
+        errorMsg.value = t('quota.exportItemsReached', { max: cap.max })
+        return
+      }
+      // 页脚水印：对话框自定义 + 管控水印（导出管控开启时叠加）
+      const parts = [latexWatermark.value.trim()]
+      const gov = await loadWatermarkText()
+      if (gov && !parts.includes(gov)) parts.push(gov)
+      const watermark = parts.filter(Boolean).join('　')
+      // 先记账再打印：数据库触发器兜底周/月限额，避免「已打印但未计数」
+      const recorded = await recordExport({
+        compositionId: props.compositionId ?? null,
+        includeAnswers: false,
+        source: props.compositionId ? 'compose' : 'bank',
+      })
+      if (!recorded.ok) {
+        errorMsg.value = recorded.quotaKey
+          ? t(recorded.quotaKey)
+          : t('quota.recordFailed', { msg: recorded.message })
+        return
+      }
+      const { exportLatexPaper } = await import('@/lib/latexPaper')
+      const pageCount = await exportLatexPaper(
+        items,
+        {
+          cover: { ...latexCover },
+          caption: { ...header },
+          watermark,
+          filename: filename.value,
+        },
+        (done, total, phase) => {
+          progress.done = done
+          progress.total = total
+          progress.phase = phase
+        },
+      )
+      finishedPages.value = pageCount
       return
     }
     const { buildQuestionsPdf, downloadBlob } = await import('@/lib/pdfExport')
@@ -342,8 +423,38 @@ const pct = computed(() =>
           <!-- 多选题数（仅「按筛选」页签显示，随机页签由抽题数决定） -->
           <div v-if="itemCount != null && mode === 'filter'" class="ex-count">{{ t('exportDialog.itemCount', { n: itemCount }) }}</div>
 
-          <!-- 含答案 + 位置 -->
-          <div class="ex-row">
+          <!-- 版式开关（组卷页）：图片题卡版 / LaTeX 试卷版 -->
+          <div v-if="showLatex" class="ex-row">
+            <label class="cv-prop-check">
+              <input v-model="layout" type="radio" value="image" :disabled="running" />
+              <span>{{ t('exportDialog.layoutImage') }}</span>
+            </label>
+            <label class="cv-prop-check">
+              <input v-model="layout" type="radio" value="latex" :disabled="running" />
+              <span>{{ t('exportDialog.layoutLatex') }}</span>
+            </label>
+          </div>
+
+          <!-- LaTeX 封面设置 -->
+          <div v-if="showLatex && layout === 'latex'" class="ex-group">
+            <div class="ex-label">{{ t('exportDialog.latexCover') }}</div>
+            <div class="ex-cover-grid">
+              <input v-model="latexCover.title" class="cv-prop-input" :placeholder="t('exportDialog.lcTitle')" :disabled="running" />
+              <input v-model="latexCover.subtitle" class="cv-prop-input" :placeholder="t('exportDialog.lcSubtitle')" :disabled="running" />
+              <input v-model="latexCover.code" class="cv-prop-input" :placeholder="t('exportDialog.lcCode')" :disabled="running" />
+              <input v-model="latexCover.date" class="cv-prop-input" :placeholder="t('exportDialog.lcDate')" :disabled="running" />
+              <input v-model="latexCover.duration" class="cv-prop-input" :placeholder="t('exportDialog.lcDuration')" :disabled="running" />
+              <label class="cv-prop-check">
+                <input v-model="latexCover.showNameField" type="checkbox" :disabled="running" />
+                <span>{{ t('exportDialog.lcNameField') }}</span>
+              </label>
+            </div>
+            <textarea v-model="latexCover.instructions" class="cv-prop-input ex-instructions" rows="4" :disabled="running"></textarea>
+            <input v-model="latexWatermark" class="cv-prop-input" :placeholder="t('exportDialog.latexWatermark')" :disabled="running" />
+          </div>
+
+          <!-- 含答案 + 位置（LaTeX 版暂不含答案） -->
+          <div v-if="layout === 'image'" class="ex-row">
             <label class="cv-prop-check">
               <input v-model="includeAnswers" type="checkbox" :disabled="running" />
               <span>{{ t('exportDialog.answers') }}</span>
@@ -382,7 +493,7 @@ const pct = computed(() =>
             </div>
           </div>
 
-          <div class="ex-row">
+          <div v-if="layout === 'image'" class="ex-row">
             <label class="cv-prop-check">
               <input v-model="showPageNumbers" type="checkbox" :disabled="running" />
               <span>{{ t('exportDialog.showPageNumbers') }}</span>

@@ -2358,6 +2358,21 @@ input[type="checkbox"]:focus-visible {
   width: 160px;
 }
 
+/* LaTeX 试卷版封面字段 */
+.ex-cover-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ex-instructions {
+  width: 100%;
+  resize: vertical;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
 .ex-group {
   padding: 8px 0;
   border-top: 1px solid var(--border);
