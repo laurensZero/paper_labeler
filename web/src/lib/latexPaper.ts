@@ -484,6 +484,10 @@ function printHtml(html: string): Promise<void> {
     }
     iframe.onload = async () => {
       try {
+        // srcdoc 之前动态插入的 iframe 会先以 about:blank 走一次 load，
+        // 不加此守卫会在空文档上 print() 一次 → 打印弹窗弹两次
+        const doc = iframe.contentWindow?.document
+        if (!doc || !doc.querySelector('.lp-cover, .lp-q')) return
         await iframe.contentWindow?.document.fonts?.ready
         await new Promise((r) => setTimeout(r, 300)) // KaTeX 字体就位缓冲
         iframe.contentWindow!.onafterprint = finish
