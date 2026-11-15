@@ -441,9 +441,11 @@ export async function exportLatexPaper(
     for (let i = 0; i < q.blankPages; i++) pages.push(`<section class="lp-q lp-blank"></section>`)
   }
 
-  // KaTeX 资源取自本站 public/katex/（同源、离线可用；字体随 css 相对引用）
-  const katexCssUrl = new URL('katex/katex.min.css', document.baseURI).href
-  const fontBase = new URL('fonts/', document.baseURI).href
+  // KaTeX 资源取自本站 public/katex/（同源、离线可用；字体随 css 相对引用）。
+  // 必须用 origin 绝对路径：baseURI 在 /compose/{id} 等带路径页面下会把
+  // 相对路径解析成 /compose/katex/... → 404 → SPA 兜底 HTML → KaTeX CSS 缺失
+  const katexCssUrl = new URL('/katex/katex.min.css', location.origin).href
+  const fontBase = new URL('/fonts/', location.origin).href
   const html =
     `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(opts.filename)}</title>` +
     `<link rel="stylesheet" href="${escHtml(katexCssUrl)}">` +
