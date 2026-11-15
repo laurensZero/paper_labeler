@@ -281,6 +281,11 @@ try:
     app.include_router(_cloud_router.router)
 except Exception:
     pass
+try:
+    from backend.routers import cloud_ocr as _cloud_ocr_router
+    app.include_router(_cloud_ocr_router.router)
+except Exception:
+    pass
 
 
 def _run_uvicorn() -> None:

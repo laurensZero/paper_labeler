@@ -1,0 +1,49 @@
+/* OCR 渲染区排版（web 网页端与标注端共用）。
+ * 容器只管布局（宽高/滚动/背景/圆角），字体、字号、公式、表格都由这里统一。
+ * 用法：容器元素加 `latex-body` 类，再往里 v-html 渲染结果。 */
+.latex-body {
+  font-family: Cambria, Caladea, Georgia, "Times New Roman", serif;
+  font-size: 18px;
+  line-height: 1.8;
+}
+.latex-body .katex {
+  /* KaTeX 默认 1.21em，换 Cambria 后明显大于正文：压回与正文同尺寸 */
+  font-size: 1em;
+}
+/* 公式字母类走 Cambria（CIE 试卷原字体；Caladea 为其开源等效度量字体）；
+   根号/求和/定界符等仍用 KaTeX 自带字体保证符号完整 */
+.latex-body .katex .mathnormal,
+.latex-body .katex .mathdefault,
+.latex-body .katex .mathrm,
+.latex-body .katex .text,
+.latex-body .katex .textrm,
+.latex-body .katex .textit,
+.latex-body .katex .mathbf,
+.latex-body .katex .boldtext {
+  font-family: Cambria, Caladea, Georgia, "Times New Roman", serif;
+}
+.latex-body p {
+  margin: 0 0 8px;
+}
+.latex-body p:last-child {
+  margin-bottom: 0;
+}
+.latex-body .katex-display {
+  margin: 10px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+/* OTSL 转 Markdown 表格的呈现（对齐 web 端调好的样式） */
+.latex-body table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 0.95em;
+}
+.latex-body table td,
+.latex-body table th {
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.4));
+  padding: 5px 12px;
+  text-align: center;
+  vertical-align: middle;
+}

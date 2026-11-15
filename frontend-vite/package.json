@@ -75,6 +75,7 @@
     ]
   },
   "dependencies": {
+    "@paper/latex-render": "file:../shared/latex-render",
     "@vueuse/core": "^14.3.0",
     "naive-ui": "^2.44.1",
     "pinia": "^3.0.4",

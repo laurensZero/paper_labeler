@@ -41,3 +41,6 @@ web/preview.log
 web/tests/shots/
 
 backups/
+
+# 本地 OCR 栈（模型/工具/识别缓存，约4GB）
+/ocr/

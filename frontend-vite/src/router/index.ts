@@ -19,6 +19,12 @@ const router = createRouter({
       component: () => import('@/views/CloudAdminView.vue'),
       beforeEnter: () => (CLOUD_ADMIN_ENABLED ? true : { name: 'filter' }),
     },
+    {
+      path: '/ocr-proofread',
+      name: 'ocr-proofread',
+      component: () => import('@/views/OcrProofreadView.vue'),
+      beforeEnter: () => (CLOUD_ADMIN_ENABLED ? true : { name: 'filter' }),
+    },
     { path: '/:pathMatch(.*)*', redirect: '/filter' },
   ],
 })

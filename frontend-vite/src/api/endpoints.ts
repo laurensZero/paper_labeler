@@ -778,3 +778,44 @@ export function cloudAuthHeaders(): Record<string, string> {
   }
   return headers
 }
+
+// ---------------------------------------------------------------------------
+// OCR 校对（云端 question_ocr）
+// ---------------------------------------------------------------------------
+
+export interface OcrQueueItem {
+  question_id: number
+  content: string
+  model: string | null
+  status: 'draft' | 'confirmed'
+  updated_at: string | null
+  /** 本地题目（题号/原图框）；本地已删除时为 null */
+  question: import('@/types/question').Question | null
+  /** 云端 questions 行（题号/试卷，用于与本地比对）；云端无该题时为 null */
+  cloud: { question_no: string | null; paper_exam_code: string | null } | null
+  /** 本地与云端题号/试卷不一致（id 错位或单侧未同步） */
+  mismatch: boolean
+  /** 框指纹不匹配/缺失：框已变更，增量 OCR 将重跑并覆盖校对结果 */
+  stale: boolean
+}
+
+export const ocrApi = {
+  /** 校对队列：云端 OCR 行 + 本地题目合并；after 游标分页 */
+  queue(status: 'draft' | 'confirmed' | 'all' = 'draft', after = 0, limit = 100): Promise<{ items: OcrQueueItem[]; has_more: boolean }> {
+    return api(`/cloud/ocr/queue?status=${status}&after=${after}&limit=${limit}`)
+  },
+
+  /** 单题 OCR 行 */
+  getRow(questionId: number): Promise<Omit<OcrQueueItem, 'question'>> {
+    return api(`/cloud/ocr/${questionId}`)
+  },
+
+  /** 校对回写：content / status 至少一项；需本地管理 token */
+  update(questionId: number, patch: { content?: string; status?: 'draft' | 'confirmed' }): Promise<{ ok: boolean; status: string | null }> {
+    return api(`/cloud/ocr/${questionId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...cloudAuthHeaders() },
+      body: JSON.stringify(patch),
+    })
+  },
+}

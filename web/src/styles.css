@@ -950,65 +950,9 @@ input[type="checkbox"]:focus-visible {
   padding: 12px 14px;
   border-radius: var(--radius-lg);
   background: var(--surface);
-  font-family: Cambria, Caladea, Georgia, "Times New Roman", serif;
-  font-size: 18px;
-  line-height: 1.8;
   color: var(--text-primary);
 }
-/* 公式字母类走 Cambria（CIE 试卷原字体；Caladea 为其开源等效度量字体）；
-   根号/求和/定界符等仍用 KaTeX 自带字体保证符号完整 */
-.bank-ocr-body .katex {
-  /* KaTeX 默认 1.21em，换 Cambria 后明显大于正文：压回与正文同尺寸 */
-  font-size: 1em;
-}
-/* 公式字母类走 Cambria（CIE 试卷原字体；Caladea 为其开源等效度量字体）；
-   根号/求和/定界符等仍用 KaTeX 自带字体保证符号完整 */
-.bank-ocr-body .katex .mathnormal,
-.bank-ocr-body .katex .mathdefault,
-.bank-ocr-body .katex .mathrm,
-.bank-ocr-body .katex .text,
-.bank-ocr-body .katex .textrm,
-.bank-ocr-body .katex .textit,
-.bank-ocr-body .katex .mathbf,
-.bank-ocr-body .katex .boldtext {
-  font-family: Cambria, Caladea, Georgia, "Times New Roman", serif;
-}
-.bank-ocr-body p {
-  margin: 0 0 8px;
-}
-.bank-ocr-body p:last-child {
-  margin-bottom: 0;
-}
-.bank-ocr-body .katex-display {
-  margin: 10px 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 2px 0;
-}
-.bank-ocr-body .ocr-tex-fallback {
-  display: inline-block;
-  max-width: 100%;
-  overflow-x: auto;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(220, 38, 38, 0.08);
-  color: #b91c1c;
-  font-size: 12px;
-  white-space: pre-wrap;
-}
-/* OCR 识别出的表格（markdown-it 渲染） */
-.bank-ocr-body table {
-  border-collapse: collapse;
-  margin: 10px 0;
-  font-size: 0.95em;
-}
-.bank-ocr-body table td,
-.bank-ocr-body table th {
-  border: 1px solid var(--border);
-  padding: 5px 12px;
-  text-align: center;
-  vertical-align: middle;
-}
+/* 字体/字号/公式/表格排版由共享包 @paper/latex-render 的 .latex-body 统一提供 */
 
 /* 信息卡：白底圆角卡（16px 四边框 + 上下 8px 呼吸位） */
 .bank-info {

@@ -1002,7 +1002,7 @@ onBeforeUnmount(() => {
               <div v-if="ocrLoading" class="bank-empty" style="padding: 20px">{{ t('bank.answersLoading') }}</div>
               <div v-else-if="ocrUnavailable" class="bank-empty" style="padding: 20px">{{ t('bank.ocrUnavailable') }}</div>
               <!-- eslint-disable-next-line vue/no-v-html -- 内容经 escapeHtml/katex 白名单渲染 -->
-              <div v-else-if="selectedOcr" class="bank-ocr-body" v-html="selectedOcrHtml"></div>
+              <div v-else-if="selectedOcr" class="bank-ocr-body latex-body" v-html="selectedOcrHtml"></div>
               <div v-else class="bank-empty" style="padding: 20px">{{ t('bank.ocrEmpty') }}</div>
             </div>
           </div>
