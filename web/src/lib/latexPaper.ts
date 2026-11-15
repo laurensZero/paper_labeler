@@ -340,9 +340,9 @@ const PAPER_CSS = `
     @bottom-center { content: "__CODE__"; font: 10pt 'Times New Roman', serif; }
   }
   @page :first {
-    @top-center { content: none; }
-    @bottom-left { content: none; }
-    @bottom-center { content: none; }
+    @top-center { content: ""; }
+    @bottom-left { content: ""; }
+    @bottom-center { content: ""; }
   }
   html, body { background: #fff; }
   /* 正文与公式同源（Times 系）：KaTeX_Main 已被 STIX Two 覆盖，见顶部 @font-face */
@@ -381,8 +381,9 @@ const PAPER_CSS = `
 
 function buildCss(opts: LatexPaperOptions, fontBase: string): string {
   return (
-    PAPER_CSS.replace('__WM__', opts.watermark.trim() ? `"${escCss(opts.watermark.trim())}"` : 'none')
-      .replace('__CODE__', opts.cover.code.trim() ? `"${escCss(opts.cover.code.trim())}"` : 'none')
+    // 空值用 "" 而非 none：Chromium margin box 会把 none 渲染成字面 "none"
+    PAPER_CSS.replace('__WM__', opts.watermark.trim() ? `"${escCss(opts.watermark.trim())}"` : '""')
+      .replace('__CODE__', opts.cover.code.trim() ? `"${escCss(opts.cover.code.trim())}"` : '""')
       .replaceAll('__FB__', fontBase)
       + '\n' + renderBodyCss
   )
