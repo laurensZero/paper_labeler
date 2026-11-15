@@ -92,7 +92,8 @@ python scripts/split_figures.py --montage-only   # 仅从 results.json 重出蒙
 
 - 文本框：`renderLatexHtml`（markdown-it + KaTeX，渲染层共享包 @paper/latex-render）
 - 版式：打印 CSS 路线（web/src/lib/latexPaper.ts），A4 一题一页，封面可自定义，
-  STIX Two（Times 兼容）覆盖 KaTeX_Main/Math 字体族，图形居中
+  全卷 Cambria 系（与共享渲染层 render.css 同方案，Caladea webfont 兜底非 Windows），
+  KaTeX_Main/Math 字体族覆盖为 Caladea，图形居中
 - 题面流：0016 数据齐全时按框重建（框文本 ↔ 框图形精确穿插），
   框内图形 bbox 在框顶 35% 内 → 框文本前；数据不全回退合并文本模式
 - `figure` 区：canvas 按 bbox 从框图裁切插入（drawImage 九参）

@@ -321,14 +321,22 @@ function coverHtml(cover: LatexCover): string {
 }
 
 const PAPER_CSS = `
-  /* 官方 Times 风字体：STIX Two（Times 兼容设计）覆盖 KaTeX 的 CM 字形。
-     只换 KaTeX_Main / KaTeX_Math 两族（字母数字运算符），Size/AMS 等符号保持 CM。 */
-  @font-face { font-family: 'KaTeX_Main'; font-weight: 100 900; font-style: normal;
-    src: url('__FB__STIXTwoText.ttf') format('truetype-variations'); }
-  @font-face { font-family: 'KaTeX_Main'; font-weight: 100 900; font-style: italic;
-    src: url('__FB__STIXTwoText-Italic.ttf') format('truetype-variations'); }
-  @font-face { font-family: 'KaTeX_Math'; font-weight: 100 900; font-style: italic;
-    src: url('__FB__STIXTwoMath-Regular.ttf') format('truetype-variations'); }
+  /* 官方风字体：全卷 Cambria 系（CIE 试卷原字体；Caladea 为其开源等效度量字体，
+     与共享渲染层 render.css 的方案一致）。@font-face 覆盖 KaTeX_Main/Math 两族
+     （数字/运算符；公式字母已由 render.css 指到 Cambria），符号类保持 KaTeX 自带。
+     非 Windows 环境（无 Cambria）由 Caladea webfont 兜底，度量完全一致。 */
+  @font-face { font-family: 'KaTeX_Main'; font-weight: 400; font-style: normal;
+    src: url('__FB__Caladea-Regular.ttf') format('truetype'); }
+  @font-face { font-family: 'KaTeX_Main'; font-weight: 700; font-style: normal;
+    src: url('__FB__Caladea-Bold.ttf') format('truetype'); }
+  @font-face { font-family: 'KaTeX_Main'; font-weight: 400; font-style: italic;
+    src: url('__FB__Caladea-Italic.ttf') format('truetype'); }
+  @font-face { font-family: 'KaTeX_Main'; font-weight: 700; font-style: italic;
+    src: url('__FB__Caladea-BoldItalic.ttf') format('truetype'); }
+  @font-face { font-family: 'KaTeX_Math'; font-weight: 400; font-style: italic;
+    src: url('__FB__Caladea-Italic.ttf') format('truetype'); }
+  @font-face { font-family: 'KaTeX_Math'; font-weight: 700; font-style: italic;
+    src: url('__FB__Caladea-BoldItalic.ttf') format('truetype'); }
   @font-face { font-family: 'SimHei'; font-weight: 100 900; font-style: normal;
     src: url('__FB__simhei.ttf') format('truetype'); }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -345,8 +353,9 @@ const PAPER_CSS = `
     @bottom-center { content: ""; }
   }
   html, body { background: #fff; }
-  /* 正文与公式同源（Times 系）：KaTeX_Main 已被 STIX Two 覆盖，见顶部 @font-face */
-  body { font-family: 'KaTeX_Main', 'Times New Roman', 'SimHei', serif; font-size: 11pt; color: #000; }
+  /* 全卷 Cambria 系（与 render.css 同方案）；中文回退 SimHei */
+  body { font-family: 'Cambria', 'Caladea', 'Times New Roman', 'SimHei', serif;
+    font-size: 11pt; line-height: 1.55; color: #000; }
 
   .lp-cover { page-break-after: always; padding-top: 24mm; }
   .lp-cover-title { font-size: 15pt; font-weight: bold; letter-spacing: .02em; }
@@ -363,9 +372,12 @@ const PAPER_CSS = `
   .lp-blank { }
   .lp-cap { font-size: 8pt; color: #666; text-align: right; margin-bottom: 4mm; }
   .lp-body { display: flex; gap: 3mm; flex: 1; min-height: 0; }
-  .lp-no { min-width: 8mm; font-weight: bold; font-size: 11.5pt; }
+  .lp-no { min-width: 8mm; font-weight: bold; font-size: 11pt; line-height: 1.55; }
   .lp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
+  /* render.css 的 18px/1.8 面向屏幕预览；打印用 11pt/1.55（renderBodyCss 后加载，
+     同特异性会被它盖掉，故用 .lp-body 复合选择器提特异性） */
+  .lp-body .latex-body.lp-stem { font-size: 11pt; line-height: 1.55; }
   .lp-stem p { margin: 0 0 3.2mm; }
   .lp-stem table { border-collapse: collapse; margin: 2mm 0 4mm; font-size: 10pt; }
   .lp-stem td, .lp-stem th { border: 0.6pt solid #000; padding: 1mm 3mm; }
