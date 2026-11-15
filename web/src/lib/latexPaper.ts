@@ -292,8 +292,9 @@ function questionPageHtml(q: PaperQuestion, opts: LatexPaperOptions, sizes: Map<
     // OCR 缺失 / 纯图形题：整框图回退
     body = q.boxUrls.map((u) => `<figure class="lp-fig"><img src="${u}" style="width:100%"></figure>`).join('\n') + notes
   }
+  const figureFirst = body.startsWith('<figure')
   return (
-    `<section class="lp-q">` +
+    `<section class="lp-q${figureFirst ? '' : ' lp-q-txtfirst'}">` +
     cap +
     `<div class="lp-body"><div class="lp-no">${q.no}</div><div class="lp-main">${body}<div class="lp-ans"></div></div></div>` +
     `</section>`
@@ -371,14 +372,18 @@ const PAPER_CSS = `
   .lp-q { height: 261mm; display: flex; flex-direction: column; break-after: page; }
   .lp-blank { }
   .lp-cap { font-size: 8pt; color: #666; text-align: right; margin-bottom: 4mm; }
-  .lp-body { display: flex; gap: 3mm; flex: 1; min-height: 0; }
+  .lp-body { display: flex; gap: 3mm; flex: 1; min-height: 0; align-items: flex-start; }
+  /* 题干以文字开头（无前置图形）：题号基线对准第一个词，
+     高大行内公式（矩阵等）撑高行盒也不会把题号顶上去 */
+  .lp-q-txtfirst .lp-body { align-items: baseline; }
   .lp-no { min-width: 8mm; font-weight: bold; font-size: 11pt; line-height: 1.55; }
   .lp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
   /* render.css 的 18px/1.8 面向屏幕预览；打印用 11pt/1.55（renderBodyCss 后加载，
      同特异性会被它盖掉，故用 .lp-body 复合选择器提特异性） */
   .lp-body .latex-body.lp-stem { font-size: 11pt; line-height: 1.55; }
-  .lp-stem p { margin: 0 0 3.2mm; }
+  /* 复合选择器：renderBodyCss 后加载，同特异性的 .latex-body p{margin:8px} 会盖掉单类规则 */
+  .lp-body .latex-body.lp-stem p { margin: 0 0 3.2mm; }
   .lp-stem table { border-collapse: collapse; margin: 2mm 0 4mm; font-size: 10pt; }
   .lp-stem td, .lp-stem th { border: 0.6pt solid #000; padding: 1mm 3mm; }
   .lp-notes { font-size: 9pt; color: #555; margin-top: 2mm; }
